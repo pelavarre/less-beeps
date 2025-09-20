@@ -65,12 +65,11 @@ class MainClass:
     def main_class_run(self) -> None:
 
         ns = self.parse_ugg_args()
-        assert ns.yolo, (ns.yolo, ns,)  # todo1: while no other Options declared
+        assert ns.yolo, (ns.yolo, ns)  # todo1: while no other Options declared
 
         print("⌃D to quit,  Fn F1 for more help,  or ⌥-Click far from the Cursor<br>")
 
         sys.stdin.read()  # waits for ⌃D or ⌃C or ⌃\
-
 
     def parse_ugg_args(self) -> argparse.Namespace:
         """Take in the Shell Command-Line Args"""
