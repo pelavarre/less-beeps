@@ -24,13 +24,17 @@ import bdb
 import collections
 import dataclasses
 import difflib
+import itertools
+import math
 import os
 import pdb
+import re
 import select
 import signal
 import sys
 import termios
 import textwrap
+import time
 import tty
 import types
 import typing
@@ -68,8 +72,6 @@ class MainClass:
     def main_class_run(self) -> None:
         """Run from the Shell Command Line, and launch the Py Repl vs uncaught Exceptions"""
 
-        assert Immediately == 0.000_001
-
         # Take in the Shell Command-Line Args
 
         ns = self.parse_ugg_args()
@@ -77,36 +79,51 @@ class MainClass:
 
         # Launch
 
+        print(30 * "123456789 ")
+        print()
+
         print("⌃D to quit,  Fn F1 for more help,  or ⌥-Click far from the Cursor<br>")
 
         # Run till quit
 
-        with BytesTerminal() as bt:
+        with TouchTerminal() as tt:
 
-            fd = bt.fileno
-            length = 1
+            tt.stdio.write("\033[6n")  # ⎋[6N calls for reply ⎋[{y};{x}⇧R
+            tp = tt.read_terminal_poke(timeout=None)
+
+            print(end="\r\n")
+
+            rep = str(tp).replace("\n", "\r\n")  # prints the ⎋[ ⇧R reply
+            print(tp, end="\r\n")
 
             while True:
-                kbhit = bt.kbhit(timeout=None)
-                assert kbhit, (kbhit,)  # because .timeout=None
 
-                kbytes = os.read(fd, length)
-                while bt.kbhit(timeout=Immediately):
-                    kbytes += os.read(fd, length)
+                tt.stdio.flush()
+                tp = tt.read_terminal_poke(timeout=None)
+                reads_plus = (tp.reads + (tp.extra,)) if tp.extra else tp.reads
 
-                    # todo2: wrongly combines Arrows when mashing Arrows Keypad
+                breaking = False
+                for read in reads_plus:
+                    precise = kbytes_to_precise_kcaps(read)
+                    if precise in ("⌃C", "⌃D", "⌃Z", "⌃\\"):
+                        breaking = True
 
-                kcaps = kbytes_to_kcaps(kbytes)
-                print(kcaps, end="\r\n")
+                rep = str(tp).replace("\n", "\r\n")
+                print(rep, end="\r\n")
 
-                if kcaps in ("⌃C", "⌃D", "⌃Z", "⌃\\"):
+                if breaking:
                     break
 
-                    # quits at Cat ⌃C ⌃D ⌃Z ⌃\
-                    # todo2: quits at Emacs ⌃X ⌃C, ⌃X ⌃S
-                    # todo2: quits at Vim ⇧Z ⇧Q, ⇧Z ⇧Z
+                # quits at Cat ⌃C ⌃D ⌃Z ⌃\
+                # todo1: quits at Emacs ⌃X ⌃C, ⌃X ⌃S
+                # todo1: quits at Vim ⇧Z ⇧Q, ⇧Z ⇧Z
 
-        # todo3: Mouse Strokes at --platform=Google too, not only at --platform=Apple
+            # todo2: split Control Input Bytes into TerminalBytePacket's
+            # todo2: gather Text Input Bytes into TerminalBytePacket's
+            # todo2: ⎋F1 to lists Tests apart from Games
+            # todo0: show the ← mouse explosion over wrapped Lines at iTerm2 & Google Cloud Shell
+
+        # todo2: Mouse Strokes at iPhone
 
     def parse_ugg_args(self) -> argparse.Namespace:
         """Take in the Shell Command-Line Args"""
@@ -358,8 +375,367 @@ class ArgDocParser:
 
 
 #
+# Amp up Import Math
+#
+
+
+def blur(f: float) -> str:
+    """Format 0e0 as '0', but other Floats as 2 or 3 Digits, with a Metric Exponent"""
+
+    if f == 0:
+        return "0"  # 0
+
+    neg = "-" if (f < 0) else ""  # omits '+' at left
+    abs_ = abs(f)
+
+    sci = math.floor(math.log10(abs_))
+    eng = (sci // 3) * 3
+    precise = abs_ / (10**eng)
+    assert 1 <= precise <= 1000, (precise, abs_, eng, f)  # todo: log if ever == 1000
+
+    dotted = round(precise, 1)  # 1.0  # 9.9  # 10.0
+    assert 1.0 <= dotted <= 1000.0, (dotted, abs_, eng, f)
+
+    concise = dotted
+    if concise >= 10:
+        concise = round(precise)  # 10  # 1000
+        assert 10 <= concise <= 1000, (concise, abs_, eng, f)
+
+    rep = f"{neg}{concise}e{eng}"  # omits '+' in the exponent
+
+    return rep
+
+    # lets the caller choose drop the "e0"s, or the "e-3"s, or neither, or whatever
+
+
+#
 # Amp up Import Termios
 #
+
+
+# Name some Magic Numbers
+
+Y1 = 1  # indexes Y Rows as Southbound across 1 .. Height
+X1 = 1  # indexes X Columns as Eastbound across 1 .. Width
+
+PN_MAX_32100 = 32100  # a Numeric [Int] beyond the Counts of Rows & Columns at any Real Terminal
+
+
+touch_terminals = list()
+
+
+class TouchTerminal:
+    """Write/ Read Bytes at Screen/ Keyboard/ Click/ Tap of the Terminal"""
+
+    stdio: typing.TextIO
+    fileno: int
+
+    before: int  # for writing at Enter
+    tcgetattr: list[int | list[bytes | int]]  # replaced by Enter
+    after: int  # for writing at Exit  # todo1: .TCSAFLUSH vs large Paste
+
+    #
+    # Init, enter, exit, and poll
+    #
+
+    def __init__(self) -> None:
+
+        touch_terminals.append(self)
+
+        assert sys.__stderr__ is not None
+        stdio = sys.__stderr__
+
+        self.stdio = stdio
+        self.fileno = stdio.fileno()
+
+        self.before = termios.TCSADRAIN  # for writing at Enter
+        self.tcgetattr = list()  # replaced by Enter
+        self.after = termios.TCSADRAIN  # for writing at Exit
+
+    def __enter__(self) -> typing.Self:
+        r"""Stop line-buffering Input, stop replacing \n Output with \r\n, etc"""
+
+        fileno = self.fileno
+        before = self.before
+        tcgetattr = self.tcgetattr
+
+        if tcgetattr:
+            return self
+
+        tcgetattr = termios.tcgetattr(fileno)  # replaces
+        assert tcgetattr, (tcgetattr,)
+
+        self.tcgetattr = tcgetattr  # replaces
+
+        assert before in (termios.TCSADRAIN, termios.TCSAFLUSH), (before,)
+        tty.setraw(fileno, when=before)  # Tty SetRaw defaults to TcsaFlush
+        # tty.setcbreak(fileno, when=termios.TCSAFLUSH)  # for ⌃C prints Py Traceback
+
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: types.TracebackType | None,
+    ) -> None:
+        r"""Start line-buffering Input, start replacing \n Output with \r\n, etc"""
+
+        stdio = self.stdio
+        fileno = self.fileno
+        tcgetattr = self.tcgetattr
+        after = self.after
+
+        if not tcgetattr:
+            return
+
+        self.tcgetattr = list()  # replaces
+
+        stdio.flush()  # for '__exit__' of BytesTerminal
+
+        assert after in (termios.TCSADRAIN, termios.TCSAFLUSH), (after,)
+
+        fd = fileno
+        when = after
+        attributes = tcgetattr
+        termios.tcsetattr(fd, when, attributes)
+
+        return None
+
+    def kbhit(self, timeout: float | None) -> bool:
+        """Block till next Input Byte, else till Timeout, else till forever"""
+
+        fileno = self.fileno
+        stdio = self.stdio
+        assert self.tcgetattr, self.tcgetattr
+
+        stdio.flush()  # for .kbhit of BytesTerminal
+
+        (r, w, x) = select.select([fileno], [], [], timeout)
+        fileno_hit = fileno in r
+
+        return fileno_hit
+
+        # 'timeout' is None for Never, 0.000 for Now, else a count of Seconds
+        # but our timeout=Immediately fearfully ducks away as far as 0.000_001 from the 0.000 of Now
+
+    #
+    # Read one Keyboard Chord, Mouse Arrow Burst, Mouse Click, or Mouse Tap
+    #
+
+    def read_terminal_poke(self, timeout: float | None) -> TerminalPoke:
+        """Read one Keyboard Chord, Mouse Arrow Burst, Mouse Click, or Mouse Tap"""
+
+        fileno = self.fileno
+        stdio = self.stdio
+
+        # Flush Output, and wait for Input
+
+        stdio.flush()
+
+        t0 = time.time()
+        kbhit = self.kbhit(timeout=timeout)
+        t1 = time.time()
+
+        hit = t1 - t0
+        if not kbhit:
+            tp = TerminalPoke(hit=hit, reads=tuple(), delays=tuple(), extra=b"")
+            return tp
+
+        # Read Bursts of Bytes
+
+        delay_list = list()
+        read_list = list()
+
+        fd = fileno
+        length = 1
+
+        t = t1
+        while True:
+
+            read = os.read(fd, length)
+            while self.kbhit(timeout=0.000_001):
+                read += os.read(fd, length)
+            t2 = time.time()
+
+            delay_list.append(t2 - t)
+            read_list.append(read)
+            t = t2
+
+            # Exactly once, write the ⎋[5 N Call for the ⎋[0 N Reply to close Input
+
+            if len(read_list) == 1:
+                stdio.write("\033[5n")
+                stdio.flush()
+
+            late_bytes = b"".join(read_list[1:])
+
+            # Take quick and slow Inputs till the closing ⎋[0 N Reply does arrive
+
+            m = re.search(rb"\033\[0n", string=late_bytes)
+            if m:
+                break
+
+        # Succeed
+
+        reads = tuple(read_list)
+        delays = tuple(delay_list)
+        extra = late_bytes[m.end() :]
+
+        tp = TerminalPoke(hit=hit, reads=reads, delays=delays, extra=extra)
+
+        return tp
+
+
+@dataclasses.dataclass(order=True, frozen=True)
+class TerminalPoke:
+    """Say what we got for Input, and how long we waited"""
+
+    hit: float  # time spent waiting for Input to start arriving
+    delays: tuple[float, ...]  # time till each Burst of Bytes ended
+    reads: tuple[bytes, ...]  # each Burst of Bytes
+    extra: bytes  # Bytes arriving with the last Read, but past Close of Input
+
+    def __post_init__(self) -> None:
+        """Run after dataclass constructor completes"""
+
+        reads = self.reads
+        delays = self.delays
+        extra = self.extra
+
+        assert reads, (reads,)
+        assert len(reads) == len(delays), (len(reads), len(delays))
+        assert not extra  # todo1: wait to solve Str of .extra till after we learn to repro it
+
+        close = reads[-1]
+        assert close.endswith(b"\033[0n"), (close,)
+
+    def __str__(self) -> str:
+
+        hit = self.hit
+        reads = self.reads
+        delays = self.delays
+
+        if not reads:
+            delay = blur(hit + sum(delays)).replace("e-3", "")
+            rep = delay
+            return rep
+
+        chord = self._chord_str_if_()
+        if chord:
+            return chord
+
+        arrows = self._arrow_burst_str_if_()
+        if arrows:
+            return arrows
+
+        kbytes = b"".join(reads[:-1])
+        precise = kbytes_to_precise_kcaps(kbytes)
+
+        delay = blur(hit + sum(delays)).replace("e-3", "")
+        rep = f"{precise} {delay}"
+
+        return rep
+
+    def _chord_str_if_(self) -> str:
+        """Say what we got for Input, and how long we waited, when it's a Keyboard Chord"""
+
+        hit = self.hit
+        delays = self.delays
+        reads = self.reads
+
+        if len(reads) != 2:
+            return ""
+
+        read = reads[0]
+        assert read == b"".join(reads[:-1]), (read, reads[:-1])
+
+        concise = kbytes_to_concise_kcaps_if(read)
+        precise = kbytes_to_precise_kcaps(read)
+
+        if concise:
+            delay = blur(hit + sum(delays)).replace("e-3", "")
+            if concise == precise:
+                rep = f"{concise} {read.decode()!r} {delay}"
+            else:
+                rep = f"{concise} {precise} {delay}"
+            return rep
+
+        if len(precise.lstrip("⌃⌥⇧")) == 1:  # ⇧ ⌃ ⌥ would be sorted by Ord
+            delay = blur(hit + sum(delays)).replace("e-3", "")
+            rep = f"{precise} {delay}"
+            return rep
+
+        return ""
+
+    def _arrow_burst_str_if_(self) -> str:
+        """Say what we got for Input, and how long we waited, when it's an Arrow Burst"""
+
+        hit = self.hit
+        delays = self.delays
+        reads = self.reads
+
+        kbytes = b"".join(reads[:-1])
+
+        dy_dx_by_arrow_kbytes = DY_DX_BY_ARROW_KBYTES
+
+        # Require >= 4 triple-byte sequences
+
+        if len(kbytes) % 3:
+            return ""  # requires a burst of triple-bytes
+
+        if len(kbytes) < (4 * 3):
+            return ""
+
+        # Require nothing but ⎋[A ⎋[B ⎋[C ⎋[D plain Arrow Keystroke Chords
+
+        count_by_arrow: dict[bytes, int]
+        count_by_arrow = collections.defaultdict(int)
+
+        arrows = list()
+        for index in range(0, len(kbytes), 3):
+            triple = kbytes[index:][:3]
+            if triple not in dy_dx_by_arrow_kbytes.keys():
+                return ""
+
+            arrow = triple
+            arrows.append(arrow)
+            count_by_arrow[arrow] += 1
+
+            # often tested with only 1 or 2 kinds of arrows per burst
+
+        # Say briefly how many Arrows came in what order
+
+        parts = list()
+        for k, vv in itertools.groupby(arrows):
+            n = len(list(vv))
+            concise = kbytes_to_concise_kcaps_if(k)
+
+            s = concise
+            s = s.replace("←", "*Lt")
+            s = s.replace("↑", "*Up")
+            s = s.replace("→", "*Rt")
+            s = s.replace("↓", "*Dn")
+
+            part = f"{n}{s}"
+            parts.append(part)
+
+        join = "+".join(parts)
+        # join += str(kbytes)
+
+        # Say how long we waited
+
+        delay = blur(hit + sum(delays)).replace("e-3", "")
+        join += " " + delay
+
+        # Succeed
+
+        return join
+
+    # todo1: stop calling for the close to delay text
+
+    # todo1: testing app to go from dim to bold when key found
+    # todo1: 8 keyboards | unmarked, ⌃, ⌥, ⇧ | ⌥⇧, ⌃⇧, ⌃⌥ | ⌃⌥⇧
 
 
 # Name the Shifting Keys
@@ -371,9 +747,18 @@ Shift = unicodedata.lookup("Upwards White Arrow")  # ⇧
 Command = unicodedata.lookup("Place of Interest Sign")  # ⌘  # Super  # Windows
 Fn = "Fn"
 
-
 # note: Meta hides inside Apple > Settings > Keyboard > Use Option as Meta Key
 # note: Meta hides inside Google > Settings > Keyboard > Alt is Meta
+
+
+# Point the Arrows
+
+DY_DX_BY_ARROW_KBYTES = {
+    b"\033[A": (-1, 0),  # ⎋[⇧A  # ↑
+    b"\033[B": (+1, 0),  # ⎋[⇧B  # ↓
+    b"\033[C": (0, +1),  # ⎋[⇧C  # →
+    b"\033[D": (0, -1),  # ⎋[⇧D  # ←
+}
 
 
 # Decode each distinct Key Chord Byte Encoding as a distinct Str without a " " Space in it
@@ -525,36 +910,50 @@ OPTION_KSTR_BY_KT = {
 # hand-sorted by ⌥E ⌥I ⌥N ⌥U ⌥` order
 
 
-def kbytes_to_kcaps(kbytes: bytes) -> str:
+def kbytes_to_concise_kcaps_if(kbytes: bytes) -> str:
     """Choose Keycaps to speak of the Bytes of 1 Keyboard Chord"""
 
     kstr = kbytes.decode()  # may raise UnicodeDecodeError
-
     kcap_by_ktext = KCAP_BY_KTEXT  # '\e\e[A' for ⎋↑ etc
+    assert KCAP_SEP == " "
 
+    concise = ""
     if kstr in kcap_by_ktext.keys():
-        kcaps = kcap_by_ktext[kstr]
-    else:
-        kcaps = ""
-        for kt in kstr:  # often 'len(kstr) == 1'
-            kc = _kt_to_kcap_(kt)
-            kcaps += kc
+        concise = kcap_by_ktext[kstr]
 
-            # '⎋[25;80R' Cursor-Position-Report (CPR)
-            # '⎋[25;80t' Rows x Column Terminal Size Report
-            # '⎋[200~' and '⎋[201~' before/ after Paste to bracket it
+    assert " " not in concise, (concise,)
 
-        # ⌥Y often comes through as \ U+005C Reverse-Solidus aka Backslash  # not ¥ Yen-Sign
+    return concise
 
-    # Succeed
+    # ⌥Y often comes through as \ U+005C Reverse-Solidus aka Backslash  # not ¥ Yen-Sign
 
-    assert KCAP_SEP == " "  # solves '⇧Tab' vs '⇧T a b', '⎋⇧FnX' vs '⎋⇧Fn X', etc
-    assert " " not in kcaps, (kcaps,)
+    # 'A'
+    # '⌃L'
+    # '⇧Z'
+    # '⎋9' from ⌥9 while Apple Keyboard > Option as Meta Key
 
-    return kcaps
 
-    # '⌃L'  # '⇧Z'
-    # '⎋A' from ⌥A while Apple Keyboard > Option as Meta Key
+def kbytes_to_precise_kcaps(kbytes: bytes) -> str:
+    """Choose 1 Keycaps per Character tos peak of the Bytes of 1 Keyboard Chord"""
+
+    assert kbytes, (kbytes,)
+
+    kstr = kbytes.decode()  # may raise UnicodeDecodeError
+    assert KCAP_SEP == " "
+
+    precise = ""
+    for kt in kstr:  # often 'len(kstr) == 1'
+        kc = _kt_to_kcap_(kt)
+        precise += kc
+
+    assert " " not in precise, (precise,)
+
+    return precise
+
+    # '⎋[25;80R' Cursor-Position-Report (CPR)
+    # '⎋[25;80t' Rows x Column Terminal Size Report
+
+    # '⎋[200~' and '⎋[201~' before/ after Paste to bracket it
 
 
 def _kt_to_kcap_(kt: str) -> str:
@@ -617,7 +1016,7 @@ def _kt_to_kcap_(kt: str) -> str:
         assert ko < 0x11_0000, (ko, kt)
         kc = chr(ko)  # '!', '¡', etc
 
-        # todo: have we fuzzed b"\xA1" .. FF vs "\u00A1" .. 00FF like we want?
+        # todo0: have we fuzzed b"\xA1" .. FF vs "\u00A1" .. 00FF like we want?
 
     # Succeed, but insist that Blank Space is never a Key Cap
 
@@ -630,6 +1029,12 @@ def _kt_to_kcap_(kt: str) -> str:
     # '⌃L'  # '⇧Z'
 
 
+# Decode one ⌥ KeyCap per US-Ascii Printable Byte, at an Apple MacBook
+
+# .  !"#$%&'()*+,-./0123456789:;<=>?
+# . @ABCD FGHIJK     LMNOPQRSTUVWXYZ[\]^_
+# .  abcd fgh jklm opqrst vwxyz{|}~
+
 _DENTED_OPTION_KT_STR_ = """
 
      ⁄Æ‹›ﬁ‡æ·‚°±≤–≥÷º¡™£¢∞§¶•ªÚ…¯≠˘¿
@@ -639,22 +1044,25 @@ _DENTED_OPTION_KT_STR_ = """
 """
 
 # ⌥⇧K is Apple Logo Icon  is \uF8FF is in the U+E000..U+F8FF Private Use Area (PUA)
+# ⌥Y often comes through as \ U+005C Reverse-Solidus aka Backslash  # not ¥ Yen-Sign
 
-_SPACED_OPTION_KT_STR_ = " " + textwrap.dedent(_DENTED_OPTION_KT_STR_).strip() + " "
-_SPACED_OPTION_KT_STR_ = _SPACED_OPTION_KT_STR_.replace("\n", "")
+OPTION_KT_STR = " " + textwrap.dedent(_DENTED_OPTION_KT_STR_).strip() + " "
+OPTION_KT_STR = OPTION_KT_STR.replace("\n", "")
 
-assert len(_SPACED_OPTION_KT_STR_) == (0x7E - 0x20) + 1
+assert len(OPTION_KT_STR) == (0x7E - 0x20) + 1  # counts Defs per ⌥ KeyCap of a US-Ascii Printable
 
-OPTION_KT_STR = _SPACED_OPTION_KT_STR_.replace(" ", "")
-assert len(OPTION_KT_STR) == len(set(OPTION_KT_STR))
+_SPACELESS_OPTION_KT_STR_ = OPTION_KT_STR.replace(" ", "")
+assert len(_SPACELESS_OPTION_KT_STR_) == len(set(_SPACELESS_OPTION_KT_STR_))
+
+# todo1: more test of combining accents - like ⌥⇧I should come through as itself not as ⌥ISpacebar ?
 
 
 def _option_kt_to_kcap_(kt: str) -> str:
     """Convert to Mac US Option Key Caps from any of OPTION_KT_STR"""
 
     option_kt_str = OPTION_KT_STR  # '∂' for ⌥D, etc
+    assert len(OPTION_KT_STR) == (0x7E - 0x20) + 1
 
-    assert len(option_kt_str) == len(set(option_kt_str))
     index = option_kt_str.index(kt)
 
     end = chr(0x20 + index)
@@ -673,110 +1081,12 @@ def _option_kt_to_kcap_(kt: str) -> str:
 _KTEXT_LISTS_ = [
     list(KCAP_BY_KTEXT.keys()),
     list(OPTION_KSTR_BY_KT.keys()),
-    list(OPTION_KT_STR),
+    list(_SPACELESS_OPTION_KT_STR_),
 ]
 
-_KTEXT_LIST_ = list(_KTEXT_ for _KTEXT_LIST_ in _KTEXT_LISTS_ for _KTEXT_ in _KTEXT_LIST_)
-assert KCAP_SEP == " "
-for _KTEXT_, _COUNT_ in collections.Counter(_KTEXT_LIST_).items():
+_KTEXT_UNROLL_ = list(_KTEXT_ for _KTEXT_LIST_ in _KTEXT_LISTS_ for _KTEXT_ in _KTEXT_LIST_)
+for _KTEXT_, _COUNT_ in collections.Counter(_KTEXT_UNROLL_).items():
     assert _COUNT_ == 1, (_COUNT_, _KTEXT_)
-
-
-Immediately = 0.000_001  # the wait to catch another Byte after one or a few Bytes
-
-
-class BytesTerminal:
-    """Write/ Read Bytes at Screen/ Keyboard of the Terminal"""
-
-    stdio: typing.TextIO
-    fileno: int
-
-    before: int  # for writing at Enter
-    tcgetattr: list[int | list[bytes | int]]  # replaced by Enter
-    after: int  # for writing at Exit  # todo1: .TCSAFLUSH vs large Paste
-
-    #
-    # Init, enter, exit, and poll
-    #
-
-    def __init__(self) -> None:
-
-        assert sys.__stderr__ is not None
-        stdio = sys.__stderr__
-
-        self.stdio = stdio
-        self.fileno = stdio.fileno()
-
-        self.before = termios.TCSADRAIN  # for writing at Enter
-        self.tcgetattr = list()  # replaced by Enter
-        self.after = termios.TCSADRAIN  # for writing at Exit
-
-    def __enter__(self) -> typing.Self:
-        r"""Stop line-buffering Input, stop replacing \n Output with \r\n, etc"""
-
-        fileno = self.fileno
-        before = self.before
-        tcgetattr = self.tcgetattr
-
-        if tcgetattr:
-            return self
-
-        tcgetattr = termios.tcgetattr(fileno)  # replaces
-        assert tcgetattr, (tcgetattr,)
-
-        self.tcgetattr = tcgetattr  # replaces
-
-        assert before in (termios.TCSADRAIN, termios.TCSAFLUSH), (before,)
-        tty.setraw(fileno, when=before)  # Tty SetRaw defaults to TcsaFlush
-        # tty.setcbreak(fileno, when=termios.TCSAFLUSH)  # for ⌃C prints Py Traceback
-
-        return self
-
-    def __exit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc_val: BaseException | None,
-        exc_tb: types.TracebackType | None,
-    ) -> None:
-        r"""Start line-buffering Input, start replacing \n Output with \r\n, etc"""
-
-        stdio = self.stdio
-        fileno = self.fileno
-        tcgetattr = self.tcgetattr
-        after = self.after
-
-        if not tcgetattr:
-            return
-
-        self.tcgetattr = list()  # replaces
-
-        stdio.flush()  # for '__exit__' of BytesTerminal
-
-        assert after in (termios.TCSADRAIN, termios.TCSAFLUSH), (after,)
-
-        fd = fileno
-        when = after
-        attributes = tcgetattr
-        termios.tcsetattr(fd, when, attributes)
-
-        return None
-
-    def kbhit(self, timeout: float | None) -> bool:
-        """Block till next Input Byte, else till Timeout, else till forever"""
-
-        fileno = self.fileno
-        stdio = self.stdio
-        assert self.tcgetattr, self.tcgetattr
-
-        stdio.flush()  # for .kbhit of BytesTerminal
-
-        (r, w, x) = select.select([fileno], [], [], timeout)
-        fileno_hit = fileno in r
-
-        return fileno_hit
-
-        # 'timeout' is None for Never, 0.000 for Now, else a count of Seconds
-        # but our timeout=Immediately fearfully ducks away as far as 0.000_001 from the 0.000 of Now
 
 
 #
