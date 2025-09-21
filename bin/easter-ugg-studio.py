@@ -23,19 +23,24 @@ from __future__ import annotations  # backports new datatype syntaxes into old P
 import __main__
 import argparse
 import bdb
+import collections
 import dataclasses
 import difflib
 import os
 import pdb
+import select
 import signal
 import sys
+import termios
 import textwrap
+import tty
 import types
 import typing
+import unicodedata
 
 
 if not __debug__:
-    raise NotImplementedError([__debug__])  # refuses to run without live Asserts
+    raise NotImplementedError([__debug__])  # 'python3' better than 'python3 -O'
 
 default_eq_None = None
 
@@ -48,7 +53,7 @@ _: object
 
 
 def main() -> None:
-    """Run from the Shell Command Line, and exit into the Py Repl"""
+    """Run from the Shell Command Line, and launch the Py Repl vs uncaught Exceptions"""
 
     sys.excepthook = excepthook
 
@@ -63,13 +68,47 @@ class MainClass:
         pass
 
     def main_class_run(self) -> None:
+        """Run from the Shell Command Line, and launch the Py Repl vs uncaught Exceptions"""
+
+        assert Immediately == 0.000_001
+
+        # Take in the Shell Command-Line Args
 
         ns = self.parse_ugg_args()
-        assert ns.yolo, (ns.yolo, ns)  # todo1: while no other Options declared
+        assert ns.yolo, (ns.yolo, ns)  # todo1: needed after other Options declared
+
+        # Launch
 
         print("⌃D to quit,  Fn F1 for more help,  or ⌥-Click far from the Cursor<br>")
 
-        sys.stdin.read()  # waits for ⌃D or ⌃C or ⌃\
+        # Run till quit
+
+        with BytesTerminal() as bt:
+
+            fd = bt.fileno
+            length = 1
+
+            while True:
+                kbhit = bt.kbhit(timeout=None)
+                assert kbhit, (kbhit,)  # because .timeout=None
+
+                kbytes = os.read(fd, length)
+                while bt.kbhit(timeout=Immediately):
+                    kbytes += os.read(fd, length)
+
+                    # todo2: wrongly combines Arrows when mashing Arrows Keypad
+
+                kcaps = kbytes_to_kcaps(kbytes)
+                print(kcaps, end="\r\n")
+
+                if kcaps in ("⌃C", "⌃D", "⌃Z", "⌃\\"):
+                    break
+
+                    # quits at Cat ⌃C ⌃D ⌃Z ⌃\
+                    # todo2: quits at Emacs ⌃X ⌃C, ⌃X ⌃S
+                    # todo2: quits at Vim ⇧Z ⇧Q, ⇧Z ⇧Z
+
+        # todo3: Mouse Strokes at --platform=Google too, not only at --platform=Apple
 
     def parse_ugg_args(self) -> argparse.Namespace:
         """Take in the Shell Command-Line Args"""
@@ -318,6 +357,428 @@ class ArgDocParser:
         # Succeed
 
         return diffs
+
+
+#
+# Amp up Import Termios
+#
+
+
+# Name the Shifting Keys
+
+Meta = unicodedata.lookup("Broken Circle With Northwest Arrow")  # ⎋
+Control = unicodedata.lookup("Up Arrowhead")  # ⌃
+Option = unicodedata.lookup("Option Key")  # ⌥
+Shift = unicodedata.lookup("Upwards White Arrow")  # ⇧
+Command = unicodedata.lookup("Place of Interest Sign")  # ⌘  # Super  # Windows
+Fn = "Fn"
+
+
+# note: Meta hides inside Apple > Settings > Keyboard > Use Option as Meta Key
+# note: Meta hides inside Google > Settings > Keyboard > Alt is Meta
+
+
+# Decode each distinct Key Chord Byte Encoding as a distinct Str without a " " Space in it
+
+KCAP_SEP = " "  # separates '⇧Tab' from '⇧T a b', '⎋⇧FnX' from '⎋⇧Fn X', etc
+
+KCAP_BY_KTEXT = {  # r"←|↑|→|↓" and so on  # ⌃ ⌥ ⇧ ⌃⌥ ⌃⇧ ⌥⇧ ⌃⌥⇧ and so on
+    "\x00": "⌃Spacebar",  # ⌃@  # ⌃⇧2
+    "\x09": "Tab",  # '\t' ⇥
+    "\x0d": "Return",  # '\r' ⏎
+    "\033": "⎋",  # Esc  # Meta  # includes ⎋Spacebar ⎋Tab ⎋Return ⎋Delete without ⌥
+    "\033" "\x01": "⌥⇧Fn←",  # ⎋⇧Fn←   # coded with ⌃A
+    "\033" "\x03": "⎋FnReturn",  # coded with ⌃C  # not ⌥FnReturn
+    "\033" "\x04": "⌥⇧Fn→",  # ⎋⇧Fn→   # coded with ⌃D
+    "\033" "\x08": "⎋⌃Delete",  # ⎋⌃Delete  # coded with ⌃H  # aka \b
+    "\033" "\x0b": "⌥⇧Fn↑",  # ⎋⇧Fn↑   # coded with ⌃K
+    "\033" "\x0c": "⌥⇧Fn↓",  # ⎋⇧Fn↓  # coded with ⌃L  # aka \f
+    "\033" "\x10": "⎋⇧Fn",  # ⎋ Meta ⇧ Shift of FnF1..FnF12  # not ⌥⇧Fn  # coded with ⌃P
+    "\033" "\033": "⎋⎋",  # Meta Esc  # not ⌥⎋
+    "\033" "\033O" "A": "⌃⌥↑",  # ESC SS3 ⇧A  # Google
+    "\033" "\033O" "B": "⌃⌥↓",  # ESC SS3 ⇧B  # Google
+    "\033" "\033O" "C": "⌃⌥→",  # ESC SS3 ⇧C  # Google
+    "\033" "\033O" "D": "⌃⌥←",  # ESC SS3 ⇧D  # Google
+    "\033" "\033[" "3;5~": "⎋⌃FnDelete",  # ⌥⌃FnDelete
+    "\033" "\033[" "A": "⌥↑",  # CSI 04/01 Cursor Up (CUU)  # Option-as-Meta  # Google
+    "\033" "\033[" "B": "⌥↓",  # CSI 04/02 Cursor Down (CUD)  # Option-as-Meta  # Google
+    "\033" "\033[" "C": "⌥→",  # CSI 04/03 Cursor [Forward] Right (CUF_X)  # Google
+    "\033" "\033[" "D": "⌥←",  # CSI 04/04 Cursor [Back] Left (CUB_X)  # Google
+    "\033" "\033[" "Z": "⎋⇧Tab",  # ⇤  # CSI 05/10 CBT  # not ⌥⇧Tab
+    "\033" "\x28": "⎋FnDelete",  # not ⌥FnDelete
+    "\033O" "P": "F1",  # SS3 ⇧P
+    "\033O" "Q": "F2",  # SS3 ⇧Q
+    "\033O" "R": "F3",  # SS3 ⇧R
+    "\033O" "S": "F4",  # SS3 ⇧S
+    "\033[" "15~": "F5",  # Esc 07/14 is LS1R, but CSI 07/14 is unnamed
+    "\033[" "17~": "F6",  # ⌥F1  # ⎋F1
+    "\033[" "18~": "F7",  # ⌥F2  # ⎋F2
+    "\033[" "19~": "F8",  # ⌥F3  # ⎋F3
+    "\033[" "1;2A": "⇧↑",  # iTerm2 Apple
+    "\033[" "1;2B": "⇧↓",  # iTerm2 Apple
+    "\033[" "1;2C": "⇧→",  # CSI 04/03 Cursor [Forward] Right (CUF_YX) Y=1 X=2  # Apple
+    "\033[" "1;2D": "⇧←",  # CSI 04/04 Cursor [Back] Left (CUB_YX) Y=1 X=2  # Apple
+    "\033[" "1;2F": "⇧Fn→",  # iTerm2 Apple
+    "\033[" "1;2H": "⇧Fn←",  # iTerm2 Apple
+    "\033[" "1;3A": "⌥↑",  # iTerm2 Apple
+    "\033[" "1;3B": "⌥↓",  # iTerm2 Apple
+    "\033[" "1;3C": "⌥→",  # iTerm2 Apple
+    "\033[" "1;3D": "⌥←",  # iTerm2 Apple
+    "\033[" "1;3F": "⌥Fn→",  # iTerm2 Apple
+    "\033[" "1;3H": "⌥Fn←",  # iTerm2 Apple
+    "\033[" "1;4A": "⌥⇧↑",  # iTerm2 Apple
+    "\033[" "1;4B": "⌥⇧↓",  # iTerm2 Apple
+    "\033[" "1;4C": "⌥⇧→",  # iTerm2 Apple
+    "\033[" "1;4D": "⌥⇧←",  # iTerm2 Apple
+    "\033[" "1;4F": "⌥⇧Fn→",  # iTerm2 Apple
+    "\033[" "1;4H": "⌥⇧Fn←",  # iTerm2 Apple
+    "\033[" "1;6A": "⌃⇧↑",  # iTerm2 Apple
+    "\033[" "1;6B": "⌃⇧↓",  # iTerm2 Apple
+    "\033[" "1;6C": "⌃⇧→",  # iTerm2 Apple
+    "\033[" "1;6D": "⌃⇧←",  # iTerm2 Apple
+    "\033[" "1;7A": "⌃⌥↑",  # iTerm2 Apple
+    "\033[" "1;7B": "⌃⌥↓",  # iTerm2 Apple
+    "\033[" "1;7C": "⌃⌥→",  # iTerm2 Apple
+    "\033[" "1;7D": "⌃⌥←",  # iTerm2 Apple
+    "\033[" "1;7F": "⌃⌥Fn←",  # iTerm2 Apple
+    "\033[" "1;7H": "⌃⌥Fn→",  # iTerm2 Apple
+    "\033[" "1;8A": "⌃⌥⇧↑",  # iTerm2 Apple
+    "\033[" "1;8B": "⌃⌥⇧↓",  # iTerm2 Apple
+    "\033[" "1;8C": "⌃⌥⇧→",  # iTerm2 Apple
+    "\033[" "1;8D": "⌃⌥⇧←",  # iTerm2 Apple
+    "\033[" "20~": "F9",  # ⌥F4  # ⎋F4
+    "\033[" "21~": "F10",  # ⌥F5  # ⎋F5
+    "\033[" "23~": "F11",  # ⌥F6  # ⎋F6  # Apple takes F11
+    "\033[" "24~": "F12",  # ⌥F7  # ⎋F7
+    "\033[" "25~": "⇧F5",  # ⌥F8  # ⎋F8
+    "\033[" "26~": "⇧F6",  # ⌥F9  # ⎋F9
+    "\033[" "28~": "⇧F7",  # ⌥F10  # ⎋F10
+    "\033[" "29~": "⇧F8",  # ⌥F11  # ⎋F11
+    "\033[" "31~": "⇧F9",  # ⌥F12  # ⎋F12
+    "\033[" "32~": "⇧F10",
+    "\033[" "33~": "⇧F11",
+    "\033[" "34~": "⇧F12",
+    "\033[" "3;2~": "⇧FnDelete",
+    "\033[" "3;5~": "⌃FnDelete",
+    "\033[" "3~": "FnDelete",
+    "\033[" "5;3~": "⌥Fn↑",  # iTerm2 Apple
+    "\033[" "5;4~": "⌥⇧Fn↑",  # iTerm2 Apple
+    "\033[" "5;7~": "⌃⌥Fn↑",  # iTerm2 Apple
+    "\033[" "5~": "⇧Fn↑",  # Apple
+    "\033[" "6;3~": "⌥Fn↓",  # iTerm2 Apple
+    "\033[" "6;4~": "⌥⇧Fn↓",  # iTerm2 Apple
+    "\033[" "6;7~": "⌃⌥Fn↓",  # iTerm2 Apple
+    "\033[" "6~": "⇧Fn↓",  # Apple
+    "\033[" "A": "↑",  # CSI 04/01 Cursor Up (CUU)  # also ⌥↑ Apple
+    "\033[" "B": "↓",  # CSI 04/02 Cursor Down (CUD)  # also ⌥↓ Apple
+    "\033[" "C": "→",  # CSI 04/03 Cursor Right [Forward] (CUF)  # also ⌥→ Apple
+    "\033[" "D": "←",  # CSI 04/04 Cursor [Back] Left (CUB)  # also ⌥← Apple
+    "\033[" "F": "⇧Fn→",  # Apple  # CSI 04/06 Cursor Preceding Line (CPL)
+    "\033[" "H": "⇧Fn←",  # Apple  # CSI 04/08 Cursor Position (CUP)
+    "\033[" "Z": "⇧Tab",  # ⇤  # CSI 05/10 Cursor Backward Tabulation (CBT)
+    "\033" "b": "⌥←",  # ⎋B  # ⎋←  # Emacs M-b Backword-Word  # Apple
+    "\033" "f": "⌥→",  # ⎋F  # ⎋→  # Emacs M-f Forward-Word  # Apple
+    "\x20": "Spacebar",  # ' '  # ␠  # ␣  # ␢
+    "\x7f": "Delete",  # ␡  # ⌫  # ⌦
+    "\xa0": "⌥Spacebar",  # '\N{No-Break Space}'
+}
+
+assert list(KCAP_BY_KTEXT.keys()) == sorted(KCAP_BY_KTEXT.keys())
+
+assert KCAP_SEP == " "
+for _KCAP in KCAP_BY_KTEXT.values():
+    assert " " not in _KCAP, (_KCAP,)
+
+
+OPTION_KSTR_BY_KT = {
+    "á": "⌥EA",  # E
+    "é": "⌥EE",
+    "í": "⌥EI",
+    # without the "j́" of ⌥EJ here (because its Combining Accent comes after as a 2nd K Char)
+    "ó": "⌥EO",
+    "ú": "⌥EU",
+    "´": "⌥ESpacebar",
+    "é": "⌥EE",
+    "â": "⌥IA",  # I
+    "ê": "⌥IE",
+    "î": "⌥II",
+    "ô": "⌥IO",
+    "û": "⌥IU",
+    "ˆ": "⌥ISpacebar",
+    "ã": "⌥NA",  # N
+    "ñ": "⌥NN",
+    "õ": "⌥NO",
+    "˜": "⌥NSpacebar",
+    "ä": "⌥UA",  # U
+    "ë": "⌥UE",
+    "ï": "⌥UI",
+    "ö": "⌥UO",
+    "ü": "⌥UU",
+    "ÿ": "⌥UY",
+    "¨": "⌥USpacebar",
+    "à": "⌥`A",  # `
+    "è": "⌥`E",
+    "ì": "⌥`I",
+    "ò": "⌥`O",
+    "ù": "⌥`U",
+    "`": "⌥`Spacebar",  # ⌥` Spacebar comes out equal to U+0060 Grave Accent ` of a US Keyboard
+}
+
+# hand-sorted by ⌥E ⌥I ⌥N ⌥U ⌥` order
+
+
+def kbytes_to_kcaps(kbytes: bytes) -> str:
+    """Choose Keycaps to speak of the Bytes of 1 Keyboard Chord"""
+
+    kstr = kbytes.decode()  # may raise UnicodeDecodeError
+
+    kcap_by_ktext = KCAP_BY_KTEXT  # '\e\e[A' for ⎋↑ etc
+
+    if kstr in kcap_by_ktext.keys():
+        kcaps = kcap_by_ktext[kstr]
+    else:
+        kcaps = ""
+        for kt in kstr:  # often 'len(kstr) == 1'
+            kc = _kt_to_kcap_(kt)
+            kcaps += kc
+
+            # '⎋[25;80R' Cursor-Position-Report (CPR)
+            # '⎋[25;80t' Rows x Column Terminal Size Report
+            # '⎋[200~' and '⎋[201~' before/ after Paste to bracket it
+
+        # ⌥Y often comes through as \ U+005C Reverse-Solidus aka Backslash  # not ¥ Yen-Sign
+
+    # Succeed
+
+    assert KCAP_SEP == " "  # solves '⇧Tab' vs '⇧T a b', '⎋⇧FnX' vs '⎋⇧Fn X', etc
+    assert " " not in kcaps, (kcaps,)
+
+    return kcaps
+
+    # '⌃L'  # '⇧Z'
+    # '⎋A' from ⌥A while Apple Keyboard > Option as Meta Key
+
+
+def _kt_to_kcap_(kt: str) -> str:
+    """Form 1 Key Cap to speak of 1 Keyboard Chord"""
+
+    ko = ord(kt)
+
+    option_kt_str = OPTION_KT_STR  # '∂' for ⌥D
+    option_kstr_by_kt = OPTION_KSTR_BY_KT  # 'é' for ⌥EE
+    kcap_by_ktext = KCAP_BY_KTEXT  # '\x7F' for 'Delete'
+
+    # Show more Key Caps than US-Ascii mentions
+
+    if kt in '!"#$%&()*+' ":<>?" "@" "^_" "{|}~":
+        kc = "⇧" + kt
+
+    elif kt in kcap_by_ktext.keys():  # Mac US Key Caps for Spacebar, F12, etc
+        kc = kcap_by_ktext[kt]  # '⌃Spacebar', 'Return', 'Delete', etc
+
+    elif (kt != "`") and (kt in option_kstr_by_kt.keys()):  # Mac US Option Accents
+        kc = option_kstr_by_kt[kt]
+
+    elif kt in option_kt_str:  # Mac US Option Key Caps
+        kc = _option_kt_to_kcap_(kt)
+
+    # Show the Key Caps of US-Ascii, plus the ⌃ ⇧ Control/ Shift Key Caps
+
+    elif (ko < 0x20) or (ko == 0x7F):  # C0 Control Bytes, or \x7F Delete (DEL)
+        if ko == 0x1F:  # Apple ⌃- doesn't come through as  (0x2D ^ 0x40)
+            kc = "⌃-"  # Apple ⌃-  and ⌃⇧_ do come through as (0x5F ^ 0x40)
+        else:
+            kc = "⌃" + chr(ko ^ 0x40)  # '^ 0x40' mixes ⌃ into one of @ A..Z [\]^_ ?, such as ⌃^
+
+        # '^ 0x40' speaks of ⌃@ but not ⌃⇧@ and not ⌃⇧2 and not ⌃Spacebar at b"\x00"
+        # '^ 0x40' speaks of ⌃M but not Return at b"\x0D"
+        # '^ 0x40' speaks of ⌃[ ⌃\ ⌃] ⌃_ but not ⎋ and not ⌃⇧_ and not ⌃⇧{ ⌃⇧| ⌃⇧} ⌃-
+        # '^ 0x40' speaks of ⌃? but not Delete at b"\x7F"
+
+        # ⌃` ⌃2 ⌃6 ⌃⇧~ don't work
+
+    elif "A" <= kt <= "Z":  # printable Upper Case English
+        kc = "⇧" + chr(ko)  # shifted Key Cap '⇧A' from b'A'
+
+    elif "a" <= kt <= "z":  # printable Lower Case English
+        kc = chr(ko ^ 0x20)  # plain Key Cap 'A' from b'a'
+
+    # Test that no Keyboard sends the C1 Control Bytes, nor the Quasi-C1 Bytes
+
+    elif ko in range(0x80, 0xA0):  # C1 Control Bytes
+        kc = repr(bytes([ko]))  # b'\x80'
+    elif ko == 0xA0:  # 'No-Break Space'
+        kc = "⌥Spacebar"
+        assert False, (ko, kt)  # unreached because 'kcap_by_ktext'
+    elif ko == 0xAD:  # 'Soft Hyphen'  # near to a C1 Control Byte
+        kc = repr(bytes([ko]))  # b'\xad'
+
+    # Show the US-Ascii or Unicode Char as if its own Key Cap
+
+    else:
+        assert ko < 0x11_0000, (ko, kt)
+        kc = chr(ko)  # '!', '¡', etc
+
+        # todo: have we fuzzed b"\xA1" .. FF vs "\u00A1" .. 00FF like we want?
+
+    # Succeed, but insist that Blank Space is never a Key Cap
+
+    assert kc, (kc, ko, kt)
+    assert kc.isprintable(), (kc, ko, kt)  # has no \x00..\x1f, \x7f, \xa0, \xad, etc
+    assert " " not in kc, (kc, ko, kt)
+
+    return kc
+
+    # '⌃L'  # '⇧Z'
+
+
+_DENTED_OPTION_KT_STR_ = """
+
+     ⁄Æ‹›ﬁ‡æ·‚°±≤–≥÷º¡™£¢∞§¶•ªÚ…¯≠˘¿
+    €ÅıÇÎ Ï˝Ó Ô\uf8ffÒÂ Ø∏Œ‰Íˇ ◊„˛Á¸“«‘ﬂ—
+     å∫ç∂ ƒ©˙ ∆˚¬µ øπœ®ß† √∑≈¥Ω”»’
+
+"""
+
+# ⌥⇧K is Apple Logo Icon  is \uF8FF is in the U+E000..U+F8FF Private Use Area (PUA)
+
+_SPACED_OPTION_KT_STR_ = " " + textwrap.dedent(_DENTED_OPTION_KT_STR_).strip() + " "
+_SPACED_OPTION_KT_STR_ = _SPACED_OPTION_KT_STR_.replace("\n", "")
+
+assert len(_SPACED_OPTION_KT_STR_) == (0x7E - 0x20) + 1
+
+OPTION_KT_STR = _SPACED_OPTION_KT_STR_.replace(" ", "")
+assert len(OPTION_KT_STR) == len(set(OPTION_KT_STR))
+
+
+def _option_kt_to_kcap_(kt: str) -> str:
+    """Convert to Mac US Option Key Caps from any of OPTION_KT_STR"""
+
+    option_kt_str = OPTION_KT_STR  # '∂' for ⌥D, etc
+
+    assert len(option_kt_str) == len(set(option_kt_str))
+    index = option_kt_str.index(kt)
+
+    end = chr(0x20 + index)
+    if "A" <= end <= "Z":
+        end = "⇧" + end  # '⇧A'
+    if "a" <= end <= "z":
+        end = chr(ord(end) ^ 0x20)  # 'Z'
+
+    kc = "⌥" + end  # '⌥⇧P'
+
+    return kc
+
+
+# Define each KText once, never more than once
+
+_KTEXT_LISTS_ = [
+    list(KCAP_BY_KTEXT.keys()),
+    list(OPTION_KSTR_BY_KT.keys()),
+    list(OPTION_KT_STR),
+]
+
+_KTEXT_LIST_ = list(_KTEXT_ for _KTEXT_LIST_ in _KTEXT_LISTS_ for _KTEXT_ in _KTEXT_LIST_)
+assert KCAP_SEP == " "
+for _KTEXT_, _COUNT_ in collections.Counter(_KTEXT_LIST_).items():
+    assert _COUNT_ == 1, (_COUNT_, _KTEXT_)
+
+
+Immediately = 0.000_001  # the wait to catch another Byte after one or a few Bytes
+
+
+class BytesTerminal:
+    """Write/ Read Bytes at Screen/ Keyboard of the Terminal"""
+
+    stdio: typing.TextIO
+    fileno: int
+
+    before: int  # for writing at Enter
+    tcgetattr: list[int | list[bytes | int]]  # replaced by Enter
+    after: int  # for writing at Exit  # todo1: .TCSAFLUSH vs large Paste
+
+    #
+    # Init, enter, exit, and poll
+    #
+
+    def __init__(self) -> None:
+
+        assert sys.__stderr__ is not None
+        stdio = sys.__stderr__
+
+        self.stdio = stdio
+        self.fileno = stdio.fileno()
+
+        self.before = termios.TCSADRAIN  # for writing at Enter
+        self.tcgetattr = list()  # replaced by Enter
+        self.after = termios.TCSADRAIN  # for writing at Exit
+
+    def __enter__(self) -> typing.Self:
+        r"""Stop line-buffering Input, stop replacing \n Output with \r\n, etc"""
+
+        fileno = self.fileno
+        before = self.before
+        tcgetattr = self.tcgetattr
+
+        if tcgetattr:
+            return self
+
+        tcgetattr = termios.tcgetattr(fileno)  # replaces
+        assert tcgetattr, (tcgetattr,)
+
+        self.tcgetattr = tcgetattr  # replaces
+
+        assert before in (termios.TCSADRAIN, termios.TCSAFLUSH), (before,)
+        tty.setraw(fileno, when=before)  # Tty SetRaw defaults to TcsaFlush
+        # tty.setcbreak(fileno, when=termios.TCSAFLUSH)  # for ⌃C prints Py Traceback
+
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: types.TracebackType | None,
+    ) -> None:
+        r"""Start line-buffering Input, start replacing \n Output with \r\n, etc"""
+
+        stdio = self.stdio
+        fileno = self.fileno
+        tcgetattr = self.tcgetattr
+        after = self.after
+
+        if not tcgetattr:
+            return
+
+        self.tcgetattr = list()  # replaces
+
+        stdio.flush()  # for '__exit__' of BytesTerminal
+
+        assert after in (termios.TCSADRAIN, termios.TCSAFLUSH), (after,)
+
+        fd = fileno
+        when = after
+        attributes = tcgetattr
+        termios.tcsetattr(fd, when, attributes)
+
+        return None
+
+    def kbhit(self, timeout: float | None) -> bool:
+        """Block till next Input Byte, else till Timeout, else till forever"""
+
+        fileno = self.fileno
+        stdio = self.stdio
+        assert self.tcgetattr, self.tcgetattr
+
+        stdio.flush()  # for .kbhit of BytesTerminal
+
+        (r, w, x) = select.select([fileno], [], [], timeout)
+        fileno_hit = fileno in r
+
+        return fileno_hit
+
+        # 'timeout' is None for Never, 0.000 for Now, else a count of Seconds
+        # but our timeout=Immediately fearfully ducks away as far as 0.000_001 from the 0.000 of Now
 
 
 #
