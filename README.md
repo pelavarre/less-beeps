@@ -96,7 +96,7 @@ games that respond to how you want to play them
 
 ## Why "Ugg"?
 
-Just a playful spelling of "Egg" (as in Easter Eggs)
+Just a playful spelling of "Egg" (as in Easter Eggs).
 No relation to the boot company.
 Though those boots did make one 12-year-old very happy once
 
@@ -105,3 +105,5 @@ Though those boots did make one 12-year-old very happy once
 
 + [GitHub Repository](https://github.com/pelavarre/easter-ugg-studio/blob/main/README.md)
 + [Questions/Feedback](https://twitter.com/intent/tweet?text=/@PELaVarre+Easter-Ugg-Studio)
+
+<!-- git clone git@github.com:pelavarre/easter-ugg-studio.git -->

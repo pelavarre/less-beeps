@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
 
-# Pure Storage Confidential - Copyright (c) 2025 Pure Storage, Inc.
-
 r"""
 usage: easter-egg-studio.py [-h] [--yolo]
 
@@ -843,6 +841,5 @@ if __name__ == "__main__":
 
 # 3456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789
 
-
-# posted into:  http://git/gitweb/?p=pure_tools.git;a=tree;f=triage/scraps
-# copied from:  git clone git://git-mirror.dev.purestorage.com/pure_tools.git
+# posted into:  https://github.com/pelavarre/easter-ugg-studio/blob/main/bin/easter-ugg-studio.py
+# copied from:  git clone git@github.com:pelavarre/easter-ugg-studio.git
