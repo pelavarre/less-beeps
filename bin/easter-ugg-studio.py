@@ -50,6 +50,16 @@ _: object
 
 
 #
+# Fit to Caller
+#
+
+
+flags_apple = sys.platform == "darwin"
+flags_google = bool(os.environ.get("CLOUD_SHELL", default_eq_None))
+flags_iterm2 = os.environ.get("TERM_PROGRAM", default_eq_None) == "iTerm.app"
+
+
+#
 # Run from the Shell Command Line
 #
 
@@ -88,10 +98,11 @@ class MainClass:
 
         with TouchTerminal() as tt:
 
+            print(end="\r\n")
+
+            print("⎋[6N", end="\r\n")
             tt.stdio.write("\033[6n")  # ⎋[6N calls for reply ⎋[{y};{x}⇧R
             tp = tt.read_terminal_poke(timeout=None)
-
-            print(end="\r\n")
 
             rep = str(tp).replace("\n", "\r\n")  # prints the ⎋[ ⇧R reply
             print(tp, end="\r\n")
@@ -415,6 +426,8 @@ def blur(f: float) -> str:
 
 # Name some Magic Numbers
 
+Immediately = 0.000_001
+
 Y1 = 1  # indexes Y Rows as Southbound across 1 .. Height
 X1 = 1  # indexes X Columns as Eastbound across 1 .. Width
 
@@ -516,8 +529,7 @@ class TouchTerminal:
 
         return fileno_hit
 
-        # 'timeout' is None for Never, 0.000 for Now, else a count of Seconds
-        # but our timeout=Immediately fearfully ducks away as far as 0.000_001 from the 0.000 of Now
+        # 'timeout' is None for Never, 0 for Now, else a Float of Seconds
 
     #
     # Read one Keyboard Chord, Mouse Arrow Burst, Mouse Click, or Mouse Tap
@@ -529,6 +541,8 @@ class TouchTerminal:
         fileno = self.fileno
         stdio = self.stdio
 
+        assert Immediately == 0.000_001
+
         # Flush Output, and wait for Input
 
         stdio.flush()
@@ -539,50 +553,50 @@ class TouchTerminal:
 
         hit = t1 - t0
         if not kbhit:
-            tp = TerminalPoke(hit=hit, reads=tuple(), delays=tuple(), extra=b"")
+            tp = TerminalPoke(hit=hit, delays=tuple(), reads=tuple(), extra=b"")
             return tp
 
         # Read Bursts of Bytes
 
-        delay_list = list()
-        read_list = list()
-
-        fd = fileno
-        length = 1
+        delay_list: list[float] = list()
+        read_list: list[bytes] = list()
+        extra: bytes = b""
 
         t = t1
-        while True:
+        m = None
+        while not m:
 
-            read = os.read(fd, length)
+            fd = fileno
+            length = 1
+
+            read_plus = os.read(fd, length)
             while self.kbhit(timeout=0.000_001):
-                read += os.read(fd, length)
+                read_plus += os.read(fd, length)
             t2 = time.time()
+
+            # Exactly once, write the ⎋[5 N Call for the ⎋[0 N Reply to close Input
+            # Take quick and slow Inputs till the closing ⎋[0 N Reply does arrive
+
+            read = read_plus
+            if not read_list:
+                stdio.write("\033[5n")
+                stdio.flush()
+            else:
+                m = re.search(rb"\033\[0n", string=read_plus)
+                if m:
+                    extra = read_plus[m.end() :]
+                    read = read_plus[: m.end()]
 
             delay_list.append(t2 - t)
             read_list.append(read)
             t = t2
 
-            # Exactly once, write the ⎋[5 N Call for the ⎋[0 N Reply to close Input
-
-            if len(read_list) == 1:
-                stdio.write("\033[5n")
-                stdio.flush()
-
-            late_bytes = b"".join(read_list[1:])
-
-            # Take quick and slow Inputs till the closing ⎋[0 N Reply does arrive
-
-            m = re.search(rb"\033\[0n", string=late_bytes)
-            if m:
-                break
-
         # Succeed
 
         reads = tuple(read_list)
         delays = tuple(delay_list)
-        extra = late_bytes[m.end() :]
 
-        tp = TerminalPoke(hit=hit, reads=reads, delays=delays, extra=extra)
+        tp = TerminalPoke(hit=hit, delays=delays, reads=reads, extra=extra)
 
         return tp
 
@@ -601,24 +615,38 @@ class TerminalPoke:
 
         reads = self.reads
         delays = self.delays
-        extra = self.extra
 
         assert reads, (reads,)
         assert len(reads) == len(delays), (len(reads), len(delays))
-        assert not extra  # todo1: wait to solve Str of .extra till after we learn to repro it
-
-        close = reads[-1]
-        assert close.endswith(b"\033[0n"), (close,)
 
     def __str__(self) -> str:
 
+        reads_str = self._reads_str_()
+        hit_delays_str = self._hit_delays_str_()
+        extra_str = self._extra_str_()
+
+        rep = f"{reads_str} {hit_delays_str} {extra_str}"
+
+        return rep
+
+    def _hit_delays_str_(self) -> str:
+        """Say how long we waited"""
+
         hit = self.hit
-        reads = self.reads
         delays = self.delays
 
+        h = blur(hit).replace("e-3", "")
+        d = blur(sum(delays)).replace("e-3", "")
+        rep = f"{h} {d}"
+
+        return rep
+
+    def _reads_str_(self) -> str:
+
+        reads = self.reads
+
         if not reads:
-            delay = blur(hit + sum(delays)).replace("e-3", "")
-            rep = delay
+            rep = repr(b"")
             return rep
 
         chord = self._chord_str_if_()
@@ -629,23 +657,26 @@ class TerminalPoke:
         if arrows:
             return arrows
 
-        kbytes = b"".join(reads[:-1])
-        precise = kbytes_to_precise_kcaps(kbytes)
-
-        delay = blur(hit + sum(delays)).replace("e-3", "")
-        rep = f"{precise} {delay}"
+        rep = " ".join(kbytes_to_precise_kcaps(_) for _ in reads)
 
         return rep
 
     def _chord_str_if_(self) -> str:
         """Say what we got for Input, and how long we waited, when it's a Keyboard Chord"""
 
-        hit = self.hit
-        delays = self.delays
         reads = self.reads
+
+        # Require a simple Close (and then don't speak of it)
+
+        if reads[-1] != b"\033[0n":
+            return ""
+
+        # Require a simple Read then Close
 
         if len(reads) != 2:
             return ""
+
+        # Speak concisely of Key Caps, and then also precisely of Key Caps, if possible
 
         read = reads[0]
         assert read == b"".join(reads[:-1]), (read, reads[:-1])
@@ -654,35 +685,38 @@ class TerminalPoke:
         precise = kbytes_to_precise_kcaps(read)
 
         if concise:
-            delay = blur(hit + sum(delays)).replace("e-3", "")
             if concise == precise:
-                rep = f"{concise} {read.decode()!r} {delay}"
+                rep = f"{concise} {read.decode()!r}"
             else:
-                rep = f"{concise} {precise} {delay}"
+                rep = f"{concise} {precise}"
             return rep
 
+        # Fall back to speak only precisely of Key Caps
+
         if len(precise.lstrip("⌃⌥⇧")) == 1:  # ⇧ ⌃ ⌥ would be sorted by Ord
-            delay = blur(hit + sum(delays)).replace("e-3", "")
-            rep = f"{precise} {delay}"
+            rep = precise
             return rep
+
+        # Give up on speaking of Key Caps, like fall back to speak of Bytes
 
         return ""
 
     def _arrow_burst_str_if_(self) -> str:
         """Say what we got for Input, and how long we waited, when it's an Arrow Burst"""
 
-        hit = self.hit
-        delays = self.delays
         reads = self.reads
-
         kbytes = b"".join(reads[:-1])
-
         dy_dx_by_arrow_kbytes = DY_DX_BY_ARROW_KBYTES
 
-        # Require >= 4 triple-byte sequences
+        # Require a simple Close (and then don't speak of it)
+
+        if reads[-1] != b"\033[0n":
+            return ""
+
+        # Require >= 4 triple-byte sequence
 
         if len(kbytes) % 3:
-            return ""  # requires a burst of triple-bytes
+            return ""
 
         if len(kbytes) < (4 * 3):
             return ""
@@ -702,7 +736,10 @@ class TerminalPoke:
             arrows.append(arrow)
             count_by_arrow[arrow] += 1
 
-            # often tested with only 1 or 2 kinds of arrows per burst
+            # Require never more than 3 of the 4 ⎋[A ⎋[B ⎋[C ⎋[D in the Burst
+
+            if len(count_by_arrow.keys()) > 3:
+                return ""
 
         # Say briefly how many Arrows came in what order
 
@@ -721,21 +758,24 @@ class TerminalPoke:
             parts.append(part)
 
         join = "+".join(parts)
-        # join += str(kbytes)
-
-        # Say how long we waited
-
-        delay = blur(hit + sum(delays)).replace("e-3", "")
-        join += " " + delay
 
         # Succeed
 
         return join
 
+    def _extra_str_(self) -> str:
+
+        extra = self.extra
+        rep = repr(extra) if extra else ""
+
+        return rep
+
     # todo1: stop calling for the close to delay text
 
     # todo1: testing app to go from dim to bold when key found
     # todo1: 8 keyboards | unmarked, ⌃, ⌥, ⇧ | ⌥⇧, ⌃⇧, ⌃⌥ | ⌃⌥⇧
+
+    # todo1: send Press and Release Mouse Events from Arrow Bursts
 
 
 # Name the Shifting Keys
