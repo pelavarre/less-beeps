@@ -89,9 +89,6 @@ class MainClass:
 
         # Launch
 
-        print(30 * "123456789 ")
-        print()
-
         print("⌃D to quit,  Fn F1 for more help,  or ⌥-Click far from the Cursor<br>")
 
         # Run till quit
@@ -99,13 +96,23 @@ class MainClass:
         with TouchTerminal() as tt:
 
             print(end="\r\n")
+            print("⎋[18T", end="\r\n")
+            tt.stdio.write("\033[18t")  # ⎋[18T call for reply ⎋[8;{rows};{columns}T
+            tp = tt.read_terminal_poke(timeout=None)
+            rep = tp.format_as_text().replace("\n", "\r\n")  # the ⎋[8 T reply
+            print(rep, end="\r\n")
 
+            print(end="\r\n")
             print("⎋[6N", end="\r\n")
             tt.stdio.write("\033[6n")  # ⎋[6N calls for reply ⎋[{y};{x}⇧R
             tp = tt.read_terminal_poke(timeout=None)
+            rep = tp.format_as_text().replace("\n", "\r\n")  # the ⎋[ ⇧R reply
+            print(rep, end="\r\n")
 
-            rep = str(tp).replace("\n", "\r\n")  # prints the ⎋[ ⇧R reply
-            print(tp, end="\r\n")
+            print(end="\r\n")
+            print(30 * "123456789 ", end="\r\n")
+
+            print(end="\r\n")
 
             while True:
 
@@ -119,7 +126,7 @@ class MainClass:
                     if precise in ("⌃C", "⌃D", "⌃Z", "⌃\\"):
                         breaking = True
 
-                rep = str(tp).replace("\n", "\r\n")
+                rep = tp.format_as_text().replace("\n", "\r\n")
                 print(rep, end="\r\n")
 
                 if breaking:
@@ -129,12 +136,14 @@ class MainClass:
                 # todo1: quits at Emacs ⌃X ⌃C, ⌃X ⌃S
                 # todo1: quits at Vim ⇧Z ⇧Q, ⇧Z ⇧Z
 
-            # todo2: split Control Input Bytes into TerminalBytePacket's
-            # todo2: gather Text Input Bytes into TerminalBytePacket's
-            # todo2: ⎋F1 to lists Tests apart from Games
-            # todo0: show the ← mouse explosion over wrapped Lines at iTerm2 & Google Cloud Shell
+            # todo3: ⎋F1 to lists Tests apart from Games
 
-        # todo2: Mouse Strokes at iPhone
+            # todo3: Decipher different ⌥-Click encodings at iTerm2 & Google Cloud Shell
+
+            # todo3: Split Control Input Bytes into TerminalBytePacket's
+            # todo3: Gather Text Input Bytes into TerminalBytePacket's
+
+        # todo3: Mouse Strokes at iPhone
 
     def parse_ugg_args(self) -> argparse.Namespace:
         """Take in the Shell Command-Line Args"""
@@ -402,7 +411,7 @@ def blur(f: float) -> str:
     sci = math.floor(math.log10(abs_))
     eng = (sci // 3) * 3
     precise = abs_ / (10**eng)
-    assert 1 <= precise <= 1000, (precise, abs_, eng, f)  # todo: log if ever == 1000
+    assert 1 <= precise <= 1000, (precise, abs_, eng, f)  # todo: Log == 1000 if ever happens
 
     dotted = round(precise, 1)  # 1.0  # 9.9  # 10.0
     assert 1.0 <= dotted <= 1000.0, (dotted, abs_, eng, f)
@@ -579,17 +588,27 @@ class TouchTerminal:
 
             read = read_plus
             if not read_list:
-                stdio.write("\033[5n")
-                stdio.flush()
+                stdio.write("\033[5n")  # todo: Call for different Replies to close Input
+                stdio.flush()  # todo: Call for no Reply to close Text other than the ` of ⌥``
             else:
                 m = re.search(rb"\033\[0n", string=read_plus)
                 if m:
                     extra = read_plus[m.end() :]
                     read = read_plus[: m.end()]
 
+                    # todo: Stop finding ⎋[0 N Closing Reply out of context
+
             delay_list.append(t2 - t)
             read_list.append(read)
             t = t2
+
+        #
+
+        kbytes = b"".join(read_list)
+        if kbytes == b"``" b"\033[0n":
+            assert len(read_list) >= 2, (read_list,)
+            read_list[::] = (b"``", b"\033[0n")
+            delay_list[::] = (sum(delay_list[:1]), delay_list[-1])
 
         # Succeed
 
@@ -620,16 +639,39 @@ class TerminalPoke:
         assert len(reads) == len(delays), (len(reads), len(delays))
 
     def __str__(self) -> str:
+        """Resemble Repr, but round things off"""
 
-        reads_str = self._reads_str_()
-        hit_delays_str = self._hit_delays_str_()
-        extra_str = self._extra_str_()
+        hit = self.hit
+        delays = self.delays
+        reads = self.reads
+        extra = self.extra
 
-        rep = f"{reads_str} {hit_delays_str} {extra_str}"
+        h = blur(hit).replace("e-3", "")
+        d = ", ".join(blur(_) for _ in delays)
+        r = ", ".join(repr(kbytes_to_precise_kcaps(_)) for _ in reads)
+        e = repr(extra)
+
+        if len(delays) == 1:
+            d += ","
+        if len(reads) == 1:
+            r += ","
+
+        rep = f"TerminalPoke(hit={h}, delays=({d}), reads=({r}), extra={e})"
 
         return rep
 
-    def _hit_delays_str_(self) -> str:
+    def format_as_text(self) -> str:
+        """Say what we got for Input, if Keyboard Chord, if Arrow Burst, and how long we waited"""
+
+        reads_text = self.format_reads()
+        hit_delays_text = self.format_hit_delays()
+        extra_text = self.format_extra()
+
+        rep = f"{reads_text} {hit_delays_text} {extra_text}"
+
+        return rep
+
+    def format_hit_delays(self) -> str:
         """Say how long we waited"""
 
         hit = self.hit
@@ -641,7 +683,8 @@ class TerminalPoke:
 
         return rep
 
-    def _reads_str_(self) -> str:
+    def format_reads(self) -> str:
+        """Say what we got for Input, if Keyboard Chord, and if Arrow Burst"""
 
         reads = self.reads
 
@@ -649,11 +692,11 @@ class TerminalPoke:
             rep = repr(b"")
             return rep
 
-        chord = self._chord_str_if_()
+        chord = self.format_reads_as_chord_if()
         if chord:
             return chord
 
-        arrows = self._arrow_burst_str_if_()
+        arrows = self.format_reads_as_arrow_burst_if()
         if arrows:
             return arrows
 
@@ -661,8 +704,8 @@ class TerminalPoke:
 
         return rep
 
-    def _chord_str_if_(self) -> str:
-        """Say what we got for Input, and how long we waited, when it's a Keyboard Chord"""
+    def format_reads_as_chord_if(self) -> str:
+        """Say what we got for Input, if indeed it is a Keyboard Chord"""
 
         reads = self.reads
 
@@ -671,7 +714,7 @@ class TerminalPoke:
         if reads[-1] != b"\033[0n":
             return ""
 
-        # Require a simple Read then Close
+        # Require a simple single Read and then a separate ⎋[0 N Reply to Close
 
         if len(reads) != 2:
             return ""
@@ -701,36 +744,28 @@ class TerminalPoke:
 
         return ""
 
-    def _arrow_burst_str_if_(self) -> str:
-        """Say what we got for Input, and how long we waited, when it's an Arrow Burst"""
+    def format_reads_as_arrow_burst_if(self) -> str:
+        """Say what we got for Input, if indeed it is an Arrow Burst"""
 
         reads = self.reads
-        kbytes = b"".join(reads[:-1])
         dy_dx_by_arrow_kbytes = DY_DX_BY_ARROW_KBYTES
 
-        # Require a simple Close (and then don't speak of it)
-
-        if reads[-1] != b"\033[0n":
-            return ""
-
-        # Require >= 4 triple-byte sequence
-
-        if len(kbytes) % 3:
-            return ""
-
-        if len(kbytes) < (4 * 3):
-            return ""
-
-        # Require nothing but ⎋[A ⎋[B ⎋[C ⎋[D plain Arrow Keystroke Chords
+        # Take nothing but ⎋[A ⎋[B ⎋[C ⎋[D plain Arrow Keystroke Chords, up to a ⎋[0 N Reply
 
         count_by_arrow: dict[bytes, int]
         count_by_arrow = collections.defaultdict(int)
 
         arrows = list()
+
+        end = b""
+
+        kbytes = b"".join(reads)
         for index in range(0, len(kbytes), 3):
             triple = kbytes[index:][:3]
+
             if triple not in dy_dx_by_arrow_kbytes.keys():
-                return ""
+                end = kbytes[index:]
+                break
 
             arrow = triple
             arrows.append(arrow)
@@ -741,7 +776,13 @@ class TerminalPoke:
             if len(count_by_arrow.keys()) > 3:
                 return ""
 
-        # Say briefly how many Arrows came in what order
+        if len(arrows) < 4:
+            return ""
+
+        if b"\033[0n" not in end:
+            return ""
+
+        # Say briefly how many Arrows came in what order, and if the End was strange
 
         parts = list()
         for k, vv in itertools.groupby(arrows):
@@ -759,23 +800,24 @@ class TerminalPoke:
 
         join = "+".join(parts)
 
+        if end != b"\033[0n":
+            join += f" {end!r}"
+
         # Succeed
 
         return join
 
-    def _extra_str_(self) -> str:
+    def format_extra(self) -> str:
+        """Say if we got more Input after the closing ⎋[0 N Reply"""
 
         extra = self.extra
         rep = repr(extra) if extra else ""
 
         return rep
 
-    # todo1: stop calling for the close to delay text
+    # todo2: Fill Bold over 8 Dim keyboards | unmarked, ⌃, ⌥, ⇧ | ⌥⇧, ⌃⇧, ⌃⌥ | ⌃⌥⇧
 
-    # todo1: testing app to go from dim to bold when key found
-    # todo1: 8 keyboards | unmarked, ⌃, ⌥, ⇧ | ⌥⇧, ⌃⇧, ⌃⌥ | ⌃⌥⇧
-
-    # todo1: send Press and Release Mouse Events from Arrow Bursts
+    # todo2: Send Release Mouse Event per Arrow Burst, without a Press
 
 
 # Name the Shifting Keys
@@ -902,6 +944,7 @@ KCAP_BY_KTEXT = {  # r"←|↑|→|↓" and so on  # ⌃ ⌥ ⇧ ⌃⌥ ⌃⇧ �
     "\033" "b": "⌥←",  # ⎋B  # ⎋←  # Emacs M-b Backword-Word  # Apple
     "\033" "f": "⌥→",  # ⎋F  # ⎋→  # Emacs M-f Forward-Word  # Apple
     "\x20": "Spacebar",  # ' '  # ␠  # ␣  # ␢
+    "``": "⌥``",  # sometimes arrives as "`" "`" split across hundreds of milliseconds
     "\x7f": "Delete",  # ␡  # ⌫  # ⌦
     "\xa0": "⌥Spacebar",  # '\N{No-Break Space}'
 }
@@ -913,38 +956,38 @@ for _KCAP in KCAP_BY_KTEXT.values():
     assert " " not in _KCAP, (_KCAP,)
 
 
-OPTION_KSTR_BY_KT = {
+OPTION_KTEXT_BY_KT = {
     "á": "⌥EA",  # E
     "é": "⌥EE",
     "í": "⌥EI",
-    # without the "j́" of ⌥EJ here (because its Combining Accent comes after as a 2nd K Char)
+    # without the "j́" of ⌥EJ here (because its Combining Accent comes after as a 2nd Character)
     "ó": "⌥EO",
     "ú": "⌥EU",
-    "´": "⌥ESpacebar",
+    "´": "⌥⇧E",
     "é": "⌥EE",
     "â": "⌥IA",  # I
     "ê": "⌥IE",
     "î": "⌥II",
     "ô": "⌥IO",
     "û": "⌥IU",
-    "ˆ": "⌥ISpacebar",
+    "ˆ": "⌥⇧I",
     "ã": "⌥NA",  # N
     "ñ": "⌥NN",
     "õ": "⌥NO",
-    "˜": "⌥NSpacebar",
+    "˜": "⌥⇧N",
     "ä": "⌥UA",  # U
     "ë": "⌥UE",
     "ï": "⌥UI",
     "ö": "⌥UO",
     "ü": "⌥UU",
     "ÿ": "⌥UY",
-    "¨": "⌥USpacebar",
+    "¨": "⌥⇧U",
     "à": "⌥`A",  # `
     "è": "⌥`E",
     "ì": "⌥`I",
     "ò": "⌥`O",
     "ù": "⌥`U",
-    "`": "⌥`Spacebar",  # ⌥` Spacebar comes out equal to U+0060 Grave Accent ` of a US Keyboard
+    # without the "`" of ⌥⇧` here (because it comes in as a U+0060 Grave Accent ` of a US Keyboard)
 }
 
 # hand-sorted by ⌥E ⌥I ⌥N ⌥U ⌥` order
@@ -953,13 +996,13 @@ OPTION_KSTR_BY_KT = {
 def kbytes_to_concise_kcaps_if(kbytes: bytes) -> str:
     """Choose Keycaps to speak of the Bytes of 1 Keyboard Chord"""
 
-    kstr = kbytes.decode()  # may raise UnicodeDecodeError
+    ktext = kbytes.decode()  # may raise UnicodeDecodeError
     kcap_by_ktext = KCAP_BY_KTEXT  # '\e\e[A' for ⎋↑ etc
     assert KCAP_SEP == " "
 
     concise = ""
-    if kstr in kcap_by_ktext.keys():
-        concise = kcap_by_ktext[kstr]
+    if ktext in kcap_by_ktext.keys():
+        concise = kcap_by_ktext[ktext]
 
     assert " " not in concise, (concise,)
 
@@ -978,11 +1021,11 @@ def kbytes_to_precise_kcaps(kbytes: bytes) -> str:
 
     assert kbytes, (kbytes,)
 
-    kstr = kbytes.decode()  # may raise UnicodeDecodeError
+    ktext = kbytes.decode()  # may raise UnicodeDecodeError
     assert KCAP_SEP == " "
 
     precise = ""
-    for kt in kstr:  # often 'len(kstr) == 1'
+    for kt in ktext:  # often 'len(ktext) == 1'
         kc = _kt_to_kcap_(kt)
         precise += kc
 
@@ -1002,7 +1045,7 @@ def _kt_to_kcap_(kt: str) -> str:
     ko = ord(kt)
 
     option_kt_str = OPTION_KT_STR  # '∂' for ⌥D
-    option_kstr_by_kt = OPTION_KSTR_BY_KT  # 'é' for ⌥EE
+    option_ktext_by_kt = OPTION_KTEXT_BY_KT  # 'é' for ⌥EE
     kcap_by_ktext = KCAP_BY_KTEXT  # '\x7F' for 'Delete'
 
     # Show more Key Caps than US-Ascii mentions
@@ -1013,8 +1056,8 @@ def _kt_to_kcap_(kt: str) -> str:
     elif kt in kcap_by_ktext.keys():  # Mac US Key Caps for Spacebar, F12, etc
         kc = kcap_by_ktext[kt]  # '⌃Spacebar', 'Return', 'Delete', etc
 
-    elif (kt != "`") and (kt in option_kstr_by_kt.keys()):  # Mac US Option Accents
-        kc = option_kstr_by_kt[kt]
+    elif (kt != "`") and (kt in option_ktext_by_kt.keys()):  # Mac US Option Accents
+        kc = option_ktext_by_kt[kt]
 
     elif kt in option_kt_str:  # Mac US Option Key Caps
         kc = _option_kt_to_kcap_(kt)
@@ -1056,7 +1099,7 @@ def _kt_to_kcap_(kt: str) -> str:
         assert ko < 0x11_0000, (ko, kt)
         kc = chr(ko)  # '!', '¡', etc
 
-        # todo0: have we fuzzed b"\xA1" .. FF vs "\u00A1" .. 00FF like we want?
+        # todo: Different Key Caps for Bytes b"\xA1" .. FF vs Str "\u00A1" .. 00FF
 
     # Succeed, but insist that Blank Space is never a Key Cap
 
@@ -1094,8 +1137,6 @@ assert len(OPTION_KT_STR) == (0x7E - 0x20) + 1  # counts Defs per ⌥ KeyCap of 
 _SPACELESS_OPTION_KT_STR_ = OPTION_KT_STR.replace(" ", "")
 assert len(_SPACELESS_OPTION_KT_STR_) == len(set(_SPACELESS_OPTION_KT_STR_))
 
-# todo1: more test of combining accents - like ⌥⇧I should come through as itself not as ⌥ISpacebar ?
-
 
 def _option_kt_to_kcap_(kt: str) -> str:
     """Convert to Mac US Option Key Caps from any of OPTION_KT_STR"""
@@ -1120,7 +1161,7 @@ def _option_kt_to_kcap_(kt: str) -> str:
 
 _KTEXT_LISTS_ = [
     list(KCAP_BY_KTEXT.keys()),
-    list(OPTION_KSTR_BY_KT.keys()),
+    list(OPTION_KTEXT_BY_KT.keys()),
     list(_SPACELESS_OPTION_KT_STR_),
 ]
 
