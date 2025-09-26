@@ -1,4 +1,4 @@
-# Easter-Ugg-Studio
+# Less-Beeps
 
 Nine classic games, reimagined with customizable rules and Easter Eggs
 
@@ -6,15 +6,15 @@ Nine classic games, reimagined with customizable rules and Easter Eggs
 ## Quick Start
 
 ```
-git clone https://github.com/pelavarre/easter-ugg-studio.git
-cd easter-ugg-studio/
-python3 bin/easter-ugg-studio.py --yolo
+git clone https://github.com/pelavarre/less-beeps.git
+cd less-beeps/
+python3 bin/less-beeps.py --yolo
 ```
 
 **Tested on** iPad, iPhone, MacBook, and Linuxes
 **Requirements** Python 3, Terminal
 
-[Report issues](https://twitter.com/intent/tweet?text=/@PELaVarre+Easter-Ugg-Studio) 🎮 👾
+[Report issues](https://twitter.com/intent/tweet?text=/@PELaVarre+Less-Beeps) 🎮 👾
 
 
 ## What Makes These Games Different
@@ -36,6 +36,12 @@ So that you control the experience, not the other way around
 
 **Presently available games**
 - Zero games implemented, first game in development
+
+We do have versions of
+Tic-Tac-Tuh, Chuckers, Chuss, Pung, Snuck, and Puckmahn,
+elsewhere in GitHub.
+But presently we're starting over here
+to make them all soon so much better
 
 
 ## The Visual Experience
@@ -60,7 +66,7 @@ that you get by trying to draw with only thin characters
 - Keyboard, mouse, and touch screen supported
 
 Or run a specific game without waiting for help
-> python3 bin/easter-ugg-studio.py Pung <br>
+> python3 bin/less-beeps.py Pung <br>
 
 
 ## Installation Options
@@ -94,16 +100,29 @@ the core experience remains timeless:
 games that respond to how you want to play them
 
 
-## Why "Ugg"?
+## Why "Less-Beeps"?
 
-Just a playful spelling of "Egg" (as in Easter Eggs).
-No relation to the boot company.
-Though those boots did make one 12-year-old very happy once
+The rudest move
+that many classic Terminal Apps made against you
+was their constant beeping:
+every move, every error, every event
+triggering that sharp, attention-grabbing sound
+
+Our games take a gentler approach.
+Much gentler than Emacs and Vim, in particular
+We give you less feedback less often,
+more calmly, and more thoughtfully.
+We show we care how you feel.
+We can afford to care.
+4 KiB is no longer a lot of memory
+
+Less Beeps is what you've got,
+when you have found the max fun with the least noise
 
 
 ## Links
 
-+ [GitHub Repository](https://github.com/pelavarre/easter-ugg-studio/blob/main/README.md)
-+ [Questions/Feedback](https://twitter.com/intent/tweet?text=/@PELaVarre+Easter-Ugg-Studio)
++ [GitHub Repository](https://github.com/pelavarre/less-beeps/blob/main/README.md)
++ [Questions/Feedback](https://twitter.com/intent/tweet?text=/@PELaVarre+Less-Beeps)
 
-<!-- git clone git@github.com:pelavarre/easter-ugg-studio.git -->
+<!-- git clone git@github.com:pelavarre/less-beeps.git -->

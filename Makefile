@@ -1,4 +1,4 @@
-# easter-ugg-studio/Makefile
+# less-beeps/Makefile
 
 
 #
@@ -51,7 +51,7 @@ help:
 
 
 bin:
-	cp -p bin/@ bin/easter-ugg-studio.py ~/bin/.
+	cp -p bin/@ bin/less-beeps.py ~/bin/.
 
 
 #
@@ -139,5 +139,5 @@ shellcheck:
 	shellcheck bin/pwnme
 
 
-# posted as:  https://github.com/pelavarre/easter-ugg-studio/blob/main/Makefile
-# copied from:  git clone https://github.com/pelavarre/easter-ugg-studio.git
+# posted as:  https://github.com/pelavarre/less-beeps/blob/main/Makefile
+# copied from:  git clone https://github.com/pelavarre/less-beeps.git

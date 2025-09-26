@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 r"""
-usage: easter-egg-studio.py [-h] [--yolo]
+usage: less-beeps.py [-h] [--yolo]
 
 give away nine classic simple Terminal games
 
@@ -10,7 +10,7 @@ options:
   --yolo      do what's popular now
 
 examples:
-  ./bin/easter-egg-studio.py --yolo
+  ./bin/less-beeps.py --yolo
 """
 
 # code reviewed by People, Black, Flake8, Mypy-Strict, & Pylance-Standard
@@ -1336,5 +1336,5 @@ if __name__ == "__main__":
 
 # 3456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789
 
-# posted into:  https://github.com/pelavarre/easter-ugg-studio/blob/main/bin/easter-ugg-studio.py
-# copied from:  git clone git@github.com:pelavarre/easter-ugg-studio.git
+# posted into:  https://github.com/pelavarre/less-beeps/blob/main/bin/less-beeps.py
+# copied from:  git clone git@github.com:pelavarre/less-beeps.git
