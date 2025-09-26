@@ -849,6 +849,8 @@ KCAP_SEP = " "  # separates '⇧Tab' from '⇧T a b', '⎋⇧FnX' from '⎋⇧Fn
 
 KCAP_BY_KTEXT = {  # r"←|↑|→|↓" and so on  # ⌃ ⌥ ⇧ ⌃⌥ ⌃⇧ ⌥⇧ ⌃⌥⇧ and so on
     "\x00": "⌃Spacebar",  # ⌃@  # ⌃⇧2
+    # "\x03": "Interrupt",  # ⌃C also found at FnReturn in iTerm2 Apple
+    # "\x08": "Backspace",  # ⌃H also found at ⌃⇧Delete and ⌃⌥⇧Delete in iTerm2 Apple
     "\x09": "Tab",  # '\t' ⇥
     "\x0d": "Return",  # '\r' ⏎
     "\033": "⎋",  # Esc  # Meta  # includes ⎋Spacebar ⎋Tab ⎋Return ⎋Delete without ⌥
@@ -864,7 +866,7 @@ KCAP_BY_KTEXT = {  # r"←|↑|→|↓" and so on  # ⌃ ⌥ ⇧ ⌃⌥ ⌃⇧ �
     "\033" "\033O" "B": "⌃⌥↓",  # ESC SS3 ⇧B  # Google
     "\033" "\033O" "C": "⌃⌥→",  # ESC SS3 ⇧C  # Google
     "\033" "\033O" "D": "⌃⌥←",  # ESC SS3 ⇧D  # Google
-    "\033" "\033[" "3;5~": "⎋⌃FnDelete",  # ⌥⌃FnDelete
+    "\033" "\033[" "3;5~": "⌥⌃FnDelete",  # ⎋⌃FnDelete  # Apple
     "\033" "\033[" "A": "⌥↑",  # CSI 04/01 Cursor Up (CUU)  # Option-as-Meta  # Google
     "\033" "\033[" "B": "⌥↓",  # CSI 04/02 Cursor Down (CUD)  # Option-as-Meta  # Google
     "\033" "\033[" "C": "⌥→",  # CSI 04/03 Cursor [Forward] Right (CUF_X)  # Google
@@ -872,7 +874,7 @@ KCAP_BY_KTEXT = {  # r"←|↑|→|↓" and so on  # ⌃ ⌥ ⇧ ⌃⌥ ⌃⇧ �
     "\033" "\033[" "Z": "⎋⇧Tab",  # ⇤  # CSI 05/10 CBT  # not ⌥⇧Tab
     "\033" "\x28": "⎋FnDelete",  # not ⌥FnDelete
     #
-    "\033O" "P": "F1",  # SS3 ⇧P
+    "\033O" "P": "F1",  # SS3 ⇧P  # but Apple takes ⇧F1 ⇧F2 ⇧F3 ⇧F4 from Terminal
     "\033O" "Q": "F2",  # SS3 ⇧Q
     "\033O" "R": "F3",  # SS3 ⇧R
     "\033O" "S": "F4",  # SS3 ⇧S
@@ -1012,21 +1014,30 @@ KCAP_BY_KTEXT = {  # r"←|↑|→|↓" and so on  # ⌃ ⌥ ⇧ ⌃⌥ ⌃⇧ �
     "\033[" "26~": "⇧F6",  # ⌥F9  # ⎋F9
     "\033[" "28~": "⇧F7",  # ⌥F10  # ⎋F10
     "\033[" "29~": "⇧F8",  # ⌥F11  # ⎋F11
+    #
     "\033[" "31~": "⇧F9",  # ⌥F12  # ⎋F12
     "\033[" "32~": "⇧F10",
     "\033[" "33~": "⇧F11",
     "\033[" "34~": "⇧F12",
     "\033[" "3;2~": "⇧FnDelete",
-    "\033[" "3;5~": "⌃FnDelete",
+    "\033[" "3;3~": "⌥FnDelete",  # iTerm2 Apple
+    "\033[" "3;4~": "⌥⇧FnDelete",  # iTerm2 Apple
+    "\033[" "3;5~": "⌃FnDelete",  # Apple
+    "\033[" "3;6~": "⌃⇧FnDelete",  # iTerm2 Apple
+    "\033[" "3;7~": "⌃⌥Delete",  # iTerm2 Apple
+    "\033[" "3;8~": "⌃⌥⇧FnDelete",  # iTerm2 Apple
     "\033[" "3~": "FnDelete",
+    #
     "\033[" "5;3~": "⌥Fn↑",  # iTerm2 Apple
     "\033[" "5;4~": "⌥⇧Fn↑",  # iTerm2 Apple
     "\033[" "5;7~": "⌃⌥Fn↑",  # iTerm2 Apple
     "\033[" "5~": "⇧Fn↑",  # Apple
+    #
     "\033[" "6;3~": "⌥Fn↓",  # iTerm2 Apple
     "\033[" "6;4~": "⌥⇧Fn↓",  # iTerm2 Apple
     "\033[" "6;7~": "⌃⌥Fn↓",  # iTerm2 Apple
     "\033[" "6~": "⇧Fn↓",  # Apple
+    #
     "\033[" "A": "↑",  # CSI 04/01 Cursor Up (CUU)  # also ⌥↑ Apple
     "\033[" "B": "↓",  # CSI 04/02 Cursor Down (CUD)  # also ⌥↓ Apple
     "\033[" "C": "→",  # CSI 04/03 Cursor Right [Forward] (CUF)  # also ⌥→ Apple
