@@ -21,7 +21,7 @@ python3 bin/less-beeps.py --yolo
 
 In place of rigid rules, our games adapt to you.
 Each of our games includes Easter Eggs that let you modify gameplay.
-So that you control the experience, not the other way around
+You control the experience, not the other way around
 
 **Available games**
 - **Tic-Tac-Tuh** (Tic-Tac-Toe, but fun)
@@ -52,7 +52,7 @@ support colorful Unicode characters that make these games shine
 > ⚪ ⚫ 🔴 🔵 🟠 🟡 🟢 🟣 🟤 <br>
 > ⬛ ⬜ 🟥 🟦 🟧 🟨 🟩 🟪 🟫 <br>
 
-These wide characters (2 Terminal Columns each) come across as lots more square.
+These wide characters (2 Terminal Columns each) come across as lots more circular and square.
 They give these games a look that's much more the look of a real board game,
 not so much the look of early computing
 that you get by trying to draw with only thin characters
@@ -79,7 +79,7 @@ Find a Linux Terminal in **Safari** (requires internet connection) <br>
 Run Python directly inside a Windows Command Prompt <br>
 Or run Python inside the Windows Subsystem for Linux (WSL) <br>
 
-### Don't got those? You can still try Linux, up free online
+### Don't got those? You can still try a Linux, up free online
 Google offers a free Linux Online, inside your Google Email, at
 https://shell.cloud.google.com/?show=terminal
 
@@ -109,15 +109,14 @@ every move, every error, every event
 triggering that sharp, attention-grabbing sound
 
 Our games take a gentler approach.
-Much gentler than Emacs and Vim, in particular
-We give you less feedback less often,
-more calmly, and more thoughtfully.
+Much calmer than Emacs and Vim, in particular
+We give you less feedback, less often and more thoughtfully.
 We show we care how you feel.
 We can afford to care.
 4 KiB is no longer a lot of memory
 
 Less Beeps is what you've got,
-when you have found the max fun with the least noise
+when you find the max fun with the least noise
 
 
 ## Links

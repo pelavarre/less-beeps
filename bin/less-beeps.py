@@ -24,7 +24,6 @@ import bdb
 import collections
 import dataclasses
 import difflib
-import itertools
 import math
 import os
 import pdb
@@ -69,8 +68,15 @@ def main() -> None:
 
     sys.excepthook = excepthook
 
+    testing = False
+    if testing:
+        t0 = time.time()
+        TerminalBytePacket(b"")._try_terminal_byte_pack_()
+        t1 = time.time()
+        print(t1 - t0)  # 233us
+
     mc = MainClass()
-    mc.main_class_run_1()
+    mc.main_class_run_2()
 
     # mc.main_class_run_1()
     # mc.main_class_run_2()
@@ -78,6 +84,7 @@ def main() -> None:
 
 @dataclasses.dataclass(order=True)  # , frozen=True)
 class MainClass:
+    """Run from the Shell Command Line, and launch the Py Repl vs uncaught Exceptions"""
 
     _touch_terminal_: TouchTerminal | None = None
 
@@ -85,81 +92,127 @@ class MainClass:
     def touch_terminal(self) -> TouchTerminal:
         tt = self._touch_terminal_
         assert tt, (tt,)
+        assert tt is touch_terminals[-1], (tt, touch_terminals)
         return tt
 
     def main_class_run_2(self) -> None:
-        """Run from the Shell Command Line, and launch the Py Repl vs uncaught Exceptions"""
+        """Take Input as Touch Tap, as Mouse Click, or as Keyboard Chord, till Quit"""
 
         # Take in the Shell Command-Line Args
 
         ns = self.parse_ugg_args()
-        assert ns.yolo, (ns.yolo, ns)  # todo1: needed after other Options declared
+        assert ns.yolo, (ns.yolo, ns)  # todo1: Declare more Options
 
         # Launch
 
         print("⌃D to quit,  Fn F1 for more help,  or ⌥-Click far from the Cursor<br>")
 
-        # Run till quit
+        # Run inside a Terminal
 
-        with TouchTerminal() as tt:
+        with TouchTerminal() as tt:  # todo2: small With bodies
             self._touch_terminal_ = tt  # replaces
 
             stdio = tt.stdio
 
-            tbp = TerminalBytePacket(b"")
+            # Launch a wide Ruler
 
+            tprint()
+            tprint(30 * "123456789 ")
+
+            tprint()
+
+            # Launch a fetch of Terminal Width x Height
+
+            tprint()
+            tprint("⎋[18T")
+            tt.stdio.write("\033[18t")  # the ⎋[18 T Call
             while True:
+                (kcaps, kbytes) = tt.read_key_caps(timeout=None)
+                if kcaps:
+                    break
+            self.kbytes_tprint_some(kcaps, kbytes=kbytes)  # the ⎋[8 T Reply
+
+            # Launch a fetch of Terminal Cursor Y X
+
+            tprint()
+            tprint("⎋[6N")
+            tt.stdio.write("\033[6n")  # the ⎋[ 6N Call
+            while True:
+                (kcaps, kbytes) = tt.read_key_caps(timeout=None)
+                if kcaps:
+                    break
+            self.kbytes_tprint_some(kcaps, kbytes=kbytes)  # the ⎋[ ⇧R reply
+
+            # Run till quit
+
+            tprint()
+            tt.row_y = min(tt.y_height, tt.row_y + 1)
+            while True:
+
+                # Prompt
+
+                if tt.column_x == X1:
+                    text = f"{tt.row_y};{tt.column_x}"
+                    tprint(text, end=" ")
+                    tt.column_x += len(text + " ")
+
+                # Flush and read, but trace each Byte as it comes
+
                 stdio.flush()
+                (kcaps, kbytes) = tt.read_key_caps(timeout=None)
+                assert kbytes, (kbytes, kcaps)
 
-                kbyte = tt.getch(timeout=None)
-                extra = tbp.take_one_if(kbyte)
+                if not kcaps:
+                    kbyte = kbytes[-1:]
+                    assert kbytes == kbyte, (kbytes, kbyte, kcaps)
 
-                kbytes = tbp.to_bytes()  # no matter if .closed
-                if not (tbp.text or tbp.closed or extra):
-                    self.kbyte_write_one(kbyte)
-                else:
-                    if not extra:
-                        self.kbyte_write_one(kbyte)
+                    self.kbyte_tprint_one(kbyte)
 
-                    self.kbytes_write_some(kbytes)
+                    continue
 
-                    tbp = TerminalBytePacket(extra)  # replaces
-                    if extra:
-                        self.kbyte_write_one(kbyte)
+                # Trace the Key Caps, as they come
 
-    def kbyte_write_one(self, kbyte: bytes) -> None:
+                self.kbytes_tprint_some(kcaps, kbytes=kbytes)
 
-        tt = self.touch_terminal
-        stdio = tt.stdio
+    def kbyte_tprint_one(self, kbyte: bytes) -> int:
+        """Print each Byte, as they come"""
 
         try:
-            precise = kbytes_to_precise_kcaps(kbyte)
-            print(precise, end=" ", file=stdio)
-        except UnicodeDecodeError:
-            print(kbyte, end=" ", file=stdio)
 
-    def kbytes_write_some(self, kbytes: bytes) -> None:
+            precise = kbytes_to_precise_kcaps(kbyte)
+            tprint(precise, end=" ")
+            dx = len(str(precise) + " ")
+
+        except UnicodeDecodeError:
+
+            tprint(kbyte, end=" ")
+            dx = len(str(kbyte) + " ")
+
+        return dx
+
+    def kbytes_tprint_some(self, kcaps: str, kbytes: bytes) -> None:
+        """Print each Key Caps Text, as they come"""
 
         tt = self.touch_terminal
-        stdio = tt.stdio
 
-        concise = kbytes_to_concise_kcaps_if(kbytes)
-        if concise:  # todo: Work harder to know concise/ precise distinct
-
-            print("> ", concise, end="\r\n", file=stdio)
-
+        burst_kbytes = tt._arrow_burst_kbytes_as_if_
+        if (not burst_kbytes) or (kbytes == burst_kbytes):
+            tprint(">", kcaps, kbytes)
         else:
+            tprint(">", kcaps, kbytes, burst_kbytes)
+            tt._arrow_burst_kbytes_as_if_ = b""
 
-            precise = kbytes_to_precise_kcaps(kbytes)
-            print("> ", precise, end="\r\n", file=stdio)
+        if -1 not in (tt.y_height, tt.row_y, tt.column_x):
+            tt.row_y = min(tt.y_height, tt.row_y + 1)
+            tt.column_x = X1
 
-            if precise in ("⌃C", "⌃D", "⌃Z", "⌃\\"):
-                sys.exit()
+        if kcaps in ("⌃C", "⌃D", "⌃Z", "⌃\\"):
+            sys.exit()
 
-        # todo1: Surface the ⎋F1 etc, despite >= 1 of ⎋ Meta before it
+        # todo3: Surface the ⎋F1 etc, despite >= 1 of ⎋ Meta before it
 
     def main_class_run_1(self) -> None:
-        """Run from the Shell Command Line, and launch the Py Repl vs uncaught Exceptions"""
+        """Say what we got for Input, if Keyboard Chord, if Arrow Burst, and how long we waited"""
 
         # Take in the Shell Command-Line Args
 
@@ -172,26 +225,34 @@ class MainClass:
 
         # Run till quit
 
-        with TouchTerminal() as tt:
+        with TouchTerminal() as tt:  # todo2: small With bodies
 
-            print(end="\r\n")
-            print("⎋[18T", end="\r\n")
+            # Launch a wide Ruler
+
+            tprint()
+            tprint(30 * "123456789 ")
+
+            tprint()
+
+            # Launch a fetch of Terminal Width x Height
+
+            tprint()
+            tprint("⎋[18T")
             tt.stdio.write("\033[18t")  # ⎋[18T call for reply ⎋[8;{rows};{columns}T
             tp = tt.read_terminal_poke(timeout=None)
             rep = tp.to_sketch_text()  # the ⎋[8 T reply
-            print(rep, end="\r\n")
+            tprint(rep)
 
-            print(end="\r\n")
-            print("⎋[6N", end="\r\n")
+            # Launch a fetch of Terminal Cursor Y X
+
+            tprint()
+            tprint("⎋[6N")
             tt.stdio.write("\033[6n")  # ⎋[6N calls for reply ⎋[{y};{x}⇧R
             tp = tt.read_terminal_poke(timeout=None)
             rep = tp.to_sketch_text()  # the ⎋[ ⇧R reply
-            print(rep, end="\r\n")
+            tprint(rep)
 
-            print(end="\r\n")
-            print(30 * "123456789 ", end="\r\n")
-
-            print(end="\r\n")
+            # Run till Quit
 
             while True:
 
@@ -206,21 +267,19 @@ class MainClass:
                         breaking = True
 
                 rep = tp.to_sketch_text()
-                # print(repr(tp), end="\r\n")
-                # print(str(tp), end="\r\n")
-                print(rep, end="\r\n")
+                tprint(rep)  # could be repr(tp) or str(tp)
 
                 if breaking:
                     break
 
                 # quits at Cat ⌃C ⌃D ⌃Z ⌃\
-                # todo1: quits at Emacs ⌃X ⌃C, ⌃X ⌃S
-                # todo1: quits at Vim ⇧Z ⇧Q, ⇧Z ⇧Z
+                # todo1: Quit at Emacs ⌃X ⌃C, ⌃X ⌃S
+                # todo1: Quit at Vim ⇧Z ⇧Q, ⇧Z ⇧Z
 
-            # todo3: ⎋F1 to lists Tests apart from Games
-            # todo3: Decipher different ⌥-Click encodings at iTerm2 & Google Cloud Shell
+            # todo2: ⎋F1 to lists Tests apart from Games
+            # todo3: Decipher ⌥-Click encoding at Google Cloud Shell
 
-        # todo3: Mouse Strokes at iPhone
+        # todo3: Pull ⎋[?1000;1006H Mouse Strokes at iPhone (for all iOS Small Screen?)
 
     def parse_ugg_args(self) -> argparse.Namespace:
         """Take in the Shell Command-Line Args"""
@@ -519,7 +578,10 @@ Immediately = 0.000_001
 Y1 = 1  # indexes Y Rows as Southbound across 1 .. Height
 X1 = 1  # indexes X Columns as Eastbound across 1 .. Width
 
+PN1 = 1  # min Pn of Csi is 1
 PN_MAX_32100 = 32100  # a Numeric [Int] beyond the Counts of Rows & Columns at any Real Terminal
+
+PS0 = 0  # min Ps of Csi is 0
 
 
 touch_terminals = list()
@@ -533,9 +595,17 @@ class TouchTerminal:
 
     before: int  # for writing at Entry
     tcgetattr: list[int | list[bytes | int]]  # replaced by Entry
-    after: int  # for writing at Exit  # todo1: .TCSAFLUSH vs large Paste
+    after: int  # for writing at Exit  # todo1: Prefer .TCSAFLUSH vs large mess of Paste
 
-    kbytearray: bytearray  # held now, returned later
+    kbytearray: bytearray  # cleared then formed by .read_key_caps_plus and .getch
+    _kpacket_: TerminalBytePacket  # cleared then formed by .read_key_caps_plus
+
+    y_height: int  # Terminal Screen Pane Rows, else -1
+    x__width: int  # Terminal Screen Pane Columns, else -1
+    row_y: int  # Terminal Cursor Y Row, else -1
+    column_x: int  # Terminal Cursor X Column, else -1
+
+    _arrow_burst_kbytes_as_if_: bytes  # from .to_mouse_key_caps_if_start
 
     #
     # Init, enter, exit, and poll
@@ -556,6 +626,14 @@ class TouchTerminal:
         self.after = termios.TCSADRAIN
 
         self.kbytearray = bytearray()
+        self._kpacket_ = TerminalBytePacket(b"")
+
+        self.y_height = -1
+        self.x_width = -1
+        self.row_y = -1
+        self.column_x = -1
+
+        self._arrow_burst_kbytes_as_if_ = b""
 
     def __enter__(self) -> typing.Self:
         r"""Stop line-buffering Input, stop replacing \n Output with \r\n, etc"""
@@ -640,43 +718,140 @@ class TouchTerminal:
     # Read from Keyboard, Mouse, and Touch
     #
 
-    # todo4: Surface the Arrow Burst as ⎋[ M with {f}{y}{x}
-    # todo4: Surface the ⌥`` despite mostly destroying timing
+    def read_key_caps(self, timeout: float | None) -> tuple[str, bytes]:
+        """Read one whole Input as Str, else just peek at the next Input Byte"""
+
+        kbytearray = self.kbytearray
+        _kpacket_ = self._kpacket_
+
+        y_height = self.y_height
+        x_width = self.x_width
+        row_y = self.row_y
+        column_x = self.column_x
+
+        # Fetch more Bytes, when needed
+
+        tp = TerminalPoke(hit=0, delays=tuple(), reads=tuple(), extra=b"")
+        if not kbytearray:
+            tp = self._fill_kbytearray_(timeout=timeout)
+            if not kbytearray:
+                return ("", b"")
+
+            # Collapse each Arrow Burst down into a Mouse Release, if
+
+            hwyx = (y_height, x_width, row_y, column_x)
+            # hwyx = (-1, -1, -1, -1)
+            if -1 not in hwyx:
+
+                (mouse_ktext, mouse_kbytes) = tp.to_mouse_key_caps_if_start(hwyx)
+                assert bool(mouse_ktext) == bool(mouse_kbytes), (mouse_ktext, mouse_kbytes, tp)
+
+                if mouse_ktext and mouse_kbytes:
+                    self._arrow_burst_kbytes_as_if_ = arrow_burst_kbytes_pn_compress(mouse_kbytes)
+
+                    if len(mouse_kbytes) >= (4 * 3):  # if not a single Arrow
+                        del kbytearray[: len(mouse_kbytes)]
+                        kbytearray[0:0] = mouse_ktext.encode()
+
+        kbytes = bytes(kbytearray)
+        kbyte = bytes(kbytearray[:1])  # does peek, doesn't pop
+
+        # Pass back the ⌥`` encoded as rapid ``
+
+        if kbytes == b"``":
+            kbytearray.clear()
+
+            concise = kbytes_to_concise_kcaps_if(kbytes)
+            assert concise == "⌥``", (concise, kbytes)
+
+            return (concise, kbytes)
+
+        # Pass back each of the early Bytes, one at a time
+
+        extra = _kpacket_.take_one_if(kbyte)  # truthy at ⎋ [ ⇧! 9, etc
+
+        if not (_kpacket_.text or _kpacket_.closed or extra):
+            kbytearray.pop(0)
+            return ("", kbyte)
+
+        if not extra:  # pops if taken, else keeps inside .kbytearray when not taken
+            kbytearray.pop(0)
+
+        # Read, snoop, and clear one whole Packet
+
+        kbytes = _kpacket_.to_bytes()  # no matter if .closed
+        self.snoop_packet()
+        _kpacket_.clear_packet()
+
+        # Pick out concise or precise Key Caps, and return them
+
+        concise = kbytes_to_concise_kcaps_if(kbytes)
+        if concise:
+            return (concise, kbytes)
+
+        precise = kbytes_to_precise_kcaps(kbytes)
+        return (precise, kbytes)
+
+    def snoop_packet(self) -> None:
+        """Mirror updates to Height, Width, Y, and X, as they fly by"""
+
+        _kpacket_ = self._kpacket_
+
+        nhw_ints = _kpacket_.to_csi_ints_if(b"t", default=PN1)  # ⎋[8 T
+        if len(nhw_ints) == 3:
+            assert nhw_ints[0] == 8, (
+                nhw_ints[0],
+                nhw_ints,
+            )
+            self.y_height = nhw_ints[1]
+            self.x_width = nhw_ints[2]
+
+        yx_ints = _kpacket_.to_csi_ints_if(b"R", default=PN1)  # ⎋[ ⇧R
+        if len(yx_ints) == 2:
+            self.row_y = yx_ints[0]
+            self.column_x = yx_ints[-1]
 
     def getch(self, timeout: float | None) -> bytes:  # a la msvcrt.getch
-        """Read one Byte of Keyboard Chord, Mouse Arrow Burst, Mouse Click, or Touch Tap"""
+        """Read next Byte of Keyboard Chord, Mouse Arrow Burst, Mouse Click, or Touch Tap"""
 
         kbytearray = self.kbytearray
 
-        # Fetch Bytes when needed
+        # Fetch more Bytes, when needed
 
         if not kbytearray:
-
-            tp = self.read_terminal_poke(timeout=timeout)
-            kbytes = tp.to_kbytes()
-
-            assert kbytes != b"\033[0n", (kbytes, tp)  # todo: Log if this ever happens
-
-            if tp.reads and tp.reads[-1].endswith(b"\033[0n"):
-                tp_reads_n1 = tp.reads[-1].removesuffix(b"\033[0n")
-                tp_reads = tp.reads[:-1] + (tp_reads_n1,)
-
-                tp = dataclasses.replace(tp, reads=tp_reads)
-                kbytes = tp.to_kbytes()
-
-            if not kbytes:
+            self._fill_kbytearray_(timeout=timeout)
+            if not kbytearray:
                 return b""
 
-            kbytearray.extend(kbytes)
-
-        assert kbytearray, (kbytearray,)
-
-        # Pass back one Byte
+        # Pass back the first Byte
 
         kord = kbytearray.pop(0)
         kbytes = bytes([kord])
 
         return kbytes
+
+    def _fill_kbytearray_(self, timeout: float | None) -> TerminalPoke:
+        """Fetch Bytes into Self, and return their Timing and simple ⎋[0 N Closing separately"""
+
+        kbytearray = self.kbytearray
+
+        assert not kbytearray, (kbytearray,)
+
+        tp = self.read_terminal_poke(timeout=timeout)
+        kbytes = tp.to_kbytes()
+
+        assert kbytes != b"\033[0n", (kbytes, tp)  # todo: Log if ⎋[0 N ever comes (as Paste?)
+
+        if tp.reads and tp.reads[-1].endswith(b"\033[0n"):
+            tp_reads_n1 = tp.reads[-1].removesuffix(b"\033[0n")
+            tp_reads = tp.reads[:-1] + (tp_reads_n1,)
+
+            tp = dataclasses.replace(tp, reads=tp_reads)
+            kbytes = tp.to_kbytes()
+
+        kbytearray.extend(kbytes)
+
+        return tp
 
     def read_terminal_poke(self, timeout: float | None) -> TerminalPoke:
         """Read one Keyboard Chord, Mouse Arrow Burst, Mouse Click, or Touch Tap"""
@@ -712,9 +887,17 @@ class TouchTerminal:
             fd = fileno
             length = 1
 
-            read_plus = os.read(fd, length)
+            read = os.read(fd, length)
+            # os.write(fd, read)  # directly looping back doesn't simplify Arrow Burst Input
+            # stdio.flush()
+            read_plus = read
+
             while self._kbhit_(timeout=0.000_001):
-                read_plus += os.read(fd, length)
+                read = os.read(fd, length)
+                # os.write(fd, read)
+                # stdio.flush()
+                read_plus += read
+
             t2 = time.time()
 
             # Exactly once, write the ⎋[5 N Call for the ⎋[0 N Reply to close Input
@@ -722,8 +905,8 @@ class TouchTerminal:
 
             read = read_plus
             if not read_list:
-                stdio.write("\033[5n")  # todo: Call for different Replies to close Input
-                stdio.flush()  # todo: Call for no Reply to close Text other than the ` of ⌥``
+                stdio.write("\033[5n")  # todo: Try calling for different Replies to close Input
+                stdio.flush()  # todo: Don't call for Reply to close Text, except to close the ` of ⌥``
             else:
                 m = re.search(rb"\033\[0n", string=read_plus)
                 if m:
@@ -775,8 +958,15 @@ class TerminalBytePacket:
     #
 
     def __init__(self, data: bytes) -> None:
+        self._refill_packet_(data)
 
-        # Init
+    def clear_packet(self) -> None:
+        """Clear Self, but leave it open to taking in Bytes"""
+
+        self._refill_packet_(b"")
+
+    def _refill_packet_(self, data: bytes) -> None:
+        """Clear Self, and then take in the Bytes, but require that they all fit"""
 
         self.text = ""
 
@@ -786,6 +976,8 @@ class TerminalBytePacket:
 
         self.stash = bytearray()
         self.tail = bytearray()
+
+        self.closed = False
 
         self._require_simple_()  # does let the initial .data be empty
 
@@ -879,6 +1071,28 @@ class TerminalBytePacket:
 
         return b  # no matter if .closed
 
+    def to_csi_ints_if(self, backtail: bytes, default: int) -> list[int]:
+        """Pick out the Nonnegative Int Literals of a CSI Escape Sequence"""
+
+        head = self.head
+        neck = self.neck
+        back = self.back
+        stash = self.stash
+        tail = self.tail
+        closed = self.closed
+
+        if head.startswith(b"\033["):
+            if re.fullmatch(b"[0-9;]*", string=neck):
+                if backtail == (back + tail):
+                    if closed:
+                        assert not stash, (stash, backtail, self)
+
+                        ints = list((int(_) if _ else default) for _ in neck.split(b";"))
+
+                        return ints
+
+        return list()
+
     def _require_simple_(self) -> None:
         """Raise Exception if a mutation gone wrong has damaged Self"""
 
@@ -906,6 +1120,7 @@ class TerminalBytePacket:
             assert head, (head, neck, back, tail, self)
         if stash:
             assert not tail, (tail, closed, stash, self)
+            assert not closed, (closed, stash, self)
         if tail:
             assert closed, (closed, tail, self)
 
@@ -1259,8 +1474,8 @@ class TerminalBytePacket:
         encode = decode.encode()
 
         head = self.head
-        back = self.back
         neck = self.neck
+        back = self.back
         tail = self.tail
         closed = self.closed
 
@@ -1310,26 +1525,6 @@ class TerminalBytePacket:
 
         # todo: Limit the length of a CSI Escape Sequence
 
-    def close_if_csi_shift_m(self) -> None:
-        """Convert to Csi ⎋[⇧M, if standing as an open 6 Char Mouse Report"""
-
-        head = self.head
-        back = self.back
-        neck = self.neck
-        tail = self.tail
-        closed = self.closed
-
-        if (head == b"\033[M") and (not back) and (not neck) and (not tail):
-            if not closed:
-
-                self.head.clear()
-                self.head.extend(b"\033[")
-                self.tail.extend(b"M")
-
-                self.closed = True
-
-                return
-
     # todo: Limit rate of input so livelocks go less wild, like in Keyboard/ Screen loopback
 
 
@@ -1357,7 +1552,6 @@ class TerminalPoke:
         reads = self.reads
         delays = self.delays
 
-        assert reads, (reads,)
         assert len(reads) == len(delays), (len(reads), len(delays))
 
     def __str__(self) -> str:
@@ -1386,10 +1580,88 @@ class TerminalPoke:
 
         reads = self.reads
         extra = self.extra
-
         kbytes = b"".join(reads) + extra
 
         return kbytes
+
+    def to_mouse_key_caps_if_start(self, hwyx: tuple[int, int, int, int]) -> tuple[str, bytes]:
+        """Form the Key Caps and Bytes of a Mouse Release, if from an Arrow Burst"""
+
+        (y_height, x_width, row_y, column_x) = hwyx
+
+        assert Y1 <= row_y <= y_height, (row_y, y_height)
+        assert X1 <= column_x <= x_width, (column_x, x_width)
+
+        reads = self.reads
+        extra = self.extra
+
+        dy_dx_by_arrow_kbytes = DY_DX_BY_ARROW_KBYTES
+
+        # Visit each Arrow
+
+        y = row_y
+        x = column_x
+
+        from_bytearray = bytearray(b"".join(reads) + extra)
+        to_bytearray = bytearray()
+
+        while True:
+            arrow = bytes(from_bytearray[:3])
+            if arrow not in dy_dx_by_arrow_kbytes.keys():
+                break
+
+            to_bytearray.extend(arrow)
+            del from_bytearray[:3]
+
+            # Look up which way this Arrow points
+
+            (dy, dx) = dy_dx_by_arrow_kbytes[arrow]
+
+            assert bool(dy) != bool(dx), (dy, dx)
+            assert dy in (-1, 0, +1), (dy,)
+            assert dx in (-1, 0, +1), (dx,)
+
+            # Move our more virtual Arrow Cursor (not the more real Terminal Cursor outside)
+
+            if x > x_width:
+                x = X1
+                y = min(y + 1, y_height)
+
+            assert Y1 <= y <= y_height, (y, y_height)
+            assert X1 <= x <= x_width, (x, x_width)
+
+            y += dy
+            x += dx
+
+            y = max(Y1, min(y, y_height))
+
+            if x < X1:
+                x = x_width
+                y = max(Y1, y - 1)
+
+        if x > x_width:
+            x = x_width  # caps differently at end of Arrow Burst
+
+        assert Y1 <= y <= y_height, (y, y_height)
+        assert X1 <= x <= x_width, (x, x_width)
+
+        # Give up here, if no Arrow Burst found
+
+        if not to_bytearray:
+            return ("", b"")
+
+        # Encode the Arrow Burst as an ⌥-Click Release of the Mouse
+
+        kbytes = bytes(to_bytearray)
+
+        f = int("0b01000", base=0)  # f = ⌥ of 0b⌃⌥⇧00
+        kcaps = f"\033[<{f};{x};{y}m"  # f x y, not f y x  # 'm' for Release  # not 'M' for Press
+
+        # Succeed (but trust the Caller to distinguish Single Arrows from Longer Bursts as needed)
+
+        return (kcaps, kbytes)
+
+        # ('\033[<8;25;80m', b'\033[C',)  # Down Arrow into the Southeast Corner
 
     def to_sketch_text(self) -> str:
         """Say what we got for Input, if Keyboard Chord, if Arrow Burst, and how long we waited"""
@@ -1468,15 +1740,15 @@ class TerminalPoke:
 
         # Speak concisely of Key Caps, and then also precisely of Key Caps, if possible
 
-        read = reads[0]
-        assert read == b"".join(reads[:-1]), (read, reads[:-1])
+        kbytes = reads[0]
+        assert kbytes == b"".join(reads[:-1]), (kbytes, reads[:-1])
 
-        concise = kbytes_to_concise_kcaps_if(read)
-        precise = kbytes_to_precise_kcaps(read)
+        concise = kbytes_to_concise_kcaps_if(kbytes)
+        precise = kbytes_to_precise_kcaps(kbytes)
 
         if concise:
             if concise == precise:
-                rep = f"{concise} {ascii(read)}"  # Tab b'\t'
+                rep = f"{concise} {ascii(kbytes)}"  # Tab b'\t'
             else:
                 rep = f"{concise} {precise}"  # '⇧Tab ⎋[⇧Z'
             return rep
@@ -1484,7 +1756,7 @@ class TerminalPoke:
         # Fall back to speak only precisely of Key Caps
 
         if len(precise.lstrip("⇧⌃⌥")) == 1:  # ⌃ ⌥ ⇧ sorted by Ord
-            rep = f"{precise} {ascii(read)}"  # "⌃P b'\x10'"  # ⌥Q b'\xc5\x93'
+            rep = f"{precise} {ascii(kbytes)}"  # "⌃P b'\x10'"  # ⌥Q b'\xc5\x93'
             return rep
 
         # Give up on speaking of Key Caps, like fall back to speak of Bytes
@@ -1499,31 +1771,20 @@ class TerminalPoke:
 
         # Take nothing but ⎋[A ⎋[B ⎋[C ⎋[D plain Arrow Keystroke Chords, up to a ⎋[0 N Reply
 
-        count_by_arrow: dict[bytes, int]
-        count_by_arrow = collections.defaultdict(int)
-
-        arrows = list()
-
+        arrow_burst_kbytearray = bytearray()
         end = b""
 
         kbytes = b"".join(reads)
         for index in range(0, len(kbytes), 3):
-            triple = kbytes[index:][:3]
+            arrow = kbytes[index:][:3]
 
-            if triple not in dy_dx_by_arrow_kbytes.keys():
+            if arrow not in dy_dx_by_arrow_kbytes.keys():
                 end = kbytes[index:]
                 break
 
-            arrow = triple
-            arrows.append(arrow)
-            count_by_arrow[arrow] += 1
+            arrow_burst_kbytearray.extend(arrow)
 
-            # Require never more than 3 of the 4 ⎋[A ⎋[B ⎋[C ⎋[D in the Burst
-
-            if len(count_by_arrow.keys()) > 3:
-                return ""
-
-        if len(arrows) < 4:
+        if len(arrow_burst_kbytearray) < (4 * 3):
             return ""
 
         if b"\033[0n" not in end:
@@ -1531,28 +1792,16 @@ class TerminalPoke:
 
         # Say briefly how many Arrows came in what order, and if the End was strange
 
-        parts = list()
-        for k, vv in itertools.groupby(arrows):
-            n = len(list(vv))
-            concise = kbytes_to_concise_kcaps_if(k)
-
-            s = concise
-            s = s.replace("←", "*Lt")
-            s = s.replace("↑", "*Up")
-            s = s.replace("→", "*Rt")
-            s = s.replace("↓", "*Dn")
-
-            part = f"{n}{s}"
-            parts.append(part)
-
-        join = "+".join(parts)
+        arrow_burst_kbytes = bytes(arrow_burst_kbytearray)
+        kbytes_as_if = arrow_burst_kbytes_pn_compress(arrow_burst_kbytes)
+        rep = str(kbytes_as_if)
 
         if end != b"\033[0n":
-            join += f" {end!r}"
+            rep += f" {end!r}"
 
         # Succeed
 
-        return join
+        return rep
 
     def _format_reads_as_closed_simply_if_(self) -> str:
         """Say what we got for Input, if indeed it is a simple Close"""
@@ -1581,7 +1830,6 @@ class TerminalPoke:
         return rep
 
     # todo2: Fill Bold over 8 Dim keyboards | unmarked, ⌃, ⌥, ⇧ | ⌥⇧, ⌃⇧, ⌃⌥ | ⌃⌥⇧
-    # todo4: Send Release Mouse Event per Arrow Burst, without a Press
 
 
 # Name the Shifting Keys
@@ -1871,13 +2119,13 @@ def kbytes_to_concise_kcaps_if(kbytes: bytes) -> str:
     kcap_by_ktext = KCAP_BY_KTEXT  # '\e\e[A' for ⎋↑ etc
     assert KCAP_SEP == " "
 
-    concise = ""
+    concise_if = ""
     if ktext in kcap_by_ktext.keys():
-        concise = kcap_by_ktext[ktext]
+        concise_if = kcap_by_ktext[ktext]
 
-    assert " " not in concise, (concise,)
+    assert " " not in concise_if, (concise_if, kbytes)  # accepts empty, but not split by Spaces
 
-    return concise
+    return concise_if
 
     # ⌥Y often comes through as \ U+005C Reverse-Solidus aka Backslash  # not ¥ Yen-Sign
 
@@ -1892,15 +2140,18 @@ def kbytes_to_precise_kcaps(kbytes: bytes) -> str:
 
     assert kbytes, (kbytes,)
 
-    ktext = kbytes.decode()  # todo: .kbytes_to_precise_kcaps may raise UnicodeDecodeError
     assert KCAP_SEP == " "
+
+    ktext = kbytes.decode()  # todo: .kbytes_to_precise_kcaps may raise UnicodeDecodeError
+    assert ktext, (ktext,)
 
     precise = ""
     for kt in ktext:  # often 'len(ktext) == 1'
         kc = _kt_to_kcap_(kt)
         precise += kc
 
-    assert " " not in precise, (precise,)
+    assert precise, (precise, kbytes)
+    assert " " not in precise, (precise, kbytes)
 
     return precise
 
@@ -2047,6 +2298,44 @@ _KTEXT_LISTS_ = [
 _KTEXT_UNROLL_ = list(_KTEXT_ for _KTEXT_LIST_ in _KTEXT_LISTS_ for _KTEXT_ in _KTEXT_LIST_)
 for _KTEXT_, _COUNT_ in collections.Counter(_KTEXT_UNROLL_).items():
     assert _COUNT_ == 1, (_COUNT_, _KTEXT_)
+
+
+def arrow_burst_kbytes_pn_compress(kbytes: bytes) -> bytes:
+    """Compress each run of Arrows into a Pn > 1"""
+
+    pairs: list[tuple[int, bytes]] = list()
+
+    kbytearray = bytearray(kbytes)
+    while kbytearray:
+        arrow = bytes(kbytearray[:3])
+        del kbytearray[:3]
+
+        tail = arrow[-1:]
+        if pairs and pairs[-1][-1] == tail:
+            pairs[-1] = (pairs[-1][0] + 1, tail)
+        else:
+            pair = (1, tail)
+            pairs.append(pair)
+
+    kbytes = b"".join(
+        (b"\033[" + (str(pn).encode() if (pn >= 2) else b"") + tail) for (pn, tail) in pairs
+    )
+
+    return kbytes
+
+
+def tprint(*args: object, end: str = "\r\n") -> None:
+    """Print to Terminal"""
+
+    text = " ".join(str(_) for _ in args)
+
+    tt = touch_terminals[-1]
+    stdio = tt.stdio
+    tcgetattr = tt.tcgetattr
+
+    assert tcgetattr, (tcgetattr,)
+
+    print(text, end=end, file=stdio)
 
 
 #
