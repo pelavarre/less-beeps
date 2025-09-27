@@ -70,8 +70,10 @@ def main() -> None:
     sys.excepthook = excepthook
 
     mc = MainClass()
-    # mc.main_class_run_2()
     mc.main_class_run_1()
+
+    # mc.main_class_run_1()
+    # mc.main_class_run_2()
 
 
 @dataclasses.dataclass(order=True)  # , frozen=True)
@@ -84,9 +86,6 @@ class MainClass:
         tt = self._touch_terminal_
         assert tt, (tt,)
         return tt
-
-    def __init__(self) -> None:  # todo1: needed after we add Instance Fields
-        pass
 
     def main_class_run_2(self) -> None:
         """Run from the Shell Command Line, and launch the Py Repl vs uncaught Exceptions"""
@@ -128,10 +127,6 @@ class MainClass:
                     if extra:
                         self.kbyte_write_one(kbyte)
 
-        # todo: do surface the Arrow Burst as ⎋[ M with {f}{y}{x}
-        # todo: do surface the ⌥`` despite mostly destroying timing
-        # todo: do surface the ⎋F1 etc, despite >= 1 of ⎋ Meta before it
-
     def kbyte_write_one(self, kbyte: bytes) -> None:
 
         tt = self.touch_terminal
@@ -149,7 +144,7 @@ class MainClass:
         stdio = tt.stdio
 
         concise = kbytes_to_concise_kcaps_if(kbytes)
-        if concise:  # todo: work harder to know concise/ precise distinct
+        if concise:  # todo: Work harder to know concise/ precise distinct
 
             print("> ", concise, end="\r\n", file=stdio)
 
@@ -161,13 +156,15 @@ class MainClass:
             if precise in ("⌃C", "⌃D", "⌃Z", "⌃\\"):
                 sys.exit()
 
+        # todo1: Surface the ⎋F1 etc, despite >= 1 of ⎋ Meta before it
+
     def main_class_run_1(self) -> None:
         """Run from the Shell Command Line, and launch the Py Repl vs uncaught Exceptions"""
 
         # Take in the Shell Command-Line Args
 
         ns = self.parse_ugg_args()
-        assert ns.yolo, (ns.yolo, ns)  # todo1: needed after other Options declared
+        assert ns.yolo, (ns.yolo, ns)
 
         # Launch
 
@@ -181,14 +178,14 @@ class MainClass:
             print("⎋[18T", end="\r\n")
             tt.stdio.write("\033[18t")  # ⎋[18T call for reply ⎋[8;{rows};{columns}T
             tp = tt.read_terminal_poke(timeout=None)
-            rep = tp.format_as_text().replace("\n", "\r\n")  # the ⎋[8 T reply
+            rep = tp.to_sketch_text()  # the ⎋[8 T reply
             print(rep, end="\r\n")
 
             print(end="\r\n")
             print("⎋[6N", end="\r\n")
             tt.stdio.write("\033[6n")  # ⎋[6N calls for reply ⎋[{y};{x}⇧R
             tp = tt.read_terminal_poke(timeout=None)
-            rep = tp.format_as_text().replace("\n", "\r\n")  # the ⎋[ ⇧R reply
+            rep = tp.to_sketch_text()  # the ⎋[ ⇧R reply
             print(rep, end="\r\n")
 
             print(end="\r\n")
@@ -208,7 +205,9 @@ class MainClass:
                     if precise in ("⌃C", "⌃D", "⌃Z", "⌃\\"):
                         breaking = True
 
-                rep = tp.format_as_text().replace("\n", "\r\n")
+                rep = tp.to_sketch_text()
+                # print(repr(tp), end="\r\n")
+                # print(str(tp), end="\r\n")
                 print(rep, end="\r\n")
 
                 if breaking:
@@ -219,11 +218,7 @@ class MainClass:
                 # todo1: quits at Vim ⇧Z ⇧Q, ⇧Z ⇧Z
 
             # todo3: ⎋F1 to lists Tests apart from Games
-
             # todo3: Decipher different ⌥-Click encodings at iTerm2 & Google Cloud Shell
-
-            # todo3: Split Control Input Bytes into TerminalBytePacket's
-            # todo3: Gather Text Input Bytes into TerminalBytePacket's
 
         # todo3: Mouse Strokes at iPhone
 
@@ -481,8 +476,8 @@ class ArgDocParser:
 #
 
 
-def blur(f: float) -> str:
-    """Format 0e0 as '0', but other Floats as 2 or 3 Digits, with a Metric Exponent"""
+def sketch(f: float, near: float) -> str:
+    """Format F as '0', else as 2 or 3 digits with a metric exponent, but not the exponent of near"""
 
     if f == 0:
         return "0"  # 0
@@ -493,7 +488,7 @@ def blur(f: float) -> str:
     sci = math.floor(math.log10(abs_))
     eng = (sci // 3) * 3
     precise = abs_ / (10**eng)
-    assert 1 <= precise <= 1000, (precise, abs_, eng, f)  # todo: Log == 1000 if ever happens
+    assert 1 <= precise <= 1000, (precise, abs_, eng, f)  # todo: Log if '== 1000' ever happens
 
     dotted = round(precise, 1)  # 1.0  # 9.9  # 10.0
     assert 1.0 <= dotted <= 1000.0, (dotted, abs_, eng, f)
@@ -503,11 +498,13 @@ def blur(f: float) -> str:
         concise = round(precise)  # 10  # 1000
         assert 10 <= concise <= 1000, (concise, abs_, eng, f)
 
-    rep = f"{neg}{concise}e{eng}"  # omits '+' in the exponent
+    log10_near = int(math.log10(near))
+    if eng == log10_near:
+        rep = f"{neg}{concise}"
+    else:
+        rep = f"{neg}{concise}e{eng}"  # sends 'e+' as 'e', sends 'e0' as 'e0'
 
     return rep
-
-    # lets the caller choose drop the "e0"s, or the "e-3"s, or neither, or whatever
 
 
 #
@@ -643,6 +640,9 @@ class TouchTerminal:
     # Read from Keyboard, Mouse, and Touch
     #
 
+    # todo4: Surface the Arrow Burst as ⎋[ M with {f}{y}{x}
+    # todo4: Surface the ⌥`` despite mostly destroying timing
+
     def getch(self, timeout: float | None) -> bytes:  # a la msvcrt.getch
         """Read one Byte of Keyboard Chord, Mouse Arrow Burst, Mouse Click, or Touch Tap"""
 
@@ -655,7 +655,7 @@ class TouchTerminal:
             tp = self.read_terminal_poke(timeout=timeout)
             kbytes = tp.to_kbytes()
 
-            assert kbytes != b"\033[0n", (kbytes, tp)  # todo: does this ever happen?
+            assert kbytes != b"\033[0n", (kbytes, tp)  # todo: Log if this ever happens
 
             if tp.reads and tp.reads[-1].endswith(b"\033[0n"):
                 tp_reads_n1 = tp.reads[-1].removesuffix(b"\033[0n")
@@ -913,7 +913,7 @@ class TerminalBytePacket:
     # Tests, to run slowly and thoroughly across like 211ms
     #
 
-    def _try_terminal_byte_pack_(self) -> None:  # todo: call this slow Self-Test more often
+    def _try_terminal_byte_pack_(self) -> None:  # todo: Call this slow Self-Test more often
         """Try some Packets open to, or closed against, taking more Bytes"""
 
         # Try some Packets left open to taking more Bytes
@@ -947,7 +947,7 @@ class TerminalBytePacket:
         self._try_closed_(b"\033[", b"3;5", b"H")  # CSI Head with Next and Tail
         self._try_closed_(b"\033[", b"6", b" q")  # CSI Head with Neck and Back & Tail
 
-        # todo: test each Control Flow Return? test each Control Flow Branch?
+        # todo: Test each Control Flow Return? Test each Control Flow Branch?
 
     def _try_open_(self, *args: bytes) -> None:
         """Require the Eval of the Str of the Packet equals its Bytes"""
@@ -1114,7 +1114,7 @@ class TerminalBytePacket:
         return ""
 
         # b"\xc2\x80", b"\xe0\xa0\x80", b"\xf0\x90\x80\x80" .. b"\xf4\x8f\xbf\xbf"
-        # todo: invent UTF-8'ish Encoding beyond 1..4 Bytes for Unicode Codes < 0x110000
+        # todo: Invent UTF-8'ish Encoding beyond 1..4 Bytes for Unicode Codes < 0x110000 ?
 
     def _take_some_mouse_if_(self, data: bytes) -> bytes:
         """Take 1 Byte into Mouse Report, if next Bytes could close as Mouse Report"""
@@ -1228,7 +1228,7 @@ class TerminalBytePacket:
 
             # Take & close Unprintable Chars or 1..4 Undecodable Bytes, as Escaped Tail
 
-            tail.extend(data)  # todo: test of Unprintable/ Undecodable after ⎋O SS3
+            tail.extend(data)  # todo: Test Unprintable/ Undecodable after ⎋O SS3
             self.closed = True
             return b""  # takes & closes Unprintable Chars or 1..4 Undecodable Bytes
 
@@ -1308,7 +1308,7 @@ class TerminalBytePacket:
 
         # splits '⎋[200~' and '⎋[201~' away from enclosed Bracketed Paste
 
-        # todo: limit the length of a CSI Escape Sequence
+        # todo: Limit the length of a CSI Escape Sequence
 
     def close_if_csi_shift_m(self) -> None:
         """Convert to Csi ⎋[⇧M, if standing as an open 6 Char Mouse Report"""
@@ -1330,7 +1330,7 @@ class TerminalBytePacket:
 
                 return
 
-    # todo: limit rate of input so livelocks go less wild, like in Keyboard/ Screen loopback
+    # todo: Limit rate of input so livelocks go less wild, like in Keyboard/ Screen loopback
 
 
 ESC = "\033"
@@ -1361,15 +1361,14 @@ class TerminalPoke:
         assert len(reads) == len(delays), (len(reads), len(delays))
 
     def __str__(self) -> str:
-        """Resemble Repr, but round things off"""
 
         hit = self.hit
         delays = self.delays
         reads = self.reads
         extra = self.extra
 
-        h = blur(hit).replace("e-3", "")
-        d = ", ".join(blur(_) for _ in delays)
+        h = sketch(hit, near=1e-3)
+        d = ", ".join(sketch(_, near=1e-3) for _ in delays)
         r = ", ".join(repr(kbytes_to_precise_kcaps(_)) for _ in reads)
         e = repr(extra)
 
@@ -1392,51 +1391,67 @@ class TerminalPoke:
 
         return kbytes
 
-    def format_as_text(self) -> str:
+    def to_sketch_text(self) -> str:
         """Say what we got for Input, if Keyboard Chord, if Arrow Burst, and how long we waited"""
 
-        reads_text = self.format_reads()
-        hit_delays_text = self.format_hit_delays()
-        extra_text = self.format_extra()
+        # reads = self.reads
 
+        (reads_text, concisely) = self._format_reads_()
+        hit_delays_text = self._format_hit_delays_(concisely=concisely)
+        extra_text = self._format_extra_()
+
+        # rep = f"{reads_text} {hit_delays_text} {extra_text} {reads}"
         rep = f"{reads_text} {hit_delays_text} {extra_text}"
 
         return rep
 
-    def format_hit_delays(self) -> str:
+    def _format_hit_delays_(self, concisely: bool) -> str:
         """Say how long we waited"""
 
         hit = self.hit
         delays = self.delays
 
-        h = blur(hit).replace("e-3", "")
-        d = blur(sum(delays)).replace("e-3", "")
+        h = sketch(hit, near=1e-3)
+
+        d = "(" + ", ".join(sketch(_, near=1e-3) for _ in delays) + ")"
+        if concisely:
+            d = sketch(sum(delays), near=1e-3)
+
         rep = f"{h} {d}"
 
         return rep
 
-    def format_reads(self) -> str:
+    def _format_reads_(self) -> tuple[str, bool]:
         """Say what we got for Input, if Keyboard Chord, and if Arrow Burst"""
 
         reads = self.reads
 
+        kbytes = self.to_kbytes()
+
         if not reads:
             rep = repr(b"")
-            return rep
+            return (rep, False)
 
-        chord = self.format_reads_as_chord_if()
-        if chord:
-            return chord
+        chord_plus = self._format_reads_as_chord_plus_if_()
+        if chord_plus:
+            if kbytes == b"``" b"\033[0n":
+                return (chord_plus, False)
+            return (chord_plus, True)
 
-        arrows = self.format_reads_as_arrow_burst_if()
-        if arrows:
-            return arrows
+        arrow_burst = self._format_reads_as_arrow_burst_if_()
+        if arrow_burst:
+            return (arrow_burst, True)
 
-        rep = " ".join(kbytes_to_precise_kcaps(_) for _ in reads)
+        closed_simply = self._format_reads_as_closed_simply_if_()
+        if closed_simply:
+            return (closed_simply, True)
 
-        return rep
+        precise = " ".join(kbytes_to_precise_kcaps(_) for _ in reads)
+        rep = f"{precise} {ascii(kbytes)}"  # K W⎋[0N b'kw\x1b[0n'
 
-    def format_reads_as_chord_if(self) -> str:
+        return (rep, False)
+
+    def _format_reads_as_chord_plus_if_(self) -> str:
         """Say what we got for Input, if indeed it is a Keyboard Chord"""
 
         reads = self.reads
@@ -1461,22 +1476,22 @@ class TerminalPoke:
 
         if concise:
             if concise == precise:
-                rep = f"{concise} {read.decode()!r}"
+                rep = f"{concise} {ascii(read)}"  # Tab b'\t'
             else:
-                rep = f"{concise} {precise}"
+                rep = f"{concise} {precise}"  # '⇧Tab ⎋[⇧Z'
             return rep
 
         # Fall back to speak only precisely of Key Caps
 
-        if len(precise.lstrip("⌃⌥⇧")) == 1:  # ⇧ ⌃ ⌥ would be sorted by Ord
-            rep = precise
+        if len(precise.lstrip("⇧⌃⌥")) == 1:  # ⌃ ⌥ ⇧ sorted by Ord
+            rep = f"{precise} {ascii(read)}"  # "⌃P b'\x10'"  # ⌥Q b'\xc5\x93'
             return rep
 
         # Give up on speaking of Key Caps, like fall back to speak of Bytes
 
         return ""
 
-    def format_reads_as_arrow_burst_if(self) -> str:
+    def _format_reads_as_arrow_burst_if_(self) -> str:
         """Say what we got for Input, if indeed it is an Arrow Burst"""
 
         reads = self.reads
@@ -1539,7 +1554,25 @@ class TerminalPoke:
 
         return join
 
-    def format_extra(self) -> str:
+    def _format_reads_as_closed_simply_if_(self) -> str:
+        """Say what we got for Input, if indeed it is a simple Close"""
+
+        reads = self.reads
+        kbytes = b"".join(reads)
+
+        if len(reads) < 2:
+            return ""
+        if reads[-1] != b"\033[0n":
+            return ""
+
+        removesuffix = kbytes.removesuffix(b"\033[0n")
+
+        precise = " ".join(kbytes_to_precise_kcaps(_) for _ in reads[:-1])
+        rep = f"{precise} {ascii(removesuffix)}"  # PQ R b'pqr'
+
+        return rep
+
+    def _format_extra_(self) -> str:
         """Say if we got more Input after the closing ⎋[0 N Reply"""
 
         extra = self.extra
@@ -1548,8 +1581,7 @@ class TerminalPoke:
         return rep
 
     # todo2: Fill Bold over 8 Dim keyboards | unmarked, ⌃, ⌥, ⇧ | ⌥⇧, ⌃⇧, ⌃⌥ | ⌃⌥⇧
-
-    # todo2: Send Release Mouse Event per Arrow Burst, without a Press
+    # todo4: Send Release Mouse Event per Arrow Burst, without a Press
 
 
 # Name the Shifting Keys
@@ -1792,6 +1824,9 @@ for _KCAP in KCAP_BY_KTEXT.values():
     assert " " not in _KCAP, (_KCAP,)
 
 
+SHIFT_KEYCAPS = '!"#$%&()*+' ":<>?" "@" "^_" "{|}~"  # !"#$%&()*+ :<>? @ ^_ {|}~
+
+
 OPTION_KTEXT_BY_KT = {
     "á": "⌥EA",  # E
     "é": "⌥EE",
@@ -1832,7 +1867,7 @@ OPTION_KTEXT_BY_KT = {
 def kbytes_to_concise_kcaps_if(kbytes: bytes) -> str:
     """Choose Keycaps to speak of the Bytes of 1 Keyboard Chord"""
 
-    ktext = kbytes.decode()  # may raise UnicodeDecodeError
+    ktext = kbytes.decode()  # todo: .kbytes_to_concise_kcaps_if may raise UnicodeDecodeError
     kcap_by_ktext = KCAP_BY_KTEXT  # '\e\e[A' for ⎋↑ etc
     assert KCAP_SEP == " "
 
@@ -1857,7 +1892,7 @@ def kbytes_to_precise_kcaps(kbytes: bytes) -> str:
 
     assert kbytes, (kbytes,)
 
-    ktext = kbytes.decode()  # may raise UnicodeDecodeError
+    ktext = kbytes.decode()  # todo: .kbytes_to_precise_kcaps may raise UnicodeDecodeError
     assert KCAP_SEP == " "
 
     precise = ""
@@ -1883,6 +1918,8 @@ def _kt_to_kcap_(kt: str) -> str:
     option_kt_str = OPTION_KT_STR  # '∂' for ⌥D
     option_ktext_by_kt = OPTION_KTEXT_BY_KT  # 'é' for ⌥EE
     kcap_by_ktext = KCAP_BY_KTEXT  # '\x7F' for 'Delete'
+
+    assert SHIFT_KEYCAPS == '!"#$%&()*+' ":<>?" "@" "^_" "{|}~"
 
     # Show more Key Caps than US-Ascii mentions
 
@@ -1935,7 +1972,7 @@ def _kt_to_kcap_(kt: str) -> str:
         assert ko < 0x11_0000, (ko, kt)
         kc = chr(ko)  # '!', '¡', etc
 
-        # todo: Different Key Caps for Bytes b"\xA1" .. FF vs Str "\u00A1" .. 00FF
+        # todo: Got Key Caps Str "\u00A1" .. "\u00FF" for Bytes b"\xA1" .. b"\xFF" - Want better?
 
     # Succeed, but insist that Blank Space is never a Key Cap
 
@@ -1980,13 +2017,19 @@ def _option_kt_to_kcap_(kt: str) -> str:
     option_kt_str = OPTION_KT_STR  # '∂' for ⌥D, etc
     assert len(OPTION_KT_STR) == (0x7E - 0x20) + 1
 
+    assert SHIFT_KEYCAPS == '!"#$%&()*+' ":<>?" "@" "^_" "{|}~"
+
     index = option_kt_str.index(kt)
 
-    end = chr(0x20 + index)
-    if "A" <= end <= "Z":
-        end = "⇧" + end  # '⇧A'
-    if "a" <= end <= "z":
-        end = chr(ord(end) ^ 0x20)  # 'Z'
+    alt_cap = chr(0x20 + index)
+    if "A" <= alt_cap <= "Z":
+        end = "⇧" + alt_cap  # '⇧A'
+    elif "a" <= alt_cap <= "z":
+        end = chr(ord(alt_cap) ^ 0x20)  # 'Z'
+    elif alt_cap in '!"#$%&()*+' ":<>?" "@" "^_" "{|}~":
+        end = "⇧" + alt_cap  # '⇧@'
+    else:
+        end = alt_cap
 
     kc = "⌥" + end  # '⌥⇧P'
 
