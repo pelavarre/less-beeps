@@ -118,33 +118,122 @@ class MainClass:
 
         print("⌃D to quit,  Fn F1 for more help,  or ⌥-Click far from the Cursor<br>")
 
-        # Run inside a Terminal
+        # Run till quit, inside a Terminal
 
         with TerminalStudio() as ts:
             tt = self._touch_terminal_ = ts.touch_terminal  # replaces
-
-            stdio = tt.stdio
-
-            stdio.write("\033[18t")  # the ⎋[18 T Call, for Height & Width
-            stdio.write("\033[6n")  # the ⎋[ 6N Call, for Y & X
-
-            # Run till quit
-
             while True:
-
-                stdio.flush()
                 (kcaps, kbytes) = tt.read_key_caps(timeout=None)
                 if kcaps:
                     ts.kcaps_exec(kcaps, kbytes=kbytes)
 
     #
+    # Take Input, edit it, and write it back out
     #
+
+    def try_loopback(self) -> None:
+        """Take Input as Touch Tap, as Mouse Click, or as Keyboard Chord, till Quit"""
+
+        # Run inside a Terminal, till Quit
+
+        with TouchTerminal() as tt:  # todo2: small With bodies - move out into Classes
+            self._touch_terminal_ = tt  # replaces
+
+            stdio = tt.stdio
+            fileno = stdio.fileno()
+
+            # Ask for Height, Width, Cursor Y, Cursor X, and then also some other Input
+
+            backtails = list()
+            while True:
+
+                if b"t" not in backtails:
+                    stdio.write("\033[18t")  # ⎋[18T call for reply ⎋[8;{rows};{columns}T
+                    backtails.append(b"t")
+
+                if b"R" not in backtails:
+                    stdio.write("\033[6n")  # ⎋[6N calls for reply ⎋[{y};{x}⇧R
+                    backtails.append(b"R")
+
+                assert b"" not in backtails, (backtails,)
+                backtails.append(b"")  # waits for whatever other reply
+
+                # Take Inputs in whatever order  # todo: When does other Input come early, not last?
+
+                (kcaps, kbytes) = ("", b"")
+                while backtails:
+
+                    # Hang invisibly while Multibyte Sequences arrive slowly  # todo3: Do better
+
+                    (kpair_kcaps, kpair_kbytes) = tt.read_key_caps(timeout=None)
+                    if not kpair_kcaps:
+                        continue
+
+                    # Take Csi Inputs
+
+                    if kpair_kcaps.startswith("⎋["):
+                        kpacket = TerminalBytePacket(kpair_kbytes)
+
+                        if kpair_kbytes == b"\033[M":  # todo3: Packet Constructor option?
+                            ok = kpacket.close_if_csi_shift_m()
+                            assert ok, (ok, kpacket, kpair_kbytes)
+
+                        backtail = bytes(kpacket.back + kpacket.tail)
+                        assert backtail, (backtail, kpacket, kpair_kbytes)
+
+                        if backtail in backtails:
+                            ints = kpacket.to_csi_ints_if(backtail, start=b"", default=-1)
+                            if ints:
+
+                                backtails.remove(backtail)
+
+                                continue
+
+                    # Take Input other than the first Height, Width, Cursor Y, Cursor X
+
+                    if b"" in backtails:
+                        backtails.remove(b"")
+
+                        (kcaps, kbytes) = (kpair_kcaps, kpair_kbytes)
+
+                        break
+
+                # Convert Mouse ⌥-Click Release to Csi, or Mouse Click Release to Csi
+
+                if kcaps.startswith("⎋["):
+                    kpacket = TerminalBytePacket(kbytes)  # todo: redundant work
+                    # tprint(f"{kcaps=} {kbytes=} {kpacket=}")
+
+                    m_ints = kpacket.to_csi_ints_if(b"m", start=b"<", default=-1)
+                    # tprint(f"{m_ints=}")
+                    if len(m_ints) == 3:
+                        (f, x, y) = m_ints  # f x y, not f y x
+
+                        f0 = 0  # none of ⌃ ⌥ ⇧
+                        f8 = int("0b01000", base=0)  # f = ⌥ of 0b⌃⌥⇧00
+                        if f in (f0, f8):  # Click or ⌥-Click
+                            stdio.write(f"\033[{y};{x}H")  # no bounds caps on Mouse Click or ⌥-Click
+                            continue
+
+                # Loop Input Bytes back, no matter if well known
+
+                fd = fileno
+                data = kbytes
+                os.write(fd, data)
+
+                # Quit on demand
+
+                if kcaps in ("⌃C", "⌃D", "⌃Z", "⌃\\"):
+                    sys.exit()
+
+    #
+    # Take Input as Touch Tap, as Mouse Click, or as Keyboard Chord, till Quit
     #
 
     def try_key_caps(self) -> None:
         """Take Input as Touch Tap, as Mouse Click, or as Keyboard Chord, till Quit"""
 
-        # Run inside a Terminal
+        # Run inside a Terminal, till Quit
 
         with TouchTerminal() as tt:  # todo2: small With bodies
             self._touch_terminal_ = tt  # replaces
@@ -249,7 +338,7 @@ class MainClass:
             tt.column_x = X1
 
     #
-    #
+    # Say what we got for Input, if Keyboard Chord, if Arrow Burst, and how long we waited
     #
 
     def try_byte_times(self) -> None:
@@ -266,7 +355,7 @@ class MainClass:
 
         # Run till quit
 
-        with TouchTerminal() as tt:  # todo2: small With bodies
+        with TouchTerminal() as tt:  # todo2: small With bodies - move out into Classes
 
             # Launch a wide Ruler
 
@@ -358,15 +447,16 @@ class MainClass:
 #
 
 
+# todo4: ⎋F3 do show the last byte of multi byte intput
+
+# todo3: rewrite screen
 # todo3: Route .tprint's through last TouchTerminal if it exists
 # todo3: Primarily mirror, but also update the Hardware if it overlaps, like track Y X in projection
 # todo3: Left Arrow wraps inside of a Line wrapped across Multiple Rows (Right Arrow doesn't)
 
-# todo3: Loop to chase the mouse, across iPhone, wherever
-
 
 class TerminalStudio:
-    """Run inside a Terminal"""
+    """Run inside a Terminal, till Quit"""
 
     def __init__(self) -> None:
 
@@ -398,17 +488,21 @@ class TerminalStudio:
             tprint("⎋F1 - Show this menu")
             tprint("⎋F2 - Trace the Timing of Bytes of Input")
             tprint("⎋F3 - Trace the Key Caps of Input")
+            tprint("⎋F4 - Loopback the Bytes of Input")
             return
 
         if kcaps == "⎋F2":
-            tprint()
             mc.try_byte_times()
             sys.exit()  # todo: stop exiting after ⎋F2
 
         if kcaps == "⎋F3":
-            tprint()
             mc.try_key_caps()
             sys.exit()  # todo: stop exiting after ⎋F3
+
+        if kcaps == "⎋F4":
+            tprint("⎋F4")
+            mc.try_loopback()
+            sys.exit()  # todo: stop exiting after ⎋F4
 
         if kcaps in ("⌃C", "⌃D", "⌃Z", "⌃\\"):
             sys.exit()
@@ -875,6 +969,12 @@ class TouchTerminal:
         packet_kbytes = _kpacket_.to_bytes()  # no matter if .closed
 
         closing = bool(_kpacket_.text or _kpacket_.closed or extra)
+
+        if (packet_kbytes == b"\033[M") and (len(kbytearray) <= 1):
+            ok = _kpacket_.close_if_csi_shift_m()
+            assert ok, (ok, _kpacket_, packet_kbytes)
+            closing = True
+
         if (packet_kbytes == b"\033\033") and (len(kbytearray) <= 1):
             closing = True
 
@@ -904,7 +1004,7 @@ class TouchTerminal:
 
         _kpacket_ = self._kpacket_
 
-        nhw_ints = _kpacket_.to_csi_ints_if(b"t", default=PN1)  # ⎋[8 T
+        nhw_ints = _kpacket_.to_csi_ints_if(b"t", start=b"", default=PN1)  # ⎋[8 T
         if len(nhw_ints) == 3:
             assert nhw_ints[0] == 8, (
                 nhw_ints[0],
@@ -913,7 +1013,7 @@ class TouchTerminal:
             self.y_height = nhw_ints[1]
             self.x_width = nhw_ints[2]
 
-        yx_ints = _kpacket_.to_csi_ints_if(b"R", default=PN1)  # ⎋[ ⇧R
+        yx_ints = _kpacket_.to_csi_ints_if(b"R", start=b"", default=PN1)  # ⎋[ ⇧R
         if len(yx_ints) == 2:
             self.row_y = yx_ints[0]
             self.column_x = yx_ints[-1]
@@ -1178,7 +1278,7 @@ class TerminalBytePacket:
 
         return b  # no matter if .closed
 
-    def to_csi_ints_if(self, backtail: bytes, default: int) -> list[int]:
+    def to_csi_ints_if(self, backtail: bytes, start: bytes, default: int) -> list[int]:
         """Pick out the Nonnegative Int Literals of a CSI Escape Sequence"""
 
         head = self.head
@@ -1189,14 +1289,16 @@ class TerminalBytePacket:
         closed = self.closed
 
         if head.startswith(b"\033["):
-            if re.fullmatch(b"[0-9;]*", string=neck):
-                if backtail == (back + tail):
-                    if closed:
-                        assert not stash, (stash, backtail, self)
+            if neck.startswith(start):
+                neckpart = neck.removeprefix(start)
+                if re.fullmatch(b"[0-9;]*", string=neckpart):
+                    if backtail == (back + tail):
+                        if closed:
+                            assert not stash, (stash, backtail, self)
 
-                        ints = list((int(_) if _ else default) for _ in neck.split(b";"))
+                            ints = list((int(_) if _ else default) for _ in neckpart.split(b";"))
 
-                        return ints
+                            return ints
 
         return list()
 
@@ -1632,6 +1734,28 @@ class TerminalBytePacket:
 
         # todo: Limit the length of a CSI Escape Sequence
 
+    def close_if_csi_shift_m(self) -> bool:
+        """Convert to Csi ⎋[⇧M cut short, if now standing open as 3 of 6 Char Mouse Report"""
+
+        head = self.head
+        back = self.back
+        neck = self.neck
+        tail = self.tail
+        closed = self.closed
+
+        if (head == b"\033[M") and (not back) and (not neck) and (not tail):
+            if not closed:
+
+                self.head.clear()
+                self.head.extend(b"\033[")
+                self.tail.extend(b"M")
+
+                self.closed = True
+
+                return True
+
+        return False
+
     # todo: Limit rate of input so livelocks go less wild, like in Keyboard/ Screen loopback
 
 
@@ -1761,8 +1885,8 @@ class TerminalPoke:
 
         kbytes = bytes(to_bytearray)
 
-        f = int("0b01000", base=0)  # f = ⌥ of 0b⌃⌥⇧00
-        kcaps = f"\033[<{f};{x};{y}m"  # f x y, not f y x  # 'm' for Release  # not 'M' for Press
+        f8 = int("0b01000", base=0)  # f = ⌥ of 0b⌃⌥⇧00
+        kcaps = f"\033[<{f8};{x};{y}m"  # f x y, not f y x  # 'm' for Release  # not 'M' for Press
 
         # Succeed (but trust the Caller to distinguish Single Arrows from Longer Bursts as needed)
 
