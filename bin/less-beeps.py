@@ -53,9 +53,13 @@ _: object
 #
 
 
-flags_apple = sys.platform == "darwin"
-flags_google = bool(os.environ.get("CLOUD_SHELL", default_eq_None))
-flags_iterm2 = os.environ.get("TERM_PROGRAM", default_eq_None) == "iTerm.app"
+class flags:
+
+    apple = sys.platform == "darwin"
+    google = bool(os.environ.get("CLOUD_SHELL", default_eq_None))
+    iterm2 = os.environ.get("TERM_PROGRAM", default_eq_None) == "iTerm.app"
+
+    phone = False
 
 
 #
@@ -67,6 +71,18 @@ def main() -> None:
     """Run from the Shell Command Line, and launch the Py Repl vs uncaught Exceptions"""
 
     sys.excepthook = excepthook
+
+    # Fit to Caller some more  # todo3: Make visible our autofit to Phone
+
+    phone = False
+    try:
+        (x_width, y_height) = os.get_terminal_size()
+        if x_width < 72:
+            phone = True
+    except Exception:
+        pass
+
+    flags.phone = phone
 
     # Launch some Self-Test's, or don't
 
@@ -116,7 +132,7 @@ class MainClass:
 
         # Launch
 
-        print("⌃D to quit,  Fn F1 for more help,  or ⌥-Click far from the Cursor<br>")
+        print("⌃D to quit,  Fn F1 for more help,  or ⌥-Click far from the Cursor")
 
         # Run till quit, inside a Terminal
 
@@ -240,12 +256,20 @@ class MainClass:
 
             stdio = tt.stdio
 
+            # As late as now, trace the Writes of TouchTerminal.__enter__
+
+            kcaps_list = list()
+            for entry_data in tt.entries:
+                kcaps = kbytes_to_precise_kcaps(entry_data)
+                kcaps_list.append(kcaps)
+
+            tprint()
+            tprint("Setup:", " ".join(kcaps_list))
+
             # Launch a wide Ruler
 
             tprint()
             tprint(30 * "123456789 ")
-
-            tprint()
 
             # Launch a fetch of Terminal Width x Height
 
@@ -349,20 +373,24 @@ class MainClass:
         ns = self.parse_less_beeps_args()
         assert ns.yolo, (ns.yolo, ns)
 
-        # Launch
-
-        print("⌃D to quit,  Fn F1 for more help,  or ⌥-Click far from the Cursor<br>")
-
         # Run till quit
 
         with TouchTerminal() as tt:  # todo2: small With bodies - move out into Classes
+
+            # As late as now, trace the Writes of TouchTerminal.__enter__
+
+            kcaps_list = list()
+            for entry_data in tt.entries:
+                kcaps = kbytes_to_precise_kcaps(entry_data)
+                kcaps_list.append(kcaps)
+
+            tprint()
+            tprint("Setup:", " ".join(kcaps_list))
 
             # Launch a wide Ruler
 
             tprint()
             tprint(30 * "123456789 ")
-
-            tprint()
 
             # Launch a fetch of Terminal Width x Height
 
@@ -797,6 +825,8 @@ class TouchTerminal:
 
     before: int  # for writing at Entry
     tcgetattr: list[int | list[bytes | int]]  # replaced by Entry
+    entries: list[bytes]  # for writes at Entry
+    exits: list[bytes]  # for writes at Exit
     after: int  # for writing at Exit  # todo1: Prefer .TCSAFLUSH vs large mess of Paste
 
     kbytearray: bytearray  # cleared then formed by .read_key_caps_plus and .getch
@@ -825,6 +855,8 @@ class TouchTerminal:
 
         self.before = termios.TCSADRAIN
         self.tcgetattr = list()
+        self.entries = list()
+        self.exits = list()
         self.after = termios.TCSADRAIN
 
         self.kbytearray = bytearray()
@@ -842,7 +874,9 @@ class TouchTerminal:
 
         fileno = self.fileno
         before = self.before
+        entries = self.entries
         tcgetattr = self.tcgetattr
+        exits = self.exits
 
         if tcgetattr:
             return self
@@ -856,6 +890,19 @@ class TouchTerminal:
         tty.setraw(fileno, when=before)  # Tty SetRaw defaults to TcsaFlush
         # tty.setcbreak(fileno, when=termios.TCSAFLUSH)  # for ⌃C prints Py Traceback
 
+        entries.append(b"\033[?2004h")
+        exits.append(b"\033[?2004l")
+
+        if flags.phone:
+            entries.append(b"\033[?1000;1006h")
+            exits.append(b"\033[?1000;1006l")
+
+        for entry_data in entries:
+            fd = fileno
+            data = entry_data
+
+            os.write(fd, data)
+
         return self
 
     def __exit__(self, *args: object) -> None:
@@ -864,10 +911,17 @@ class TouchTerminal:
         stdio = self.stdio
         fileno = self.fileno
         tcgetattr = self.tcgetattr
+        exits = self.exits
         after = self.after
 
         if not tcgetattr:
             return
+
+        for exit_data in exits:
+            fd = fileno
+            data = exit_data
+
+            os.write(fd, data)
 
         self.tcgetattr = list()  # replaces
 
