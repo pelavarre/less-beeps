@@ -68,6 +68,8 @@ def main() -> None:
 
     sys.excepthook = excepthook
 
+    # Launch some Self-Test's, or don't
+
     testing = False
     if testing:
         t0 = time.time()
@@ -75,11 +77,13 @@ def main() -> None:
         t1 = time.time()
         print(t1 - t0)  # 233us
 
-    mc = MainClass()
-    mc.main_class_run_2()
+    # Launch
 
-    # mc.main_class_run_1()
-    # mc.main_class_run_2()
+    mc = MainClass()
+    mc.main_class_run()
+
+
+main_instances: list[MainClass] = list()
 
 
 @dataclasses.dataclass(order=True)  # , frozen=True)
@@ -95,17 +99,50 @@ class MainClass:
         assert tt is touch_terminals[-1], (tt, touch_terminals)
         return tt
 
-    def main_class_run_2(self) -> None:
-        """Take Input as Touch Tap, as Mouse Click, or as Keyboard Chord, till Quit"""
+    def __init__(self) -> None:
+        main_instances.append(self)
+
+    #
+    #
+    #
+
+    def main_class_run(self) -> None:
+        """Run from the Shell Command Line, and launch the Py Repl vs uncaught Exceptions"""
 
         # Take in the Shell Command-Line Args
 
-        ns = self.parse_ugg_args()
+        ns = self.parse_less_beeps_args()
         assert ns.yolo, (ns.yolo, ns)  # todo1: Declare more Options
 
         # Launch
 
         print("⌃D to quit,  Fn F1 for more help,  or ⌥-Click far from the Cursor<br>")
+
+        # Run inside a Terminal
+
+        with TerminalStudio() as ts:
+            tt = self._touch_terminal_ = ts.touch_terminal  # replaces
+
+            stdio = tt.stdio
+
+            stdio.write("\033[18t")  # the ⎋[18 T Call, for Height & Width
+            stdio.write("\033[6n")  # the ⎋[ 6N Call, for Y & X
+
+            # Run till quit
+
+            while True:
+
+                stdio.flush()
+                (kcaps, kbytes) = tt.read_key_caps(timeout=None)
+                if kcaps:
+                    ts.kcaps_exec(kcaps, kbytes=kbytes)
+
+    #
+    #
+    #
+
+    def try_key_caps(self) -> None:
+        """Take Input as Touch Tap, as Mouse Click, or as Keyboard Chord, till Quit"""
 
         # Run inside a Terminal
 
@@ -174,6 +211,11 @@ class MainClass:
 
                 self.kbytes_tprint_some(kcaps, kbytes=kbytes)
 
+                # Quit on demand
+
+                if kcaps in ("⌃C", "⌃D", "⌃Z", "⌃\\"):
+                    sys.exit()
+
     def kbyte_tprint_one(self, kbyte: bytes) -> int:
         """Print each Byte, as they come"""
 
@@ -206,17 +248,16 @@ class MainClass:
             tt.row_y = min(tt.y_height, tt.row_y + 1)
             tt.column_x = X1
 
-        if kcaps in ("⌃C", "⌃D", "⌃Z", "⌃\\"):
-            sys.exit()
+    #
+    #
+    #
 
-        # todo3: Surface the ⎋F1 etc, despite >= 1 of ⎋ Meta before it
-
-    def main_class_run_1(self) -> None:
+    def try_byte_times(self) -> None:
         """Say what we got for Input, if Keyboard Chord, if Arrow Burst, and how long we waited"""
 
         # Take in the Shell Command-Line Args
 
-        ns = self.parse_ugg_args()
+        ns = self.parse_less_beeps_args()
         assert ns.yolo, (ns.yolo, ns)
 
         # Launch
@@ -276,15 +317,18 @@ class MainClass:
                 # todo1: Quit at Emacs ⌃X ⌃C, ⌃X ⌃S
                 # todo1: Quit at Vim ⇧Z ⇧Q, ⇧Z ⇧Z
 
-            # todo2: ⎋F1 to lists Tests apart from Games
             # todo3: Decipher ⌥-Click encoding at Google Cloud Shell
 
         # todo3: Pull ⎋[?1000;1006H Mouse Strokes at iPhone (for all iOS Small Screen?)
 
-    def parse_ugg_args(self) -> argparse.Namespace:
+    #
+    #
+    #
+
+    def parse_less_beeps_args(self) -> argparse.Namespace:
         """Take in the Shell Command-Line Args"""
 
-        parser = self.compile_ugg_doc()
+        parser = self.compile_less_beeps_doc()
 
         argv = sys.argv[1:]
         if not argv:
@@ -295,7 +339,7 @@ class MainClass:
 
         return ns
 
-    def compile_ugg_doc(self) -> ArgDocParser:
+    def compile_less_beeps_doc(self) -> ArgDocParser:
         """Declare the Options & Positional Arguments"""
 
         doc = __main__.__doc__
@@ -307,6 +351,70 @@ class MainClass:
         parser.add_argument("--yolo", action="count", help=yolo_help)
 
         return parser
+
+
+#
+#
+#
+
+
+# todo3: Route .tprint's through last TouchTerminal if it exists
+# todo3: Primarily mirror, but also update the Hardware if it overlaps, like track Y X in projection
+# todo3: Left Arrow wraps inside of a Line wrapped across Multiple Rows (Right Arrow doesn't)
+
+# todo3: Loop to chase the mouse, across iPhone, wherever
+
+
+class TerminalStudio:
+    """Run inside a Terminal"""
+
+    def __init__(self) -> None:
+
+        self.touch_terminal = TouchTerminal()
+
+    def __enter__(self) -> typing.Self:
+        tt = self.touch_terminal
+        tt.__enter__()
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        tt = self.touch_terminal
+        tt.__exit__(*args)
+
+    def kcaps_exec(self, kcaps: str, kbytes: bytes) -> None:
+
+        mc = main_instances[-1]
+
+        if kcaps == "F1":
+            tprint()
+            tprint("⌃D to quit")
+            tprint("F1 - Show this menu")
+            tprint("⎋F1 - Show a menu of tests to run")
+            return
+
+        if kcaps == "⎋F1":
+            tprint()
+            tprint("⌃D to quit")
+            tprint("⎋F1 - Show this menu")
+            tprint("⎋F2 - Trace the Timing of Bytes of Input")
+            tprint("⎋F3 - Trace the Key Caps of Input")
+            return
+
+        if kcaps == "⎋F2":
+            tprint()
+            mc.try_byte_times()
+            sys.exit()  # todo: stop exiting after ⎋F2
+
+        if kcaps == "⎋F3":
+            tprint()
+            mc.try_key_caps()
+            sys.exit()  # todo: stop exiting after ⎋F3
+
+        if kcaps in ("⌃C", "⌃D", "⌃Z", "⌃\\"):
+            sys.exit()
+
+        # tprint(kbytes.decode(), end="")
+        tprint(kcaps, end=" ")
 
 
 #
@@ -656,12 +764,7 @@ class TouchTerminal:
 
         return self
 
-    def __exit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc_val: BaseException | None,
-        exc_tb: types.TracebackType | None,
-    ) -> None:
+    def __exit__(self, *args: object) -> None:
         r"""Start line-buffering Input, start replacing \n Output with \r\n, etc"""
 
         stdio = self.stdio
@@ -753,44 +856,48 @@ class TouchTerminal:
                         del kbytearray[: len(mouse_kbytes)]
                         kbytearray[0:0] = mouse_ktext.encode()
 
-        kbytes = bytes(kbytearray)
-        kbyte = bytes(kbytearray[:1])  # does peek, doesn't pop
+        poke_kbytes = bytes(kbytearray)
+        poke_kbyte = bytes(kbytearray[:1])  # does peek, doesn't pop
 
         # Pass back the ⌥`` encoded as rapid ``
 
-        if kbytes == b"``":
+        if poke_kbytes == b"``":
             kbytearray.clear()
 
-            concise = kbytes_to_concise_kcaps_if(kbytes)
-            assert concise == "⌥``", (concise, kbytes)
+            concise = kbytes_to_concise_kcaps_if(poke_kbytes)
+            assert concise == "⌥``", (concise, poke_kbytes)
 
-            return (concise, kbytes)
+            return (concise, poke_kbytes)
 
         # Pass back each of the early Bytes, one at a time
 
-        extra = _kpacket_.take_one_if(kbyte)  # truthy at ⎋ [ ⇧! 9, etc
+        extra = _kpacket_.take_one_if(poke_kbyte)  # truthy at ⎋ [ ⇧! 9, etc
+        packet_kbytes = _kpacket_.to_bytes()  # no matter if .closed
 
-        if not (_kpacket_.text or _kpacket_.closed or extra):
+        closing = bool(_kpacket_.text or _kpacket_.closed or extra)
+        if (packet_kbytes == b"\033\033") and (len(kbytearray) <= 1):
+            closing = True
+
+        if not closing:
             kbytearray.pop(0)
-            return ("", kbyte)
+            return ("", poke_kbyte)
 
         if not extra:  # pops if taken, else keeps inside .kbytearray when not taken
             kbytearray.pop(0)
 
         # Read, snoop, and clear one whole Packet
 
-        kbytes = _kpacket_.to_bytes()  # no matter if .closed
         self.snoop_packet()
         _kpacket_.clear_packet()
 
         # Pick out concise or precise Key Caps, and return them
 
-        concise = kbytes_to_concise_kcaps_if(kbytes)
+        concise = kbytes_to_concise_kcaps_if(packet_kbytes)
         if concise:
-            return (concise, kbytes)
+            return (concise, packet_kbytes)
 
-        precise = kbytes_to_precise_kcaps(kbytes)
-        return (precise, kbytes)
+        precise = kbytes_to_precise_kcaps(packet_kbytes)
+        return (precise, packet_kbytes)
 
     def snoop_packet(self) -> None:
         """Mirror updates to Height, Width, Y, and X, as they fly by"""
@@ -2117,11 +2224,28 @@ def kbytes_to_concise_kcaps_if(kbytes: bytes) -> str:
 
     ktext = kbytes.decode()  # todo: .kbytes_to_concise_kcaps_if may raise UnicodeDecodeError
     kcap_by_ktext = KCAP_BY_KTEXT  # '\e\e[A' for ⎋↑ etc
+
+    headbook = (b"\033", b"\033\033", b"\033\033O", b"\033\033[", b"\033O", b"\033[")
+    assert TerminalBytePacket.Headbook == headbook
+
     assert KCAP_SEP == " "
 
     concise_if = ""
     if ktext in kcap_by_ktext.keys():
+
         concise_if = kcap_by_ktext[ktext]
+        assert concise_if, (concise_if, kbytes)
+
+    else:
+
+        esc_ktext = ktext.removeprefix("\033")
+        if esc_ktext.startswith("\033"):
+            if esc_ktext in kcap_by_ktext.keys():
+
+                esc_concise_if = kcap_by_ktext[esc_ktext]
+                assert esc_concise_if, (esc_concise_if, kbytes)
+
+                concise_if = "⎋" + esc_concise_if
 
     assert " " not in concise_if, (concise_if, kbytes)  # accepts empty, but not split by Spaces
 
