@@ -174,7 +174,7 @@ class MainClass:
                 assert b"" not in backtails, (backtails,)
                 backtails.append(b"")  # waits for whatever other reply
 
-                # Take Inputs in whatever order  # todo: When does other Input come early, not last?
+                # Take Inputs in whatever order  # todo: Log if Input ever comes out of order
 
                 (kcaps, kbytes) = ("", b"")
                 while backtails:
@@ -195,9 +195,7 @@ class MainClass:
                             assert ok, (ok, kpacket, kpair_kbytes)
 
                         backtail = bytes(kpacket.back + kpacket.tail)
-                        assert backtail, (backtail, kpacket, kpair_kbytes)
-
-                        if backtail in backtails:
+                        if backtail and (backtail in backtails):
                             ints = kpacket.to_csi_ints_if(backtail, start=b"", default=-1)
                             if ints:
 
@@ -217,7 +215,7 @@ class MainClass:
                 # Convert Mouse ⌥-Click Release to Csi, or Mouse Click Release to Csi
 
                 if kcaps.startswith("⎋["):
-                    kpacket = TerminalBytePacket(kbytes)  # todo: redundant work
+                    kpacket = TerminalBytePacket(kbytes)  # todo3: redundant work
                     # tprint(f"{kcaps=} {kbytes=} {kpacket=}")
 
                     m_ints = kpacket.to_csi_ints_if(b"m", start=b"<", default=-1)
@@ -436,8 +434,6 @@ class MainClass:
 
             # todo3: Decipher ⌥-Click encoding at Google Cloud Shell
 
-        # todo3: Pull ⎋[?1000;1006H Mouse Strokes at iPhone (for all iOS Small Screen?)
-
     #
     #
     #
@@ -495,9 +491,9 @@ class TerminalStudio:
         tt.__enter__()
         return self
 
-    def __exit__(self, *args: object) -> None:
+    def __exit__(self, *exc_info: object) -> None:
         tt = self.touch_terminal
-        tt.__exit__(*args)
+        tt.__exit__(*exc_info)
 
     def kcaps_exec(self, kcaps: str, kbytes: bytes) -> None:
 
@@ -521,16 +517,16 @@ class TerminalStudio:
 
         if kcaps == "⎋F2":
             mc.try_byte_times()
-            sys.exit()  # todo: stop exiting after ⎋F2
+            sys.exit()  # todo1: stop exiting after ⎋F2
 
         if kcaps == "⎋F3":
             mc.try_key_caps()
-            sys.exit()  # todo: stop exiting after ⎋F3
+            sys.exit()  # todo1: stop exiting after ⎋F3
 
         if kcaps == "⎋F4":
             tprint("⎋F4")
             mc.try_loopback()
-            sys.exit()  # todo: stop exiting after ⎋F4
+            sys.exit()  # todo1: stop exiting after ⎋F4
 
         if kcaps in ("⌃C", "⌃D", "⌃Z", "⌃\\"):
             sys.exit()
@@ -905,7 +901,7 @@ class TouchTerminal:
 
         return self
 
-    def __exit__(self, *args: object) -> None:
+    def __exit__(self, *exc_info: object) -> None:
         r"""Start line-buffering Input, start replacing \n Output with \r\n, etc"""
 
         stdio = self.stdio
@@ -969,7 +965,7 @@ class TouchTerminal:
     # Read from Keyboard, Mouse, and Touch
     #
 
-    def read_key_caps(self, timeout: float | None) -> tuple[str, bytes]:
+    def read_key_caps(self, timeout: float | None) -> tuple[str, bytes]:  # noqa  # todo3: C901
         """Read one whole Input as Str, else just peek at the next Input Byte"""
 
         kbytearray = self.kbytearray
@@ -1018,26 +1014,45 @@ class TouchTerminal:
             return (concise, poke_kbytes)
 
         # Pass back each of the early Bytes, one at a time
+        # todo1: Think more about accepting more than ⎋ as a prefix for whatever
 
-        extra = _kpacket_.take_one_if(poke_kbyte)  # truthy at ⎋ [ ⇧! 9, etc
-        packet_kbytes = _kpacket_.to_bytes()  # no matter if .closed
+        headbook = (b"\033", b"\033\033", b"\033\033O", b"\033\033[", b"\033O", b"\033[")
+        assert TerminalBytePacket.Headbook == headbook
 
-        closing = bool(_kpacket_.text or _kpacket_.closed or extra)
+        packet_kbytes = _kpacket_.to_bytes()  # maybe not .closed
 
-        if (packet_kbytes == b"\033[M") and (len(kbytearray) <= 1):
-            ok = _kpacket_.close_if_csi_shift_m()
-            assert ok, (ok, _kpacket_, packet_kbytes)
-            closing = True
+        try:
+            poke_decode_if = poke_kbytes.decode()
+        except UnicodeDecodeError:
+            poke_decode_if = ""
 
-        if (packet_kbytes == b"\033\033") and (len(kbytearray) <= 1):
-            closing = True
+        closing_head = False
+        if (not poke_decode_if) or (not poke_decode_if[:1].isprintable()):
+            if packet_kbytes in headbook:
+                if packet_kbytes != b"\033":  # ⎋
+                    closing_head = True  # ⎋⎋ ⎋⎋O ⎋⎋[ ⎋O ⎋[
 
-        if not closing:
-            kbytearray.pop(0)
-            return ("", poke_kbyte)
+        if not closing_head:
 
-        if not extra:  # pops if taken, else keeps inside .kbytearray when not taken
-            kbytearray.pop(0)
+            extra = _kpacket_.take_one_if(poke_kbyte)  # truthy at ⎋ [ ⇧! 9, etc
+            packet_kbytes = _kpacket_.to_bytes()  # replaces  # maybe not .closed
+
+            closing_tail = bool(_kpacket_.text or _kpacket_.closed or extra)
+
+            if (packet_kbytes == b"\033[M") and (len(poke_kbytes) <= 1):  # ⎋[M
+                ok = _kpacket_.close_if_csi_shift_m()
+                assert ok, (ok, _kpacket_, packet_kbytes)
+                closing_tail = True
+
+            # if (packet_kbytes == b"\033\033") and (len(poke_kbytes) <= 1):  # ⎋⎋
+            #     closing_tail = True
+
+            if not closing_tail:
+                kbytearray.pop(0)
+                return ("", poke_kbyte)
+
+            if not extra:  # pops if taken, else keeps inside .kbytearray when not taken
+                kbytearray.pop(0)
 
         # Read, snoop, and clear one whole Packet
 
@@ -1706,7 +1721,7 @@ class TerminalBytePacket:
 
             # Take & close Unprintable Chars or 1..4 Undecodable Bytes, as Escaped Tail
 
-            tail.extend(data)  # todo: Test Unprintable/ Undecodable after ⎋O SS3
+            tail.extend(data)  # todo: More test of Unprintable/ Undecodable Tails after ⎋O or ⎋⎋O
             self.closed = True
             return b""  # takes & closes Unprintable Chars or 1..4 Undecodable Bytes
 
@@ -1758,6 +1773,8 @@ class TerminalBytePacket:
 
         if ord_ > 0x7F:
             return byte  # declines 2..4 Bytes of 1 Unprintable or Multi-Byte Char
+
+            # todo: More test of Unprintable/ Undecodable Tails after ⎋[ or ⎋⎋[
 
         # Accept 1 Byte into Back, into Neck, or as Tail
 
@@ -2143,6 +2160,9 @@ DY_DX_BY_ARROW_KBYTES = {
 # Decode each distinct Key Chord Byte Encoding as a distinct Str without a " " Space in it
 
 KCAP_SEP = " "  # separates '⇧Tab' from '⇧T a b', '⎋⇧FnX' from '⎋⇧Fn X', etc
+
+# headbook = (b"\033", b"\033\033", b"\033\033O", b"\033\033[", b"\033O", b"\033[")
+# assert TerminalBytePacket.Headbook == headbook
 
 KCAP_BY_KTEXT = {  # r"←|↑|→|↓" and so on  # ⌃ ⌥ ⇧ ⌃⌥ ⌃⇧ ⌥⇧ ⌃⌥⇧ and so on
     "\x00": "⌃Spacebar",  # ⌃@  # ⌃⇧2
