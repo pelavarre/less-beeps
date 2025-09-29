@@ -310,11 +310,11 @@ class MainClass:
                 (kcaps, kbytes) = tt.read_key_caps(timeout=None)
                 assert kbytes, (kbytes, kcaps)
 
-                if not kcaps:
-                    kbyte = kbytes[-1:]
-                    assert kbytes == kbyte, (kbytes, kbyte, kcaps)
+                kbyte = kbytes[-1:]
+                self.kbyte_tprint_one(kbyte)
 
-                    self.kbyte_tprint_one(kbyte)
+                if not kcaps:
+                    assert kbytes == kbyte, (kbytes, kbyte, kcaps)
 
                     continue
 
@@ -470,8 +470,6 @@ class MainClass:
 #
 #
 
-
-# todo4: ⎋F3 do show the last byte of multi byte intput
 
 # todo3: rewrite screen
 # todo3: Route .tprint's through last TouchTerminal if it exists
