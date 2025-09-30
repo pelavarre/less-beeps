@@ -147,7 +147,7 @@ class MainClass:
     # Take Input, edit it, and write it back out
     #
 
-    def try_loopback(self) -> None:
+    def try_loopback(self) -> None:  # noqa: C901 complex  # todo3:
         """Take Input as Touch Tap, as Mouse Click, or as Keyboard Chord, till Quit"""
 
         # Run inside a Terminal, till Quit
@@ -212,14 +212,21 @@ class MainClass:
 
                         break
 
-                # Convert Mouse ⌥-Click Release to Csi, or Mouse Click Release to Csi
+                # Convert Single-Byte Control Inputs
+
+                if kbytes == b"\r":
+                    if tt.paste_y != -1:
+                        tt.write_paste_crlf()
+                        continue
+
+                # Convert Csi Inputs
 
                 if kcaps.startswith("⎋["):
                     kpacket = TerminalBytePacket(kbytes)  # todo3: redundant work
-                    # tprint(f"{kcaps=} {kbytes=} {kpacket=}")
+
+                    # Convert Mouse ⌥-Click Release to Csi, or Mouse Click Release to Csi
 
                     m_ints = kpacket.to_csi_ints_if(b"m", start=b"<", default=-1)
-                    # tprint(f"{m_ints=}")
                     if len(m_ints) == 3:
                         (f, x, y) = m_ints  # f x y, not f y x
 
@@ -230,6 +237,8 @@ class MainClass:
                             continue
 
                 # Loop Input Bytes back, no matter if well known
+
+                stdio.flush()  # before each 'os.write'
 
                 fd = fileno
                 data = kbytes
@@ -830,6 +839,8 @@ class TouchTerminal:
     x__width: int  # Terminal Screen Pane Columns, else -1
     row_y: int  # Terminal Cursor Y Row, else -1
     column_x: int  # Terminal Cursor X Column, else -1
+    paste_y: int  # Bracketed Paste Cursor Y Row, else -1
+    paste_x: int  # Bracketed Paste Cursor X Column, else -1
 
     _arrow_burst_kbytes_as_if_: bytes  # from .to_mouse_key_caps_if_start
 
@@ -860,12 +871,15 @@ class TouchTerminal:
         self.x_width = -1
         self.row_y = -1
         self.column_x = -1
+        self.paste_y = -1
+        self.paste_x = -1
 
         self._arrow_burst_kbytes_as_if_ = b""
 
     def __enter__(self) -> typing.Self:
         r"""Stop line-buffering Input, stop replacing \n Output with \r\n, etc"""
 
+        stdio = self.stdio
         fileno = self.fileno
         before = self.before
         entries = self.entries
@@ -891,11 +905,17 @@ class TouchTerminal:
             entries.append(b"\033[?1000;1006h")
             exits.append(b"\033[?1000;1006l")
 
+        #
+
+        stdio.flush()  # before each 'os.write'
+
         for entry_data in entries:
             fd = fileno
             data = entry_data
 
             os.write(fd, data)
+
+        #
 
         return self
 
@@ -911,11 +931,17 @@ class TouchTerminal:
         if not tcgetattr:
             return
 
+        #
+
+        stdio.flush()  # before each 'os.write'
+
         for exit_data in exits:
             fd = fileno
             data = exit_data
 
             os.write(fd, data)
+
+        #
 
         self.tcgetattr = list()  # replaces
 
@@ -929,6 +955,23 @@ class TouchTerminal:
         termios.tcsetattr(fd, when, attributes)
 
         return None
+
+    def write_paste_crlf(self) -> None:
+        """Break Paste Line at Cursor"""
+
+        stdio = self.stdio
+        y_height = self.y_height
+        paste_y = self.paste_y
+        paste_x = self.paste_x
+
+        if paste_y < y_height:
+            paste_y = paste_y + 1
+        else:
+            stdio.write("\n")
+
+        stdio.write(f"\033[{paste_y};{paste_x}H")  # todo: stop writing y == y
+
+        self.paste_y = paste_y
 
     def kbhit(self, timeout: float | None) -> bool:  # a la msvcrt.kbhit
         """Block till next Input Byte, else till Timeout, else till forever"""
@@ -1071,6 +1114,15 @@ class TouchTerminal:
 
         _kpacket_ = self._kpacket_
 
+        # Snoop ⎋[ ⇧R Cursor-Position-Report (CSR)
+
+        yx_ints = _kpacket_.to_csi_ints_if(b"R", start=b"", default=PN1)  # ⎋[ ⇧R
+        if len(yx_ints) == 2:
+            self.row_y = yx_ints[0]
+            self.column_x = yx_ints[-1]
+
+        # Snoop ⎋[8 T Terminal Window Pane Height x Width Report
+
         nhw_ints = _kpacket_.to_csi_ints_if(b"t", start=b"", default=PN1)  # ⎋[8 T
         if len(nhw_ints) == 3:
             assert nhw_ints[0] == 8, (
@@ -1080,10 +1132,21 @@ class TouchTerminal:
             self.y_height = nhw_ints[1]
             self.x_width = nhw_ints[2]
 
-        yx_ints = _kpacket_.to_csi_ints_if(b"R", start=b"", default=PN1)  # ⎋[ ⇧R
-        if len(yx_ints) == 2:
-            self.row_y = yx_ints[0]
-            self.column_x = yx_ints[-1]
+        # Snoop ⎋[200 ⎋[201 ⇧~ Start/ End of Bracketed Paste
+
+        se_ints = _kpacket_.to_csi_ints_if(b"~", start=b"", default=PS0)  # ⎋[ ⇧~
+        if len(se_ints) == 1:
+            ps = se_ints[-1]
+
+            assert -1 not in (self.row_y, self.column_x), (self.row_y, self.column_x)
+
+            if ps == 200:
+                self.paste_y = self.row_y
+                self.paste_x = self.column_x
+
+            if ps == 201:
+                self.paste_y = -1
+                self.paste_x = -1
 
     def getch(self, timeout: float | None) -> bytes:  # a la msvcrt.getch
         """Read next Byte of Keyboard Chord, Mouse Arrow Burst, Mouse Click, or Touch Tap"""
@@ -1162,14 +1225,10 @@ class TouchTerminal:
             length = 1
 
             read = os.read(fd, length)
-            # os.write(fd, read)  # directly looping back doesn't simplify Arrow Burst Input
-            # stdio.flush()
             read_plus = read
 
             while self._kbhit_(timeout=0.000_001):
                 read = os.read(fd, length)
-                # os.write(fd, read)
-                # stdio.flush()
                 read_plus += read
 
             t2 = time.time()
@@ -2707,6 +2766,40 @@ def excepthook(  # ) -> ...:
 
     print(">>> pdb.pm()", file=with_stderr)
     pdb.pm()
+
+
+#
+# Cite some Terminal Escape & Control Sequence Docs
+#
+
+
+_ = """  # our top choices
+
+https://unicode.org/charts/PDF/U0000.pdf
+https://unicode.org/charts/PDF/U0080.pdf
+
+https://en.wikipedia.org/wiki/ANSI_escape_code
+https://jvns.ca/blog/2025/03/07/escape-code-standards
+
+https://invisible-island.net/xterm/ctlseqs/ctlseqs.html
+
+https://www.ecma-international.org/publications-and-standards/standards/ecma-48
+    /wp-content/uploads/ECMA-48_5th_edition_june_1991.pdf
+
+"""
+
+_ = """  # more breadth found via https://jvns.ca/blog/2025/03/07/escape-code-standards
+
+https://github.com/tmux/tmux/blob/master/tools/ansicode.txt  <= close to h/t jvns.ca
+https://man7.org/linux/man-pages/man4/console_codes.4.html
+https://sw.kovidgoyal.net/kitty/keyboard-protocol
+https://vt100.net/docs/vt100-ug/chapter3.html
+
+https://iterm2.com/feature-reporting
+https://gist.github.com/egmontkob/eb114294efbcd5adb1944c9f3cb5feda
+https://github.com/Alhadis/OSC8-Adoption?tab=readme-ov-file
+
+"""
 
 
 #
