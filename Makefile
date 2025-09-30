@@ -104,6 +104,7 @@ black:
 
 
 flake8:
+	ls bin/*.py |grep -v ^bin/__main__.py
 	~/.pyvenvs/flake8/bin/flake8 \
 		--max-line-length=999 --max-complexity 15 --ignore=E203,E704,W503 \
 			$$(ls bin/*.py |grep -v ^bin/__main__.py) 2>&1  \

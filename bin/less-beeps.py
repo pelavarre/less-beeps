@@ -89,7 +89,7 @@ def main() -> None:
     testing = False
     if testing:
         t0 = time.time()
-        TerminalBytePacket(b"")._try_terminal_byte_pack_()
+        TerminalBytePack(b"")._try_terminal_byte_pack_()
         t1 = time.time()
         print(t1 - t0)  # 233us
 
@@ -106,14 +106,14 @@ main_instances: list[MainClass] = list()
 class MainClass:
     """Run from the Shell Command Line, and launch the Py Repl vs uncaught Exceptions"""
 
-    _touch_terminal_: TouchTerminal | None = None
+    _touch_terminal_: MouseTerminal | None = None
 
     @property
-    def touch_terminal(self) -> TouchTerminal:
-        tt = self._touch_terminal_
-        assert tt, (tt,)
-        assert tt is touch_terminals[-1], (tt, touch_terminals)
-        return tt
+    def touch_terminal(self) -> MouseTerminal:
+        mt = self._touch_terminal_
+        assert mt, (mt,)
+        assert mt is touch_terminals[-1], (mt, touch_terminals)
+        return mt
 
     def __init__(self) -> None:
         main_instances.append(self)
@@ -137,9 +137,9 @@ class MainClass:
         # Run till quit, inside a Terminal
 
         with TerminalStudio() as ts:
-            tt = self._touch_terminal_ = ts.touch_terminal  # replaces
+            mt = self._touch_terminal_ = ts.touch_terminal  # replaces
             while True:
-                (kcaps, kbytes) = tt.read_key_caps(timeout=None)
+                (kcaps, kbytes) = mt.read_key_caps(timeout=None)
                 if kcaps:
                     ts.kcaps_exec(kcaps, kbytes=kbytes)
 
@@ -152,10 +152,10 @@ class MainClass:
 
         # Run inside a Terminal, till Quit
 
-        with TouchTerminal() as tt:  # todo2: small With bodies - move out into Classes
-            self._touch_terminal_ = tt  # replaces
+        with MouseTerminal() as mt:  # todo2: small With bodies - move out into Classes
+            self._touch_terminal_ = mt  # replaces
 
-            stdio = tt.stdio
+            stdio = mt.stdio
             fileno = stdio.fileno()
 
             # Ask for Height, Width, Cursor Y, Cursor X, and then also some other Input
@@ -181,22 +181,22 @@ class MainClass:
 
                     # Hang invisibly while Multibyte Sequences arrive slowly  # todo3: Do better
 
-                    (kpair_kcaps, kpair_kbytes) = tt.read_key_caps(timeout=None)
+                    (kpair_kcaps, kpair_kbytes) = mt.read_key_caps(timeout=None)
                     if not kpair_kcaps:
                         continue
 
                     # Take Csi Inputs
 
                     if kpair_kcaps.startswith("⎋["):
-                        kpacket = TerminalBytePacket(kpair_kbytes)
+                        kpack = TerminalBytePack(kpair_kbytes)
 
                         if kpair_kbytes == b"\033[M":  # todo3: Packet Constructor option?
-                            ok = kpacket.close_if_csi_shift_m()
-                            assert ok, (ok, kpacket, kpair_kbytes)
+                            ok = kpack.close_if_csi_shift_m()
+                            assert ok, (ok, kpack, kpair_kbytes)
 
-                        backtail = bytes(kpacket.back + kpacket.tail)
+                        backtail = bytes(kpack.back + kpack.tail)
                         if backtail and (backtail in backtails):
-                            ints = kpacket.to_csi_ints_if(backtail, start=b"", default=-1)
+                            ints = kpack.to_csi_ints_if(backtail, start=b"", default=-1)
                             if ints:
 
                                 backtails.remove(backtail)
@@ -215,18 +215,18 @@ class MainClass:
                 # Convert Single-Byte Control Inputs
 
                 if kbytes == b"\r":
-                    if tt.paste_y != -1:
-                        tt.write_paste_crlf()
+                    if mt.paste_y != -1:
+                        mt.write_paste_crlf()
                         continue
 
                 # Convert Csi Inputs
 
                 if kcaps.startswith("⎋["):
-                    kpacket = TerminalBytePacket(kbytes)  # todo3: redundant work
+                    kpack = TerminalBytePack(kbytes)  # todo3: redundant work
 
                     # Convert Mouse ⌥-Click Release to Csi, or Mouse Click Release to Csi
 
-                    m_ints = kpacket.to_csi_ints_if(b"m", start=b"<", default=-1)
+                    m_ints = kpack.to_csi_ints_if(b"m", start=b"<", default=-1)
                     if len(m_ints) == 3:
                         (f, x, y) = m_ints  # f x y, not f y x
 
@@ -258,15 +258,15 @@ class MainClass:
 
         # Run inside a Terminal, till Quit
 
-        with TouchTerminal() as tt:  # todo2: small With bodies
-            self._touch_terminal_ = tt  # replaces
+        with MouseTerminal() as mt:  # todo2: small With bodies
+            self._touch_terminal_ = mt  # replaces
 
-            stdio = tt.stdio
+            stdio = mt.stdio
 
-            # As late as now, trace the Writes of TouchTerminal.__enter__
+            # As late as now, trace the Writes of MouseTerminal.__enter__
 
             kcaps_list = list()
-            for entry_data in tt.entries:
+            for entry_data in mt.entries:
                 kcaps = kbytes_to_precise_kcaps(entry_data)
                 kcaps_list.append(kcaps)
 
@@ -282,9 +282,9 @@ class MainClass:
 
             tprint()
             tprint("⎋[18T")
-            tt.stdio.write("\033[18t")  # the ⎋[18 T Call
+            mt.stdio.write("\033[18t")  # the ⎋[18 T Call
             while True:
-                (kcaps, kbytes) = tt.read_key_caps(timeout=None)
+                (kcaps, kbytes) = mt.read_key_caps(timeout=None)
                 if kcaps:
                     break
             self.kbytes_tprint_some(kcaps, kbytes=kbytes)  # the ⎋[8 T Reply
@@ -293,9 +293,9 @@ class MainClass:
 
             tprint()
             tprint("⎋[6N")
-            tt.stdio.write("\033[6n")  # the ⎋[ 6N Call
+            mt.stdio.write("\033[6n")  # the ⎋[ 6N Call
             while True:
-                (kcaps, kbytes) = tt.read_key_caps(timeout=None)
+                (kcaps, kbytes) = mt.read_key_caps(timeout=None)
                 if kcaps:
                     break
             self.kbytes_tprint_some(kcaps, kbytes=kbytes)  # the ⎋[ ⇧R reply
@@ -303,20 +303,20 @@ class MainClass:
             # Run till quit
 
             tprint()
-            tt.row_y = min(tt.y_height, tt.row_y + 1)
+            mt.row_y = min(mt.y_height, mt.row_y + 1)
             while True:
 
                 # Prompt
 
-                if tt.column_x == X1:
-                    text = f"{tt.row_y};{tt.column_x}"
+                if mt.column_x == X1:
+                    text = f"{mt.row_y};{mt.column_x}"
                     tprint(text, end=" ")
-                    tt.column_x += len(text + " ")
+                    mt.column_x += len(text + " ")
 
                 # Flush and read, but trace each Byte as it comes
 
                 stdio.flush()
-                (kcaps, kbytes) = tt.read_key_caps(timeout=None)
+                (kcaps, kbytes) = mt.read_key_caps(timeout=None)
                 assert kbytes, (kbytes, kcaps)
 
                 kbyte = kbytes[-1:]
@@ -355,18 +355,18 @@ class MainClass:
     def kbytes_tprint_some(self, kcaps: str, kbytes: bytes) -> None:
         """Print each Key Caps Text, as they come"""
 
-        tt = self.touch_terminal
+        mt = self.touch_terminal
 
-        burst_kbytes = tt._arrow_burst_kbytes_as_if_
+        burst_kbytes = mt._arrow_burst_kbytes_as_if_
         if (not burst_kbytes) or (kbytes == burst_kbytes):
             tprint(">", kcaps, kbytes)
         else:
             tprint(">", kcaps, kbytes, burst_kbytes)
-            tt._arrow_burst_kbytes_as_if_ = b""
+            mt._arrow_burst_kbytes_as_if_ = b""
 
-        if -1 not in (tt.y_height, tt.row_y, tt.column_x):
-            tt.row_y = min(tt.y_height, tt.row_y + 1)
-            tt.column_x = X1
+        if -1 not in (mt.y_height, mt.row_y, mt.column_x):
+            mt.row_y = min(mt.y_height, mt.row_y + 1)
+            mt.column_x = X1
 
     #
     # Say what we got for Input, if Keyboard Chord, if Arrow Burst, and how long we waited
@@ -382,12 +382,12 @@ class MainClass:
 
         # Run till quit
 
-        with TouchTerminal() as tt:  # todo2: small With bodies - move out into Classes
+        with MouseTerminal() as mt:  # todo2: small With bodies - move out into Classes
 
-            # As late as now, trace the Writes of TouchTerminal.__enter__
+            # As late as now, trace the Writes of MouseTerminal.__enter__
 
             kcaps_list = list()
-            for entry_data in tt.entries:
+            for entry_data in mt.entries:
                 kcaps = kbytes_to_precise_kcaps(entry_data)
                 kcaps_list.append(kcaps)
 
@@ -403,8 +403,8 @@ class MainClass:
 
             tprint()
             tprint("⎋[18T")
-            tt.stdio.write("\033[18t")  # ⎋[18T call for reply ⎋[8;{rows};{columns}T
-            tp = tt.read_terminal_poke(timeout=None)
+            mt.stdio.write("\033[18t")  # ⎋[18T call for reply ⎋[8;{rows};{columns}T
+            tp = mt.read_terminal_poke(timeout=None)
             rep = tp.to_sketch_text()  # the ⎋[8 T reply
             tprint(rep)
 
@@ -412,8 +412,8 @@ class MainClass:
 
             tprint()
             tprint("⎋[6N")
-            tt.stdio.write("\033[6n")  # ⎋[6N calls for reply ⎋[{y};{x}⇧R
-            tp = tt.read_terminal_poke(timeout=None)
+            mt.stdio.write("\033[6n")  # ⎋[6N calls for reply ⎋[{y};{x}⇧R
+            tp = mt.read_terminal_poke(timeout=None)
             rep = tp.to_sketch_text()  # the ⎋[ ⇧R reply
             tprint(rep)
 
@@ -421,8 +421,8 @@ class MainClass:
 
             while True:
 
-                tt.stdio.flush()
-                tp = tt.read_terminal_poke(timeout=None)
+                mt.stdio.flush()
+                tp = mt.read_terminal_poke(timeout=None)
                 reads_plus = (tp.reads + (tp.extra,)) if tp.extra else tp.reads
 
                 breaking = False
@@ -481,7 +481,7 @@ class MainClass:
 
 
 # todo3: rewrite screen
-# todo3: Route .tprint's through last TouchTerminal if it exists
+# todo3: Route .tprint's through last MouseTerminal if it exists
 # todo3: Primarily mirror, but also update the Hardware if it overlaps, like track Y X in projection
 # todo3: Left Arrow wraps inside of a Line wrapped across Multiple Rows (Right Arrow doesn't)
 
@@ -491,16 +491,16 @@ class TerminalStudio:
 
     def __init__(self) -> None:
 
-        self.touch_terminal = TouchTerminal()
+        self.touch_terminal = MouseTerminal()
 
     def __enter__(self) -> typing.Self:
-        tt = self.touch_terminal
-        tt.__enter__()
+        mt = self.touch_terminal
+        mt.__enter__()
         return self
 
     def __exit__(self, *exc_info: object) -> None:
-        tt = self.touch_terminal
-        tt.__exit__(*exc_info)
+        mt = self.touch_terminal
+        mt.__exit__(*exc_info)
 
     def kcaps_exec(self, kcaps: str, kbytes: bytes) -> None:
 
@@ -820,7 +820,7 @@ PS0 = 0  # min Ps of Csi is 0
 touch_terminals = list()
 
 
-class TouchTerminal:
+class MouseTerminal:
     """Write/ Read Bytes at Screen/ Keyboard/ Click/ Tap of the Terminal"""
 
     stdio: typing.TextIO  # for writes to Screen by 'print(file='
@@ -833,7 +833,7 @@ class TouchTerminal:
     after: int  # for writing at Exit  # todo1: Prefer .TCSAFLUSH vs large mess of Paste
 
     kbytearray: bytearray  # cleared then formed by .read_key_caps_plus and .getch
-    _kpacket_: TerminalBytePacket  # cleared then formed by .read_key_caps_plus
+    _kpack_: TerminalBytePack  # cleared then formed by .read_key_caps_plus
 
     y_height: int  # Terminal Screen Pane Rows, else -1
     x__width: int  # Terminal Screen Pane Columns, else -1
@@ -865,7 +865,7 @@ class TouchTerminal:
         self.after = termios.TCSADRAIN
 
         self.kbytearray = bytearray()
-        self._kpacket_ = TerminalBytePacket(b"")
+        self._kpack_ = TerminalBytePack(b"")
 
         self.y_height = -1
         self.x_width = -1
@@ -1010,7 +1010,7 @@ class TouchTerminal:
         """Read one whole Input as Str, else just peek at the next Input Byte"""
 
         kbytearray = self.kbytearray
-        _kpacket_ = self._kpacket_
+        _kpack_ = self._kpack_
 
         y_height = self.y_height
         x_width = self.x_width
@@ -1058,9 +1058,9 @@ class TouchTerminal:
         # todo1: Think more about accepting more than ⎋ as a prefix for whatever
 
         headbook = (b"\033", b"\033\033", b"\033\033O", b"\033\033[", b"\033O", b"\033[")
-        assert TerminalBytePacket.Headbook == headbook
+        assert TerminalBytePack.Headbook == headbook
 
-        packet_kbytes = _kpacket_.to_bytes()  # maybe not .closed
+        pack_kbytes = _kpack_.to_bytes()  # maybe not .closed
 
         try:
             poke_decode_if = poke_kbytes.decode()
@@ -1069,24 +1069,21 @@ class TouchTerminal:
 
         closing_head = False
         if (not poke_decode_if) or (not poke_decode_if[:1].isprintable()):
-            if packet_kbytes in headbook:
-                if packet_kbytes != b"\033":  # ⎋
+            if pack_kbytes in headbook:
+                if pack_kbytes != b"\033":  # ⎋
                     closing_head = True  # ⎋⎋ ⎋⎋O ⎋⎋[ ⎋O ⎋[
 
         if not closing_head:
 
-            extra = _kpacket_.take_one_if(poke_kbyte)  # truthy at ⎋ [ ⇧! 9, etc
-            packet_kbytes = _kpacket_.to_bytes()  # replaces  # maybe not .closed
+            extra = _kpack_.take_one_if(poke_kbyte)  # truthy at ⎋ [ ⇧! 9, etc
+            pack_kbytes = _kpack_.to_bytes()  # replaces  # maybe not .closed
 
-            closing_tail = bool(_kpacket_.text or _kpacket_.closed or extra)
+            closing_tail = bool(_kpack_.text or _kpack_.closed or extra)
 
-            if (packet_kbytes == b"\033[M") and (len(poke_kbytes) <= 1):  # ⎋[M
-                ok = _kpacket_.close_if_csi_shift_m()
-                assert ok, (ok, _kpacket_, packet_kbytes)
+            if (pack_kbytes == b"\033[M") and (len(poke_kbytes) <= 1):  # ⎋[M
+                ok = _kpack_.close_if_csi_shift_m()
+                assert ok, (ok, _kpack_, pack_kbytes)
                 closing_tail = True
-
-            # if (packet_kbytes == b"\033\033") and (len(poke_kbytes) <= 1):  # ⎋⎋
-            #     closing_tail = True
 
             if not closing_tail:
                 kbytearray.pop(0)
@@ -1097,33 +1094,33 @@ class TouchTerminal:
 
         # Read, snoop, and clear one whole Packet
 
-        self.snoop_packet()
-        _kpacket_.clear_packet()
+        self.snoop_pack()
+        _kpack_.clear_pack()
 
         # Pick out concise or precise Key Caps, and return them
 
-        concise = kbytes_to_concise_kcaps_if(packet_kbytes)
+        concise = kbytes_to_concise_kcaps_if(pack_kbytes)
         if concise:
-            return (concise, packet_kbytes)
+            return (concise, pack_kbytes)
 
-        precise = kbytes_to_precise_kcaps(packet_kbytes)
-        return (precise, packet_kbytes)
+        precise = kbytes_to_precise_kcaps(pack_kbytes)
+        return (precise, pack_kbytes)
 
-    def snoop_packet(self) -> None:
+    def snoop_pack(self) -> None:
         """Mirror updates to Height, Width, Y, and X, as they fly by"""
 
-        _kpacket_ = self._kpacket_
+        _kpack_ = self._kpack_
 
         # Snoop ⎋[ ⇧R Cursor-Position-Report (CSR)
 
-        yx_ints = _kpacket_.to_csi_ints_if(b"R", start=b"", default=PN1)  # ⎋[ ⇧R
+        yx_ints = _kpack_.to_csi_ints_if(b"R", start=b"", default=PN1)  # ⎋[ ⇧R
         if len(yx_ints) == 2:
             self.row_y = yx_ints[0]
             self.column_x = yx_ints[-1]
 
         # Snoop ⎋[8 T Terminal Window Pane Height x Width Report
 
-        nhw_ints = _kpacket_.to_csi_ints_if(b"t", start=b"", default=PN1)  # ⎋[8 T
+        nhw_ints = _kpack_.to_csi_ints_if(b"t", start=b"", default=PN1)  # ⎋[8 T
         if len(nhw_ints) == 3:
             assert nhw_ints[0] == 8, (
                 nhw_ints[0],
@@ -1134,7 +1131,7 @@ class TouchTerminal:
 
         # Snoop ⎋[200 ⎋[201 ⇧~ Start/ End of Bracketed Paste
 
-        se_ints = _kpacket_.to_csi_ints_if(b"~", start=b"", default=PS0)  # ⎋[ ⇧~
+        se_ints = _kpack_.to_csi_ints_if(b"~", start=b"", default=PS0)  # ⎋[ ⇧~
         if len(se_ints) == 1:
             ps = se_ints[-1]
 
@@ -1270,7 +1267,7 @@ class TouchTerminal:
         return tp
 
 
-class TerminalBytePacket:
+class TerminalBytePack:
     """Hold 1 Control Char, else 1 or more Text Chars, else some Bytes"""
 
     text: str  # 0 or more Chars of Printable Text
@@ -1291,14 +1288,14 @@ class TerminalBytePacket:
     #
 
     def __init__(self, data: bytes) -> None:
-        self._refill_packet_(data)
+        self._refill_pack_(data)
 
-    def clear_packet(self) -> None:
+    def clear_pack(self) -> None:
         """Clear Self, but leave it open to taking in Bytes"""
 
-        self._refill_packet_(b"")
+        self._refill_pack_(b"")
 
-    def _refill_packet_(self, data: bytes) -> None:
+    def _refill_pack_(self, data: bytes) -> None:
         """Clear Self, and then take in the Bytes, but require that they all fit"""
 
         self.text = ""
@@ -1352,7 +1349,7 @@ class TerminalBytePacket:
 
         return s
 
-        # 'TerminalBytePacket(head=b'', back=b'', neck=b'', stash=b'', tail=b'', closed=False)'
+        # 'TerminalBytePack(head=b'', back=b'', neck=b'', stash=b'', tail=b'', closed=False)'
 
     def __str__(self) -> str:
 
@@ -1468,7 +1465,7 @@ class TerminalBytePacket:
 
         # Try some Packets left open to taking more Bytes
 
-        pack = TerminalBytePacket(b"Superb")
+        pack = TerminalBytePack(b"Superb")
         assert str(pack) == "'Superb'" and not pack.closed, (pack,)
         extras = pack.take_one_if(b"\xc2")
         assert not extras and not pack.closed, (extras, pack.closed, pack)
@@ -1511,13 +1508,13 @@ class TerminalBytePacket:
         pack = self._try_bytes_(*args)
         assert pack.closed, (pack,)
 
-    def _try_bytes_(self, *args: bytes) -> "TerminalBytePacket":
+    def _try_bytes_(self, *args: bytes) -> "TerminalBytePack":
         """Require the Eval of the Str of the Packet equals its Bytes"""
 
         data = b"".join(args)
         join = " ".join(str(_) for _ in args)
 
-        pack = TerminalBytePacket(data)
+        pack = TerminalBytePack(data)
         pack_bytes = pack.to_bytes()
         pack_str = str(pack)
 
@@ -1750,7 +1747,7 @@ class TerminalBytePacket:
         #
 
         headbook = (b"\033", b"\033\033", b"\033\033O", b"\033\033[", b"\033O", b"\033[")
-        assert TerminalBytePacket.Headbook == headbook
+        assert TerminalBytePack.Headbook == headbook
 
         head_plus = bytes(head + data)
         if head_plus in headbook:
@@ -2219,7 +2216,7 @@ DY_DX_BY_ARROW_KBYTES = {
 KCAP_SEP = " "  # separates '⇧Tab' from '⇧T a b', '⎋⇧FnX' from '⎋⇧Fn X', etc
 
 # headbook = (b"\033", b"\033\033", b"\033\033O", b"\033\033[", b"\033O", b"\033[")
-# assert TerminalBytePacket.Headbook == headbook
+# assert TerminalBytePack.Headbook == headbook
 
 KCAP_BY_KTEXT = {  # r"←|↑|→|↓" and so on  # ⌃ ⌥ ⇧ ⌃⌥ ⌃⇧ ⌥⇧ ⌃⌥⇧ and so on
     "\x00": "⌃Spacebar",  # ⌃@  # ⌃⇧2
@@ -2481,7 +2478,7 @@ def kbytes_to_concise_kcaps_if(kbytes: bytes) -> str:
     kcap_by_ktext = KCAP_BY_KTEXT  # '\e\e[A' for ⎋↑ etc
 
     headbook = (b"\033", b"\033\033", b"\033\033O", b"\033\033[", b"\033O", b"\033[")
-    assert TerminalBytePacket.Headbook == headbook
+    assert TerminalBytePack.Headbook == headbook
 
     assert KCAP_SEP == " "
 
@@ -2708,9 +2705,9 @@ def tprint(*args: object, end: str = "\r\n") -> None:
 
     text = " ".join(str(_) for _ in args)
 
-    tt = touch_terminals[-1]
-    stdio = tt.stdio
-    tcgetattr = tt.tcgetattr
+    mt = touch_terminals[-1]
+    stdio = mt.stdio
+    tcgetattr = mt.tcgetattr
 
     assert tcgetattr, (tcgetattr,)
 
