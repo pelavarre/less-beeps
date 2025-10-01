@@ -150,6 +150,10 @@ class MainClass:
     def try_loopback(self) -> None:  # noqa: C901 complex  # todo3:
         """Take Input as Touch Tap, as Mouse Click, or as Keyboard Chord, till Quit"""
 
+        assert DSR_6 == "\033[" "6n"
+        assert XTWINOPS_18 == "\033[" "18t"
+        assert CUP_Y_X == "\033[" "{};{}" "H"  # # CSI 04/08 [Choose] Cursor Position
+
         # Run inside a Terminal, till Quit
 
         with MouseTerminal() as mt:  # todo2: small With bodies - move out into Classes
@@ -255,6 +259,9 @@ class MainClass:
 
     def try_key_caps(self) -> None:
         """Take Input as Touch Tap, as Mouse Click, or as Keyboard Chord, till Quit"""
+
+        assert DSR_6 == "\033[" "6n"
+        assert XTWINOPS_18 == "\033[" "18t"
 
         # Run inside a Terminal, till Quit
 
@@ -374,6 +381,9 @@ class MainClass:
 
     def try_byte_times(self) -> None:
         """Say what we got for Input, if Keyboard Chord, if Arrow Burst, and how long we waited"""
+
+        assert DSR_6 == "\033[" "6n"
+        assert XTWINOPS_18 == "\033[" "18t"
 
         # Take in the Shell Command-Line Args
 
@@ -886,6 +896,11 @@ class MouseTerminal:
         tcgetattr = self.tcgetattr
         exits = self.exits
 
+        assert _SM_SGR_MOUSE_ == "\033[" "?1000;1006h"
+        assert _RM_SGR_MOUSE_ == "\033[" "?1000;1006l"
+        assert _SM_BRACKETED_PASTE_ == "\033[" "?2004h"
+        assert _RM_BRACKETED_PASTE_ == "\033[" "?2004l"
+
         if tcgetattr:
             return self
 
@@ -963,6 +978,8 @@ class MouseTerminal:
         y_height = self.y_height
         paste_y = self.paste_y
         paste_x = self.paste_x
+
+        assert CUP_Y_X == "\033[" "{};{}" "H"  # # CSI 04/08 [Choose] Cursor Position
 
         if paste_y < y_height:
             paste_y = paste_y + 1
@@ -1111,6 +1128,9 @@ class MouseTerminal:
 
         _kpack_ = self._kpack_
 
+        assert CPR_Y_X == "\033[" "{};{}" "R"
+        assert XTWINOPS_8_H_W == "\033[" "8;{};{}" "t"
+
         # Snoop ⎋[ ⇧R Cursor-Position-Report (CSR)
 
         yx_ints = _kpack_.to_csi_ints_if(b"R", start=b"", default=PN1)  # ⎋[ ⇧R
@@ -1122,10 +1142,7 @@ class MouseTerminal:
 
         nhw_ints = _kpack_.to_csi_ints_if(b"t", start=b"", default=PN1)  # ⎋[8 T
         if len(nhw_ints) == 3:
-            assert nhw_ints[0] == 8, (
-                nhw_ints[0],
-                nhw_ints,
-            )
+            assert nhw_ints[0] == 8, (nhw_ints[0], nhw_ints)
             self.y_height = nhw_ints[1]
             self.x_width = nhw_ints[2]
 
@@ -1168,8 +1185,9 @@ class MouseTerminal:
         """Fetch Bytes into Self, and return their Timing and simple ⎋[0 N Closing separately"""
 
         kbytearray = self.kbytearray
-
         assert not kbytearray, (kbytearray,)
+
+        assert DSR_0 == "\033[" "0n"
 
         tp = self.read_terminal_poke(timeout=timeout)
         kbytes = tp.to_kbytes()
@@ -1194,6 +1212,8 @@ class MouseTerminal:
         stdio = self.stdio
 
         assert Immediately == 0.000_001
+        assert DSR_5 == "\033[" "5n"
+        assert DSR_0 == "\033[" "0n"
 
         # Flush Output, and wait for Input
 
@@ -1888,9 +1908,30 @@ ESC = "\033"
 SS3 = "\033O"
 CSI = "\033["
 
+
+CUP_Y_X = "\033[" "{};{}" "H"  # # CSI 04/08 [Choose] Cursor Position
+
+
+DSR_5 = "\033[" "5n"  # CSI 06/14 [Request] Device Status Report  # Ps 5 Request DSR_0
+DSR_0 = "\033[" "0n"  # CSI 06/14 [Response] Device Status Report  # Ps 0 Response Ready
+
+DSR_6 = "\033[" "6n"  # CSI 06/14 [Request] Device Status Report  # Ps 6 Request CPR
+CPR_Y_X = "\033[" "{};{}" "R"  # CSI 05/02 [Response] Active [Cursor] Pos Rep
+
+XTWINOPS_18 = "\033[" "18t"  # CSI 07/04 [Request] XTWINOPS_18
+XTWINOPS_8_H_W = "\033[" "8;{};{}" "t"  # CSI 07/04 [Response] XTWINOPS_8
+
+
 CSI_P_CHARS = """0123456789:;<=>?"""  # Csi Parameter Bytes
 CSI_I_CHARS = """ !'#$%&'()*+,-./"""  # Csi Intermediate [Penultimate] Bytes
 CSI_F_CHARS = "@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~"  # Csi Final Bytes
+
+
+_SM_SGR_MOUSE_ = "\033[" "?1000;1006h"  # codes Press/ Release as ⎋[{f};{x};{y} ⇧M and M
+_RM_SGR_MOUSE_ = "\033[" "?1000;1006l"
+
+_SM_BRACKETED_PASTE_ = "\033[" "?2004h"  # codes Start/ End as ⎋[200~ and ⎋[201~
+_RM_BRACKETED_PASTE_ = "\033[" "?2004l"
 
 
 @dataclasses.dataclass(order=True, frozen=True)
@@ -2053,8 +2094,8 @@ class TerminalPoke:
         """Say what we got for Input, if Keyboard Chord, and if Arrow Burst"""
 
         reads = self.reads
-
         kbytes = self.to_kbytes()
+        assert DSR_0 == "\033[" "0n"
 
         if not reads:
             rep = repr(b"")
@@ -2083,6 +2124,7 @@ class TerminalPoke:
         """Say what we got for Input, if indeed it is a Keyboard Chord"""
 
         reads = self.reads
+        assert DSR_0 == "\033[" "0n"
 
         # Require a simple Close (and then don't speak of it)
 
@@ -2124,6 +2166,7 @@ class TerminalPoke:
 
         reads = self.reads
         dy_dx_by_arrow_kbytes = DY_DX_BY_ARROW_KBYTES
+        assert DSR_0 == "\033[" "0n"
 
         # Take nothing but ⎋[A ⎋[B ⎋[C ⎋[D plain Arrow Keystroke Chords, up to a ⎋[0 N Reply
 
@@ -2164,6 +2207,7 @@ class TerminalPoke:
 
         reads = self.reads
         kbytes = b"".join(reads)
+        assert DSR_0 == "\033[" "0n"
 
         if len(reads) < 2:
             return ""
