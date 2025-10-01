@@ -368,15 +368,36 @@ class MainClass:
 
         kbytes = ti.kbytes
         caps = ti.caps
+        face = ti.face
 
         mt = self.touch_terminal
 
         burst_kbytes = mt._arrows_kbytes_lately_
-        if (not burst_kbytes) or (kbytes == burst_kbytes):
-            tprint(">", caps, kbytes)
+        mt._arrows_kbytes_lately_ = b""
+
+        if burst_kbytes and (kbytes != burst_kbytes):
+
+            if face:
+                tprint(">", face, caps, kbytes, burst_kbytes)
+            else:
+                tprint(">", caps, kbytes, burst_kbytes)
+
         else:
-            tprint(">", caps, kbytes, burst_kbytes)
-            mt._arrows_kbytes_lately_ = b""
+
+            if face:
+                if face != caps:
+                    tprint(">", face, caps, kbytes)
+                else:
+                    tprint(">", caps, kbytes)
+            else:
+                if kbytes == b"\a":
+                    tprint(">", caps, r"b'\a'")  # not b'\x07'
+                elif kbytes == b"\b":
+                    tprint(">", caps, r"b'\b'")  # not b'\x08'  # todo: colored wrong by VsCode
+                elif kbytes == b"\f":
+                    tprint(">", caps, r"b'\f'")  # not b'\x0c'
+                else:
+                    tprint(">", caps, kbytes)
 
         if -1 not in (mt.y_height, mt.row_y, mt.column_x):
             mt.row_y = min(mt.y_height, mt.row_y + 1)
@@ -1099,7 +1120,7 @@ class MouseTerminal:
         (mouse_kbytes, arrow_kbytes) = self.tp_from_startswith_mouse_arrow_kbytes(tp)
         assert bool(mouse_kbytes) == bool(arrow_kbytes), (mouse_kbytes, arrow_kbytes, tp)
         if mouse_kbytes:
-            self._arrows_kbytes_lately_ = arrows_kbytes_pn_compress(mouse_kbytes)
+            self._arrows_kbytes_lately_ = arrows_kbytes_pn_compress(arrow_kbytes)
 
             if len(arrow_kbytes) >= (4 * 3):  # if not much like a single Arrow Repeated
                 del kbytearray[: len(arrow_kbytes)]
@@ -1458,7 +1479,7 @@ class TerminalInput:
 
     kbytes: bytes  # b'\033\033OP'
     caps: str  # '⎋⎋⇧O⇧P'
-    face: str  # '⎋F1'
+    face: str  # ''  # '⎋F1'
 
     def __init__(self, kbytes: bytes) -> None:
 
@@ -1470,8 +1491,12 @@ class TerminalInput:
         self.backtail = bytes(pack.back + pack.tail)
 
         self.kbytes = kbytes
-        self.caps = kbytes_to_precise_kcaps(kbytes)
-        self.face = kbytes_to_concise_kcaps_if(kbytes)
+        caps = kbytes_to_precise_kcaps(kbytes)
+        face = kbytes_to_concise_kcaps_if(kbytes)
+
+        self.kbytes = kbytes
+        self.caps = caps
+        self.face = face
 
     def to_csi_ints_if(self, backtail: bytes, start: bytes, default: int) -> list[int]:
         """Pick out the Nonnegative Int Literals of a CSI Escape Sequence"""
@@ -2673,7 +2698,7 @@ def kbytes_to_concise_kcaps_if(kbytes: bytes) -> str:
 
 
 def kbytes_to_precise_kcaps(kbytes: bytes) -> str:
-    """Choose 1 Keycaps per Character tos peak of the Bytes of 1 Keyboard Chord"""
+    """Choose 1 Keycaps per Character to speak of the Bytes of 1 Keyboard Chord"""
 
     assert kbytes, (kbytes,)
 
@@ -2681,6 +2706,13 @@ def kbytes_to_precise_kcaps(kbytes: bytes) -> str:
 
     ktext = kbytes.decode()  # todo: .kbytes_to_precise_kcaps may raise UnicodeDecodeError
     assert ktext, (ktext,)
+
+    if ktext == "\t":
+        return "⌃I"  # not 'Tab', despite .kcap_by_ktext
+    if ktext == "\r":
+        return "⌃M"  # not 'Return', despite .kcap_by_ktext
+    if ktext == "\x7f":
+        return "⌃?"  # not 'Delete', despite .kcap_by_ktext
 
     precise = ""
     for kt in ktext:  # often 'len(ktext) == 1'
@@ -2840,12 +2872,16 @@ for _KTEXT_, _COUNT_ in collections.Counter(_KTEXT_UNROLL_).items():
 def arrows_kbytes_pn_compress(kbytes: bytes) -> bytes:
     """Compress each run of Arrows into a Pn > 1"""
 
+    dy_dx_by_arrow_kbytes = DY_DX_BY_ARROW_KBYTES
+
     pairs: list[tuple[int, bytes]] = list()
 
     kbytearray = bytearray(kbytes)
     while kbytearray:
         arrow = bytes(kbytearray[:3])
         del kbytearray[:3]
+
+        assert arrow in dy_dx_by_arrow_kbytes.keys(), (arrow,)
 
         tail = arrow[-1:]
         if pairs and pairs[-1][-1] == tail:
