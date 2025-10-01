@@ -139,20 +139,21 @@ class MainClass:
         with TerminalStudio() as ts:
             mt = self._touch_terminal_ = ts.touch_terminal  # replaces
             while True:
-                (kcaps, kbytes) = mt.read_key_caps(timeout=None)
-                if kcaps:
-                    ts.kcaps_exec(kcaps, kbytes=kbytes)
+                ti = mt.read_terminal_input(timeout=None)
+                if ti:
+                    ts.terminal_input_exec(ti)
 
     #
     # Take Input, edit it, and write it back out
     #
 
-    def try_loopback(self) -> None:  # noqa: C901 complex  # todo3:
+    def try_loopback(self) -> None:
         """Take Input as Touch Tap, as Mouse Click, or as Keyboard Chord, till Quit"""
 
+        assert CSI == "\033["
         assert DSR_6 == "\033[" "6n"
         assert XTWINOPS_18 == "\033[" "18t"
-        assert CUP_Y_X == "\033[" "{};{}" "H"  # # CSI 04/08 [Choose] Cursor Position
+        assert CUP_Y_X == "\033[" "{};{}H"  # # CSI 04/08 [Choose] Cursor Position
 
         # Run inside a Terminal, till Quit
 
@@ -160,7 +161,6 @@ class MainClass:
             self._touch_terminal_ = mt  # replaces
 
             stdio = mt.stdio
-            fileno = stdio.fileno()
 
             # Ask for Height, Width, Cursor Y, Cursor X, and then also some other Input
 
@@ -180,27 +180,24 @@ class MainClass:
 
                 # Take Inputs in whatever order  # todo: Log if Input ever comes out of order
 
-                (kcaps, kbytes) = ("", b"")
+                ti = None
                 while backtails:
 
                     # Hang invisibly while Multibyte Sequences arrive slowly  # todo3: Do better
 
-                    (kpair_kcaps, kpair_kbytes) = mt.read_key_caps(timeout=None)
-                    if not kpair_kcaps:
+                    ti = mt.read_terminal_input(timeout=None)
+                    if not ti:
                         continue
+
+                    caps = ti.caps
+                    pack = ti.pack
 
                     # Take Csi Inputs
 
-                    if kpair_kcaps.startswith("⎋["):
-                        kpack = TerminalBytePack(kpair_kbytes)
-
-                        if kpair_kbytes == b"\033[M":  # todo3: Packet Constructor option?
-                            ok = kpack.close_if_csi_shift_m()
-                            assert ok, (ok, kpack, kpair_kbytes)
-
-                        backtail = bytes(kpack.back + kpack.tail)
+                    if caps.startswith("⎋["):
+                        backtail = bytes(pack.back + pack.tail)
                         if backtail and (backtail in backtails):
-                            ints = kpack.to_csi_ints_if(backtail, start=b"", default=-1)
+                            ints = ti.to_csi_ints_if(backtail, start=b"", default=-1)
                             if ints:
 
                                 backtails.remove(backtail)
@@ -212,46 +209,56 @@ class MainClass:
                     if b"" in backtails:
                         backtails.remove(b"")
 
-                        (kcaps, kbytes) = (kpair_kcaps, kpair_kbytes)
-
                         break
 
-                # Convert Single-Byte Control Inputs
+                assert ti, (ti,)
 
-                if kbytes == b"\r":
-                    if mt.paste_y != -1:
-                        mt.write_paste_crlf()
-                        continue
+                self.try_one_loopback(mt, ti=ti)
 
-                # Convert Csi Inputs
+    def try_one_loopback(self, mt: MouseTerminal, ti: TerminalInput) -> None:
+        """Convert some Inputs, and loop the rest back"""
 
-                if kcaps.startswith("⎋["):
-                    kpack = TerminalBytePack(kbytes)  # todo3: redundant work
+        stdio = mt.stdio
+        fileno = mt.fileno
 
-                    # Convert Mouse ⌥-Click Release to Csi, or Mouse Click Release to Csi
+        kbytes = ti.kbytes
+        caps = ti.caps
 
-                    m_ints = kpack.to_csi_ints_if(b"m", start=b"<", default=-1)
-                    if len(m_ints) == 3:
-                        (f, x, y) = m_ints  # f x y, not f y x
+        # Convert Single-Byte Control Inputs
 
-                        f0 = 0  # none of ⌃ ⌥ ⇧
-                        f8 = int("0b01000", base=0)  # f = ⌥ of 0b⌃⌥⇧00
-                        if f in (f0, f8):  # Click or ⌥-Click
-                            stdio.write(f"\033[{y};{x}H")  # no bounds caps on Mouse Click or ⌥-Click
-                            continue
+        if kbytes == b"\r":
+            if mt.paste_y != -1:
+                mt.write_paste_crlf()
+                return
 
-                # Loop Input Bytes back, no matter if well known
+        # Convert Csi Inputs
 
-                stdio.flush()  # before each 'os.write'
+        if caps.startswith("⎋["):
 
-                fd = fileno
-                data = kbytes
-                os.write(fd, data)
+            # Convert Mouse ⌥-Click Release to Csi, or Mouse Click Release to Csi
 
-                # Quit on demand
+            m_ints = ti.to_csi_ints_if(b"m", start=b"<", default=-1)
+            if len(m_ints) == 3:
+                (f, x, y) = m_ints  # f x y, not f y x
 
-                if kcaps in ("⌃C", "⌃D", "⌃Z", "⌃\\"):
-                    sys.exit()
+                f0 = 0  # none of ⌃ ⌥ ⇧
+                f8 = int("0b01000", base=0)  # f = ⌥ of 0b⌃⌥⇧00
+                if f in (f0, f8):  # Click or ⌥-Click
+                    stdio.write(f"\033[{y};{x}H")  # no bounds caps on Mouse Click or ⌥-Click
+                    return
+
+        # Loop Input Bytes back, no matter if well known
+
+        stdio.flush()  # before each 'os.write'
+
+        fd = fileno
+        data = kbytes
+        os.write(fd, data)
+
+        # Quit on demand
+
+        if caps in ("⌃C", "⌃D", "⌃Z", "⌃\\"):
+            sys.exit()
 
     #
     # Take Input as Touch Tap, as Mouse Click, or as Keyboard Chord, till Quit
@@ -291,10 +298,10 @@ class MainClass:
             tprint("⎋[18T")
             mt.stdio.write("\033[18t")  # the ⎋[18 T Call
             while True:
-                (kcaps, kbytes) = mt.read_key_caps(timeout=None)
-                if kcaps:
+                ti = mt.read_terminal_input(timeout=None)
+                if ti:
                     break
-            self.kbytes_tprint_some(kcaps, kbytes=kbytes)  # the ⎋[8 T Reply
+            self.ti_tprint(ti)  # the ⎋[8 T Reply
 
             # Launch a fetch of Terminal Cursor Y X
 
@@ -302,10 +309,10 @@ class MainClass:
             tprint("⎋[6N")
             mt.stdio.write("\033[6n")  # the ⎋[ 6N Call
             while True:
-                (kcaps, kbytes) = mt.read_key_caps(timeout=None)
-                if kcaps:
+                ti = mt.read_terminal_input(timeout=None)
+                if ti:
                     break
-            self.kbytes_tprint_some(kcaps, kbytes=kbytes)  # the ⎋[ ⇧R reply
+            self.ti_tprint(ti)  # the ⎋[ ⇧R reply
 
             # Run till quit
 
@@ -323,27 +330,24 @@ class MainClass:
                 # Flush and read, but trace each Byte as it comes
 
                 stdio.flush()
-                (kcaps, kbytes) = mt.read_key_caps(timeout=None)
-                assert kbytes, (kbytes, kcaps)
+                (kbyte, kbytes) = mt.read_bytes(timeout=None)
+                self.kbyte_tprint(kbyte)
 
-                kbyte = kbytes[-1:]
-                self.kbyte_tprint_one(kbyte)
-
-                if not kcaps:
-                    assert kbytes == kbyte, (kbytes, kbyte, kcaps)
-
+                if not kbytes:
                     continue
 
                 # Trace the Key Caps, as they come
 
-                self.kbytes_tprint_some(kcaps, kbytes=kbytes)
+                ti = TerminalInput(kbytes)
+                self.ti_tprint(ti)  # the ⎋[ ⇧R reply
 
                 # Quit on demand
 
-                if kcaps in ("⌃C", "⌃D", "⌃Z", "⌃\\"):
+                caps = ti.caps
+                if caps in ("⌃C", "⌃D", "⌃Z", "⌃\\"):
                     sys.exit()
 
-    def kbyte_tprint_one(self, kbyte: bytes) -> int:
+    def kbyte_tprint(self, kbyte: bytes) -> int:
         """Print each Byte, as they come"""
 
         try:
@@ -359,17 +363,20 @@ class MainClass:
 
         return dx
 
-    def kbytes_tprint_some(self, kcaps: str, kbytes: bytes) -> None:
+    def ti_tprint(self, ti: TerminalInput) -> None:
         """Print each Key Caps Text, as they come"""
+
+        kbytes = ti.kbytes
+        caps = ti.caps
 
         mt = self.touch_terminal
 
-        burst_kbytes = mt._arrow_burst_kbytes_as_if_
+        burst_kbytes = mt._arrows_kbytes_lately_
         if (not burst_kbytes) or (kbytes == burst_kbytes):
-            tprint(">", kcaps, kbytes)
+            tprint(">", caps, kbytes)
         else:
-            tprint(">", kcaps, kbytes, burst_kbytes)
-            mt._arrow_burst_kbytes_as_if_ = b""
+            tprint(">", caps, kbytes, burst_kbytes)
+            mt._arrows_kbytes_lately_ = b""
 
         if -1 not in (mt.y_height, mt.row_y, mt.column_x):
             mt.row_y = min(mt.y_height, mt.row_y + 1)
@@ -512,18 +519,25 @@ class TerminalStudio:
         mt = self.touch_terminal
         mt.__exit__(*exc_info)
 
-    def kcaps_exec(self, kcaps: str, kbytes: bytes) -> None:
+    def terminal_input_exec(self, ti: TerminalInput) -> None:
+        """Reply to 1 Terminal Input"""
 
         mc = main_instances[-1]
 
-        if kcaps == "F1":
+        caps = ti.caps
+        face = ti.face
+
+        if caps in ("⌃C", "⌃D", "⌃Z", "⌃\\"):
+            sys.exit()
+
+        if face == "F1":
             tprint()
             tprint("⌃D to quit")
             tprint("F1 - Show this menu")
             tprint("⎋F1 - Show a menu of tests to run")
             return
 
-        if kcaps == "⎋F1":
+        if face == "⎋F1":
             tprint()
             tprint("⌃D to quit")
             tprint("⎋F1 - Show this menu")
@@ -532,24 +546,20 @@ class TerminalStudio:
             tprint("⎋F4 - Loopback the Bytes of Input")
             return
 
-        if kcaps == "⎋F2":
+        if face == "⎋F2":
             mc.try_byte_times()
             sys.exit()  # todo1: stop exiting after ⎋F2
 
-        if kcaps == "⎋F3":
+        if face == "⎋F3":
             mc.try_key_caps()
             sys.exit()  # todo1: stop exiting after ⎋F3
 
-        if kcaps == "⎋F4":
+        if face == "⎋F4":
             tprint("⎋F4")
             mc.try_loopback()
             sys.exit()  # todo1: stop exiting after ⎋F4
 
-        if kcaps in ("⌃C", "⌃D", "⌃Z", "⌃\\"):
-            sys.exit()
-
-        # tprint(kbytes.decode(), end="")
-        tprint(kcaps, end=" ")
+        tprint(ti.caps, end=" ")
 
 
 #
@@ -843,7 +853,7 @@ class MouseTerminal:
     after: int  # for writing at Exit  # todo1: Prefer .TCSAFLUSH vs large mess of Paste
 
     kbytearray: bytearray  # cleared then formed by .read_key_caps_plus and .getch
-    _kpack_: TerminalBytePack  # cleared then formed by .read_key_caps_plus
+    _pack_: TerminalBytePack  # cleared then formed by .read_key_caps_plus
 
     y_height: int  # Terminal Screen Pane Rows, else -1
     x__width: int  # Terminal Screen Pane Columns, else -1
@@ -852,7 +862,7 @@ class MouseTerminal:
     paste_y: int  # Bracketed Paste Cursor Y Row, else -1
     paste_x: int  # Bracketed Paste Cursor X Column, else -1
 
-    _arrow_burst_kbytes_as_if_: bytes  # from .to_mouse_key_caps_if_start
+    _arrows_kbytes_lately_: bytes  # matched by .tp_from_startswith_mouse_arrow_kbytes
 
     #
     # Init, enter, exit, and poll
@@ -864,9 +874,10 @@ class MouseTerminal:
 
         assert sys.__stderr__ is not None
         stdio = sys.__stderr__
+        fileno = stdio.fileno()
 
         self.stdio = stdio
-        self.fileno = stdio.fileno()
+        self.fileno = fileno
 
         self.before = termios.TCSADRAIN
         self.tcgetattr = list()
@@ -875,7 +886,7 @@ class MouseTerminal:
         self.after = termios.TCSADRAIN
 
         self.kbytearray = bytearray()
-        self._kpack_ = TerminalBytePack(b"")
+        self._pack_ = TerminalBytePack(b"")
 
         self.y_height = -1
         self.x_width = -1
@@ -884,7 +895,7 @@ class MouseTerminal:
         self.paste_y = -1
         self.paste_x = -1
 
-        self._arrow_burst_kbytes_as_if_ = b""
+        self._arrows_kbytes_lately_ = b""
 
     def __enter__(self) -> typing.Self:
         r"""Stop line-buffering Input, stop replacing \n Output with \r\n, etc"""
@@ -979,7 +990,7 @@ class MouseTerminal:
         paste_y = self.paste_y
         paste_x = self.paste_x
 
-        assert CUP_Y_X == "\033[" "{};{}" "H"  # # CSI 04/08 [Choose] Cursor Position
+        assert CUP_Y_X == "\033[" "{};{}H"  # # CSI 04/08 [Choose] Cursor Position
 
         if paste_y < y_height:
             paste_y = paste_y + 1
@@ -1020,64 +1031,113 @@ class MouseTerminal:
         # 'timeout' is None for Never, 0 for Now, else a Float of Seconds
 
     #
-    # Read from Keyboard, Mouse, and Touch
+    # Read a parsed Terminal Input, or just Framed Bytes, from Keyboard, Mouse, and Touch
     #
 
-    def read_key_caps(self, timeout: float | None) -> tuple[str, bytes]:  # noqa  # todo3: C901
-        """Read one whole Input as Str, else just peek at the next Input Byte"""
+    def read_terminal_input(self, timeout: float | None) -> TerminalInput | None:
+        """Read the next 1 Terminal Input"""
+
+        (kbyte, kbytes) = self.read_bytes(timeout=timeout)
+        if not kbytes:
+            return None
+
+        ti = TerminalInput(kbytes)
+        return ti
+
+    def read_bytes(self, timeout: float | None) -> tuple[bytes, bytes]:
+        """Read 0 Bytes at Timeout, or 1 Byte into the Pack, and close the Pack or not"""
 
         kbytearray = self.kbytearray
-        _kpack_ = self._kpack_
+        _pack_ = self._pack_
+
+        # Fetch one Poke, unless Input Bytes already fetched
+
+        tp = TerminalPoke(hit=0, delays=tuple(), reads=tuple(), extra=b"")
+        if not kbytearray:
+            tp = self._fill_kbytearray_(timeout=timeout)
+            if not kbytearray:
+                return (b"", b"")
+
+            self._take_arrow_burst_if_(tp)
+
+        poke_kbytes = bytes(kbytearray)
+        poke_kbyte = poke_kbytes[:1]  # does peek, doesn't pop
+
+        # Add the next Byte into the Pack, or don't, and close the Pack, or don't
+
+        self._take_one_byte_if_()
+        if not _pack_.closed:
+            return (poke_kbyte, b"")
+
+        kbytes = _pack_.to_bytes()
+        assert kbytes, (kbytes, poke_kbyte, poke_kbytes)
+
+        # Read, snoop, & clear the Closed Pack
+
+        ti = TerminalInput(kbytes)  # todo: redundant with Caller .read_terminal_input
+        self._ti_snoop_(ti)
+
+        _pack_.clear_pack()
+
+        # Return the Bytes of the Closed Pack
+
+        return (poke_kbyte, kbytes)
+
+    def _take_arrow_burst_if_(self, tp: TerminalPoke) -> None:
+        """Collapse an Arrow Burst down into a Mouse Release, if present"""
+
+        kbytearray = self.kbytearray
 
         y_height = self.y_height
         x_width = self.x_width
         row_y = self.row_y
         column_x = self.column_x
 
-        # Fetch more Bytes, when needed
+        if -1 in (y_height, x_width, row_y, column_x):
+            return
 
-        tp = TerminalPoke(hit=0, delays=tuple(), reads=tuple(), extra=b"")
-        if not kbytearray:
-            tp = self._fill_kbytearray_(timeout=timeout)
-            if not kbytearray:
-                return ("", b"")
+        (mouse_kbytes, arrow_kbytes) = self.tp_from_startswith_mouse_arrow_kbytes(tp)
+        assert bool(mouse_kbytes) == bool(arrow_kbytes), (mouse_kbytes, arrow_kbytes, tp)
+        if mouse_kbytes:
+            self._arrows_kbytes_lately_ = arrows_kbytes_pn_compress(mouse_kbytes)
 
-            # Collapse each Arrow Burst down into a Mouse Release, if
+            if len(arrow_kbytes) >= (4 * 3):  # if not much like a single Arrow Repeated
+                del kbytearray[: len(arrow_kbytes)]
+                kbytearray[0:0] = mouse_kbytes
 
-            hwyx = (y_height, x_width, row_y, column_x)
-            # hwyx = (-1, -1, -1, -1)
-            if -1 not in hwyx:
+    def _take_one_byte_if_(self) -> None:
+        """Add the next Byte into the Pack, or don't, and close the Pack, or don't"""
 
-                (mouse_ktext, mouse_kbytes) = tp.to_mouse_key_caps_if_start(hwyx)
-                assert bool(mouse_ktext) == bool(mouse_kbytes), (mouse_ktext, mouse_kbytes, tp)
+        kbytearray = self.kbytearray
+        kbytearray = self.kbytearray
+        _pack_ = self._pack_
 
-                if mouse_ktext and mouse_kbytes:
-                    self._arrow_burst_kbytes_as_if_ = arrow_burst_kbytes_pn_compress(mouse_kbytes)
-
-                    if len(mouse_kbytes) >= (4 * 3):  # if not a single Arrow
-                        del kbytearray[: len(mouse_kbytes)]
-                        kbytearray[0:0] = mouse_ktext.encode()
+        pack_kbytes = _pack_.to_bytes()  # maybe not .closed
 
         poke_kbytes = bytes(kbytearray)
-        poke_kbyte = bytes(kbytearray[:1])  # does peek, doesn't pop
-
-        # Pass back the ⌥`` encoded as rapid ``
-
-        if poke_kbytes == b"``":
-            kbytearray.clear()
-
-            concise = kbytes_to_concise_kcaps_if(poke_kbytes)
-            assert concise == "⌥``", (concise, poke_kbytes)
-
-            return (concise, poke_kbytes)
-
-        # Pass back each of the early Bytes, one at a time
-        # todo1: Think more about accepting more than ⎋ as a prefix for whatever
+        poke_kbyte = bytes(poke_kbytes[:1])  # does peek, doesn't pop
 
         headbook = (b"\033", b"\033\033", b"\033\033O", b"\033\033[", b"\033O", b"\033[")
         assert TerminalBytePack.Headbook == headbook
 
-        pack_kbytes = _kpack_.to_bytes()  # maybe not .closed
+        # Accept the ⌥`` encoded as an Immediate Pair of b"``"
+
+        if not _pack_:
+            if poke_kbytes == b"``":
+
+                kbytearray.clear()
+                _pack_.take_one(b"`")  # once
+                _pack_.take_one(b"`")  # twice
+
+                assert not _pack_.closed, (_pack_, poke_kbytes)
+
+                return
+
+        if pack_kbytes == b"``":
+            _pack_.close()
+            return
+
+        # Close the Multibyte Heads of the Headbook when followed by an Unprintable
 
         try:
             poke_decode_if = poke_kbytes.decode()
@@ -1090,77 +1150,91 @@ class MouseTerminal:
                 if pack_kbytes != b"\033":  # ⎋
                     closing_head = True  # ⎋⎋ ⎋⎋O ⎋⎋[ ⎋O ⎋[
 
+        closing_tail = False
         if not closing_head:
 
-            extra = _kpack_.take_one_if(poke_kbyte)  # truthy at ⎋ [ ⇧! 9, etc
-            pack_kbytes = _kpack_.to_bytes()  # replaces  # maybe not .closed
+            extra = _pack_.take_one_if(poke_kbyte)  # truthy at ⎋ [ ⇧! 9, etc
+            pack_kbytes = _pack_.to_bytes()  # replaces  # maybe .closed, maybe not
 
-            closing_tail = bool(_kpack_.text or _kpack_.closed or extra)
+            closing_tail = bool(_pack_.text or _pack_.closed or extra)
 
             if (pack_kbytes == b"\033[M") and (len(poke_kbytes) <= 1):  # ⎋[M
-                ok = _kpack_.close_if_csi_shift_m()
-                assert ok, (ok, _kpack_, pack_kbytes)
+                ok = _pack_.close_if_csi_shift_m()
+                assert ok, (ok, _pack_, pack_kbytes)
                 closing_tail = True
 
             if not closing_tail:
                 kbytearray.pop(0)
-                return ("", poke_kbyte)
+                return
 
-            if not extra:  # pops if taken, else keeps inside .kbytearray when not taken
-                kbytearray.pop(0)
+            if not extra:  # keeps an untaken .extra inside .kbytearray
+                kbytearray.pop(0)  # pops a taken .extra
 
-        # Read, snoop, and clear one whole Packet
+        if closing_head or closing_tail:
+            _pack_.close()
 
-        self.snoop_pack()
-        _kpack_.clear_pack()
+        # todo1: Think more about accepting more than ⎋ as a prefix for whatever
 
-        # Pick out concise or precise Key Caps, and return them
-
-        concise = kbytes_to_concise_kcaps_if(pack_kbytes)
-        if concise:
-            return (concise, pack_kbytes)
-
-        precise = kbytes_to_precise_kcaps(pack_kbytes)
-        return (precise, pack_kbytes)
-
-    def snoop_pack(self) -> None:
+    def _ti_snoop_(self, ti: TerminalInput) -> None:
         """Mirror updates to Height, Width, Y, and X, as they fly by"""
 
-        _kpack_ = self._kpack_
+        if ti.backtail == b"R":
+            self._ti_snoop_row_y_column_x_(ti)
+        elif ti.backtail == b"t":
+            self._ti_snoop_y_height_x_width_(ti)
+        elif ti.backtail == b"~":
+            self._ti_snoop_paste_start_end_(ti)
 
-        assert CPR_Y_X == "\033[" "{};{}" "R"
-        assert XTWINOPS_8_H_W == "\033[" "8;{};{}" "t"
+    def _ti_snoop_row_y_column_x_(self, ti: TerminalInput) -> None:
+        """Snoop ⎋[ ⇧R Cursor-Position-Report (CSR) of Terminal Cursor Y X"""
 
-        # Snoop ⎋[ ⇧R Cursor-Position-Report (CSR)
+        assert CPR_Y_X == "\033[" "{};{}R"
 
-        yx_ints = _kpack_.to_csi_ints_if(b"R", start=b"", default=PN1)  # ⎋[ ⇧R
+        yx_ints = ti.to_csi_ints_if(b"R", start=b"", default=PN1)  # ⎋[ ⇧R
         if len(yx_ints) == 2:
             self.row_y = yx_ints[0]
             self.column_x = yx_ints[-1]
 
-        # Snoop ⎋[8 T Terminal Window Pane Height x Width Report
+    def _ti_snoop_y_height_x_width_(self, ti: TerminalInput) -> None:
+        """Snoop ⎋[8 T Terminal Window Pane > Y-Height x X-Width Report"""
 
-        nhw_ints = _kpack_.to_csi_ints_if(b"t", start=b"", default=PN1)  # ⎋[8 T
+        assert XTWINOPS_8_H_W == "\033[" "8;{};{}t"
+
+        nhw_ints = ti.to_csi_ints_if(b"t", start=b"", default=PN1)  # ⎋[8 T
         if len(nhw_ints) == 3:
             assert nhw_ints[0] == 8, (nhw_ints[0], nhw_ints)
             self.y_height = nhw_ints[1]
             self.x_width = nhw_ints[2]
 
-        # Snoop ⎋[200 ⎋[201 ⇧~ Start/ End of Bracketed Paste
+    def _ti_snoop_paste_start_end_(self, ti: TerminalInput) -> None:
+        """Snoop ⎋[200~ ⎋[201~ Start/ End of Bracketed Paste"""
 
-        se_ints = _kpack_.to_csi_ints_if(b"~", start=b"", default=PS0)  # ⎋[ ⇧~
+        assert _SM_BRACKETED_PASTE_ == "\033[" "?2004h"
+        assert _RM_BRACKETED_PASTE_ == "\033[" "?2004l"
+
+        se_ints = ti.to_csi_ints_if(b"~", start=b"", default=PS0)  # ⎋[ ⇧~
         if len(se_ints) == 1:
             ps = se_ints[-1]
 
             assert -1 not in (self.row_y, self.column_x), (self.row_y, self.column_x)
 
             if ps == 200:
+
                 self.paste_y = self.row_y
                 self.paste_x = self.column_x
 
             if ps == 201:
+
+                if -1 not in (self.paste_y, self.paste_x):
+                    if self.column_x != self.paste_x:
+                        self.write_paste_crlf()
+
                 self.paste_y = -1
                 self.paste_x = -1
+
+    #
+    # Read a single Byte from Keyboard, Mouse, and Touch
+    #
 
     def getch(self, timeout: float | None) -> bytes:  # a la msvcrt.getch
         """Read next Byte of Keyboard Chord, Mouse Arrow Burst, Mouse Click, or Touch Tap"""
@@ -1180,6 +1254,8 @@ class MouseTerminal:
         kbytes = bytes([kord])
 
         return kbytes
+
+        # todo: more test of .getch
 
     def _fill_kbytearray_(self, timeout: float | None) -> TerminalPoke:
         """Fetch Bytes into Self, and return their Timing and simple ⎋[0 N Closing separately"""
@@ -1204,6 +1280,11 @@ class MouseTerminal:
         kbytearray.extend(kbytes)
 
         return tp
+
+    #
+    # Read one Keyboard Chord, Mouse Arrow Burst, Mouse Click, or Touch Tap
+    # And fabricate the Key Caps and Bytes of a Mouse Release, when encoded as an Arrow Burst
+    #
 
     def read_terminal_poke(self, timeout: float | None) -> TerminalPoke:
         """Read one Keyboard Chord, Mouse Arrow Burst, Mouse Click, or Touch Tap"""
@@ -1285,6 +1366,138 @@ class MouseTerminal:
         tp = TerminalPoke(hit=hit, delays=delays, reads=reads, extra=extra)
 
         return tp
+
+    def tp_from_startswith_mouse_arrow_kbytes(self, tp: TerminalPoke) -> tuple[bytes, bytes]:
+        """Fabricate the Key Caps and Bytes of a Mouse Release, when encoded as an Arrow Burst"""
+
+        kbytes = tp.to_kbytes()
+
+        y_height = self.y_height
+        x_width = self.x_width
+        row_y = self.row_y
+        column_x = self.column_x
+
+        assert Y1 <= row_y <= y_height, (row_y, y_height)
+        assert X1 <= column_x <= x_width, (column_x, x_width)
+
+        dy_dx_by_arrow_kbytes = DY_DX_BY_ARROW_KBYTES
+
+        # Visit each Arrow
+
+        y = row_y
+        x = column_x
+
+        from_bytearray = bytearray(kbytes)
+        to_bytearray = bytearray()
+
+        while True:
+            arrow = bytes(from_bytearray[:3])
+            if arrow not in dy_dx_by_arrow_kbytes.keys():
+                break
+
+            to_bytearray.extend(arrow)
+            del from_bytearray[:3]
+
+            # Look up which way this Arrow points
+
+            (dy, dx) = dy_dx_by_arrow_kbytes[arrow]
+
+            assert bool(dy) != bool(dx), (dy, dx)
+            assert dy in (-1, 0, +1), (dy,)
+            assert dx in (-1, 0, +1), (dx,)
+
+            # Move our more virtual Arrow Cursor (not the more real Terminal Cursor outside)
+
+            if x > x_width:
+                x = X1
+                y = min(y + 1, y_height)
+
+            assert Y1 <= y <= y_height, (y, y_height)
+            assert X1 <= x <= x_width, (x, x_width)
+
+            y += dy
+            x += dx
+
+            y = max(Y1, min(y, y_height))
+
+            if x < X1:
+                x = x_width
+                y = max(Y1, y - 1)
+
+        if x > x_width:
+            x = x_width  # caps differently at end of Arrow Burst
+
+        assert Y1 <= y <= y_height, (y, y_height)
+        assert X1 <= x <= x_width, (x, x_width)
+
+        # Give up here, if no Arrow Burst found
+
+        if not to_bytearray:
+            return (b"", b"")
+
+        # Encode the Arrow Burst as an ⌥-Click Release of the Mouse
+
+        arrow_kbytes = bytes(to_bytearray)
+
+        f8 = int("0b01000", base=0)  # f = ⌥ of 0b⌃⌥⇧00
+        kcaps = f"\033[<{f8};{x};{y}m"  # f x y, not f y x  # 'm' for Release  # not 'M' for Press
+        mouse_kbytes = kcaps.encode()
+
+        # Succeed (but trust the Caller to distinguish Single Arrows from Longer Bursts as needed)
+
+        return (mouse_kbytes, arrow_kbytes)
+
+        # ('\033[<8;25;80m', b'\033[C',)  # Down Arrow into the Southeast Corner
+
+
+class TerminalInput:
+    """Hold 1 Terminal Input"""
+
+    pack: TerminalBytePack
+    backtail: bytes  # b' q'
+
+    kbytes: bytes  # b'\033\033OP'
+    caps: str  # '⎋⎋⇧O⇧P'
+    face: str  # '⎋F1'
+
+    def __init__(self, kbytes: bytes) -> None:
+
+        pack = TerminalBytePack(kbytes)
+        pack.close_if_csi_shift_m()
+        pack.close()
+
+        self.pack = pack
+        self.backtail = bytes(pack.back + pack.tail)
+
+        self.kbytes = kbytes
+        self.caps = kbytes_to_precise_kcaps(kbytes)
+        self.face = kbytes_to_concise_kcaps_if(kbytes)
+
+    def to_csi_ints_if(self, backtail: bytes, start: bytes, default: int) -> list[int]:
+        """Pick out the Nonnegative Int Literals of a CSI Escape Sequence"""
+
+        pack = self.pack
+
+        head = pack.head
+        neck = pack.neck
+        back = pack.back
+        stash = pack.stash
+        tail = pack.tail
+        closed = pack.closed
+
+        if head.startswith(b"\033["):
+            if neck.startswith(start):
+                neckpart = neck.removeprefix(start)
+                if re.fullmatch(b"[0-9;]*", string=neckpart):
+                    if backtail == (back + tail):
+                        if closed:
+                            assert not stash, (stash, backtail, self)
+
+                            ints = list((int(_) if _ else default) for _ in neckpart.split(b";"))
+
+                            return ints
+
+        return list()
 
 
 class TerminalBytePack:
@@ -1421,30 +1634,6 @@ class TerminalBytePack:
 
         return b  # no matter if .closed
 
-    def to_csi_ints_if(self, backtail: bytes, start: bytes, default: int) -> list[int]:
-        """Pick out the Nonnegative Int Literals of a CSI Escape Sequence"""
-
-        head = self.head
-        neck = self.neck
-        back = self.back
-        stash = self.stash
-        tail = self.tail
-        closed = self.closed
-
-        if head.startswith(b"\033["):
-            if neck.startswith(start):
-                neckpart = neck.removeprefix(start)
-                if re.fullmatch(b"[0-9;]*", string=neckpart):
-                    if backtail == (back + tail):
-                        if closed:
-                            assert not stash, (stash, backtail, self)
-
-                            ints = list((int(_) if _ else default) for _ in neckpart.split(b";"))
-
-                            return ints
-
-        return list()
-
     def _require_simple_(self) -> None:
         """Raise Exception if a mutation gone wrong has damaged Self"""
 
@@ -1517,19 +1706,19 @@ class TerminalBytePack:
         # todo: Test each Control Flow Return? Test each Control Flow Branch?
 
     def _try_open_(self, *args: bytes) -> None:
-        """Require the Eval of the Str of the Packet equals its Bytes"""
+        """Require the Eval of the Str of the Pack equals its Bytes"""
 
         pack = self._try_bytes_(*args)
         assert not pack.closed, (pack,)
 
     def _try_closed_(self, *args: bytes) -> None:
-        """Require the Eval of the Str of the Packet equals its Bytes"""
+        """Require the Eval of the Str of the Pack equals its Bytes"""
 
         pack = self._try_bytes_(*args)
         assert pack.closed, (pack,)
 
     def _try_bytes_(self, *args: bytes) -> "TerminalBytePack":
-        """Require the Eval of the Str of the Packet equals its Bytes"""
+        """Require the Eval of the Str of the Pack equals its Bytes"""
 
         data = b"".join(args)
         join = " ".join(str(_) for _ in args)
@@ -1590,6 +1779,13 @@ class TerminalBytePack:
                 return extras + after_bytes
 
         return b""  # maybe .closed, maybe not
+
+    def take_one(self, byte: bytes) -> None:
+        """Take in next 1 Byte and return 0 Bytes, else raise ValueError"""
+
+        extras = self.take_one_if(byte)
+        if extras:
+            raise ValueError(extras, byte)
 
     def take_one_if(self, byte: bytes) -> bytes:
         """Take in next 1 Byte and return 0 Bytes, else return 1..4 Bytes that don't fit"""
@@ -1909,17 +2105,17 @@ SS3 = "\033O"
 CSI = "\033["
 
 
-CUP_Y_X = "\033[" "{};{}" "H"  # # CSI 04/08 [Choose] Cursor Position
+CUP_Y_X = "\033[" "{};{}H"  # # CSI 04/08 [Choose] Cursor Position
 
 
 DSR_5 = "\033[" "5n"  # CSI 06/14 [Request] Device Status Report  # Ps 5 Request DSR_0
 DSR_0 = "\033[" "0n"  # CSI 06/14 [Response] Device Status Report  # Ps 0 Response Ready
 
 DSR_6 = "\033[" "6n"  # CSI 06/14 [Request] Device Status Report  # Ps 6 Request CPR
-CPR_Y_X = "\033[" "{};{}" "R"  # CSI 05/02 [Response] Active [Cursor] Pos Rep
+CPR_Y_X = "\033[" "{};{}R"  # CSI 05/02 [Response] Active [Cursor] Pos Rep
 
 XTWINOPS_18 = "\033[" "18t"  # CSI 07/04 [Request] XTWINOPS_18
-XTWINOPS_8_H_W = "\033[" "8;{};{}" "t"  # CSI 07/04 [Response] XTWINOPS_8
+XTWINOPS_8_H_W = "\033[" "8;{};{}t"  # CSI 07/04 [Response] XTWINOPS_8
 
 
 CSI_P_CHARS = """0123456789:;<=>?"""  # Csi Parameter Bytes
@@ -1932,6 +2128,8 @@ _RM_SGR_MOUSE_ = "\033[" "?1000;1006l"
 
 _SM_BRACKETED_PASTE_ = "\033[" "?2004h"  # codes Start/ End as ⎋[200~ and ⎋[201~
 _RM_BRACKETED_PASTE_ = "\033[" "?2004l"
+_START_PASTE_ = "\033[" "200~"  # ⎋[200⇧~
+_END_PASTE_ = "\033[" "201~"  # ⎋[201⇧~
 
 
 @dataclasses.dataclass(order=True, frozen=True)
@@ -1981,89 +2179,8 @@ class TerminalPoke:
 
         return kbytes
 
-    def to_mouse_key_caps_if_start(self, hwyx: tuple[int, int, int, int]) -> tuple[str, bytes]:
-        """Form the Key Caps and Bytes of a Mouse Release, if from an Arrow Burst"""
-
-        (y_height, x_width, row_y, column_x) = hwyx
-
-        assert Y1 <= row_y <= y_height, (row_y, y_height)
-        assert X1 <= column_x <= x_width, (column_x, x_width)
-
-        reads = self.reads
-        extra = self.extra
-
-        dy_dx_by_arrow_kbytes = DY_DX_BY_ARROW_KBYTES
-
-        # Visit each Arrow
-
-        y = row_y
-        x = column_x
-
-        from_bytearray = bytearray(b"".join(reads) + extra)
-        to_bytearray = bytearray()
-
-        while True:
-            arrow = bytes(from_bytearray[:3])
-            if arrow not in dy_dx_by_arrow_kbytes.keys():
-                break
-
-            to_bytearray.extend(arrow)
-            del from_bytearray[:3]
-
-            # Look up which way this Arrow points
-
-            (dy, dx) = dy_dx_by_arrow_kbytes[arrow]
-
-            assert bool(dy) != bool(dx), (dy, dx)
-            assert dy in (-1, 0, +1), (dy,)
-            assert dx in (-1, 0, +1), (dx,)
-
-            # Move our more virtual Arrow Cursor (not the more real Terminal Cursor outside)
-
-            if x > x_width:
-                x = X1
-                y = min(y + 1, y_height)
-
-            assert Y1 <= y <= y_height, (y, y_height)
-            assert X1 <= x <= x_width, (x, x_width)
-
-            y += dy
-            x += dx
-
-            y = max(Y1, min(y, y_height))
-
-            if x < X1:
-                x = x_width
-                y = max(Y1, y - 1)
-
-        if x > x_width:
-            x = x_width  # caps differently at end of Arrow Burst
-
-        assert Y1 <= y <= y_height, (y, y_height)
-        assert X1 <= x <= x_width, (x, x_width)
-
-        # Give up here, if no Arrow Burst found
-
-        if not to_bytearray:
-            return ("", b"")
-
-        # Encode the Arrow Burst as an ⌥-Click Release of the Mouse
-
-        kbytes = bytes(to_bytearray)
-
-        f8 = int("0b01000", base=0)  # f = ⌥ of 0b⌃⌥⇧00
-        kcaps = f"\033[<{f8};{x};{y}m"  # f x y, not f y x  # 'm' for Release  # not 'M' for Press
-
-        # Succeed (but trust the Caller to distinguish Single Arrows from Longer Bursts as needed)
-
-        return (kcaps, kbytes)
-
-        # ('\033[<8;25;80m', b'\033[C',)  # Down Arrow into the Southeast Corner
-
     def to_sketch_text(self) -> str:
         """Say what we got for Input, if Keyboard Chord, if Arrow Burst, and how long we waited"""
-
-        # reads = self.reads
 
         (reads_text, concisely) = self._format_reads_()
         hit_delays_text = self._format_hit_delays_(concisely=concisely)
@@ -2192,7 +2309,7 @@ class TerminalPoke:
         # Say briefly how many Arrows came in what order, and if the End was strange
 
         arrow_burst_kbytes = bytes(arrow_burst_kbytearray)
-        kbytes_as_if = arrow_burst_kbytes_pn_compress(arrow_burst_kbytes)
+        kbytes_as_if = arrows_kbytes_pn_compress(arrow_burst_kbytes)
         rep = str(kbytes_as_if)
 
         if end != b"\033[0n":
@@ -2720,7 +2837,7 @@ for _KTEXT_, _COUNT_ in collections.Counter(_KTEXT_UNROLL_).items():
     assert _COUNT_ == 1, (_COUNT_, _KTEXT_)
 
 
-def arrow_burst_kbytes_pn_compress(kbytes: bytes) -> bytes:
+def arrows_kbytes_pn_compress(kbytes: bytes) -> bytes:
     """Compress each run of Arrows into a Pn > 1"""
 
     pairs: list[tuple[int, bytes]] = list()
