@@ -99,28 +99,9 @@ def main() -> None:
     mc.main_class_run()
 
 
-main_instances: list[MainClass] = list()
-
-
 @dataclasses.dataclass(order=True)  # , frozen=True)
 class MainClass:
     """Run from the Shell Command Line, and launch the Py Repl vs uncaught Exceptions"""
-
-    _touch_terminal_: MouseTerminal | None = None
-
-    @property
-    def touch_terminal(self) -> MouseTerminal:
-        mt = self._touch_terminal_
-        assert mt, (mt,)
-        assert mt is touch_terminals[-1], (mt, touch_terminals)
-        return mt
-
-    def __init__(self) -> None:
-        main_instances.append(self)
-
-    #
-    #
-    #
 
     def main_class_run(self) -> None:
         """Run from the Shell Command Line, and launch the Py Repl vs uncaught Exceptions"""
@@ -137,83 +118,173 @@ class MainClass:
         # Run till quit, inside a Terminal
 
         with TerminalStudio() as ts:
-            mt = self._touch_terminal_ = ts.touch_terminal  # replaces
-            while True:
-                ti = mt.read_terminal_input(timeout=None)
-                if ti:
-                    ts.terminal_input_exec(ti)
+            with MouseTerminal() as mt:
+                while True:
+                    ti = mt.read_terminal_input(timeout=None)
+                    if ti:
+                        ts.terminal_input_exec(ti)
 
-    #
-    # Take Input, edit it, and write it back out
-    #
+    def parse_less_beeps_args(self) -> argparse.Namespace:
+        """Take in the Shell Command-Line Args"""
+
+        parser = self.compile_less_beeps_doc()
+
+        argv = sys.argv[1:]
+        if not argv:
+            if os.path.basename(sys.argv[0]) in ("+", "@"):
+                argv = ["--yolo"]
+
+        ns = parser.parse_args_if(argv)
+
+        return ns
+
+    def compile_less_beeps_doc(self) -> ArgDocParser:
+        """Declare the Options & Positional Arguments"""
+
+        doc = __main__.__doc__
+        assert doc, (doc,)
+
+        parser = ArgDocParser(doc, add_help=True)
+
+        yolo_help = "do what's popular now"
+        parser.add_argument("--yolo", action="count", help=yolo_help)
+
+        return parser
+
+
+#
+# Run inside 1 Terminal Window Pane, till Quit
+#
+
+
+class TerminalStudio:
+    """Run inside 1 Terminal Window Pane, till Quit"""
+
+    def __enter__(self) -> typing.Self:
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        pass
+
+    def terminal_input_exec(self, ti: TerminalInput) -> None:
+        """Reply to 1 Terminal Input"""
+
+        caps = ti.caps
+        face = ti.face
+
+        if caps in ("⌃C", "⌃D", "⌃Z", "⌃\\"):
+            sys.exit()
+
+        if face == "F1":
+            tprint()
+            tprint("⌃D to quit")
+            tprint("F1 - Show this menu")
+            tprint("⎋F1 - Show a menu of tests to run")
+            return
+
+        if face == "⎋F1":
+            tprint()
+            tprint("⌃D to quit")
+            tprint("⎋F1 - Show this menu")
+            tprint("⎋F2 - Trace the Timing of Bytes of Input")
+            tprint("⎋F3 - Trace the Key Caps of Input")
+            tprint("⎋F4 - Loopback the Bytes of Input")
+            return
+
+        if face == "⎋F2":
+            tps = TerminalPokeStudio()
+            tps.try_byte_times()
+            sys.exit()  # todo1: stop exiting after ⎋F2
+
+        if face == "⎋F3":
+            tis = TerminalInputStudio()
+            tis.try_bytes_caps_face()
+            sys.exit()  # todo1: stop exiting after ⎋F3
+
+        if face == "⎋F4":
+            tprint("⎋F4")
+            tss = TerminalScreenStudio()
+            tss.try_loopback()
+            sys.exit()  # todo1: stop exiting after ⎋F4
+
+        tprint(ti.caps, end=" ")
+
+    # todo3: rewrite screen
+    # todo3: Route .tprint's through last MouseTerminal if it exists
+    # todo3: Mirror, but also update the Hardware if it overlaps, like track Y X in projection
+    # todo3: Left Arrow wraps inside of a Line wrapped across Multiple Rows (Right Arrow doesn't)
+
+
+#
+# Take Input, edit it, and write it back out
+#
+
+
+class TerminalScreenStudio:
 
     def try_loopback(self) -> None:
-        """Take Input as Touch Tap, as Mouse Click, or as Keyboard Chord, till Quit"""
+        """Take Input, edit it, and write it back out"""
+
+        mt = mouse_terminal()
+        stdio = mt.stdio
 
         assert CSI == "\033["
         assert DSR_6 == "\033[" "6n"
         assert XTWINOPS_18 == "\033[" "18t"
         assert CUP_Y_X == "\033[" "{};{}H"  # # CSI 04/08 [Choose] Cursor Position
 
-        # Run inside a Terminal, till Quit
+        # Ask for Height, Width, Cursor Y, Cursor X, and then also some other Input
 
-        with MouseTerminal() as mt:  # todo2: small With bodies - move out into Classes
-            self._touch_terminal_ = mt  # replaces
+        backtails = list()
+        while True:
 
-            stdio = mt.stdio
+            if b"t" not in backtails:
+                stdio.write("\033[18t")  # ⎋[18T call for reply ⎋[8;{rows};{columns}T
+                backtails.append(b"t")
 
-            # Ask for Height, Width, Cursor Y, Cursor X, and then also some other Input
+            if b"R" not in backtails:
+                stdio.write("\033[6n")  # ⎋[6N calls for reply ⎋[{y};{x}⇧R
+                backtails.append(b"R")
 
-            backtails = list()
-            while True:
+            assert b"" not in backtails, (backtails,)
+            backtails.append(b"")  # waits for whatever other reply
 
-                if b"t" not in backtails:
-                    stdio.write("\033[18t")  # ⎋[18T call for reply ⎋[8;{rows};{columns}T
-                    backtails.append(b"t")
+            # Take Inputs in whatever order  # todo: Log if Input ever comes out of order
 
-                if b"R" not in backtails:
-                    stdio.write("\033[6n")  # ⎋[6N calls for reply ⎋[{y};{x}⇧R
-                    backtails.append(b"R")
+            ti = None
+            while backtails:
 
-                assert b"" not in backtails, (backtails,)
-                backtails.append(b"")  # waits for whatever other reply
+                # Hang invisibly while Multibyte Sequences arrive slowly  # todo3: Do better
 
-                # Take Inputs in whatever order  # todo: Log if Input ever comes out of order
+                ti = mt.read_terminal_input(timeout=None)
+                if not ti:
+                    continue
 
-                ti = None
-                while backtails:
+                caps = ti.caps
+                pack = ti.pack
 
-                    # Hang invisibly while Multibyte Sequences arrive slowly  # todo3: Do better
+                # Take Csi Inputs
 
-                    ti = mt.read_terminal_input(timeout=None)
-                    if not ti:
-                        continue
+                if caps.startswith("⎋["):
+                    backtail = bytes(pack.back + pack.tail)
+                    if backtail and (backtail in backtails):
+                        ints = ti.to_csi_ints_if(backtail, start=b"", default=-1)
+                        if ints:
 
-                    caps = ti.caps
-                    pack = ti.pack
+                            backtails.remove(backtail)
 
-                    # Take Csi Inputs
+                            continue
 
-                    if caps.startswith("⎋["):
-                        backtail = bytes(pack.back + pack.tail)
-                        if backtail and (backtail in backtails):
-                            ints = ti.to_csi_ints_if(backtail, start=b"", default=-1)
-                            if ints:
+                # Take Input other than the first Height, Width, Cursor Y, Cursor X
 
-                                backtails.remove(backtail)
+                if b"" in backtails:
+                    backtails.remove(b"")
 
-                                continue
+                    break
 
-                    # Take Input other than the first Height, Width, Cursor Y, Cursor X
+            assert ti, (ti,)
 
-                    if b"" in backtails:
-                        backtails.remove(b"")
-
-                        break
-
-                assert ti, (ti,)
-
-                self.try_one_loopback(mt, ti=ti)
+            self.try_one_loopback(mt, ti=ti)
 
     def try_one_loopback(self, mt: MouseTerminal, ti: TerminalInput) -> None:
         """Convert some Inputs, and loop the rest back"""
@@ -260,92 +331,92 @@ class MainClass:
         if caps in ("⌃C", "⌃D", "⌃Z", "⌃\\"):
             sys.exit()
 
-    #
-    # Take Input as Touch Tap, as Mouse Click, or as Keyboard Chord, till Quit
-    #
 
-    def try_key_caps(self) -> None:
+#
+# Take Input as Touch Tap, as Mouse Click, or as Keyboard Chord, till Quit
+#
+
+
+class TerminalInputStudio:
+
+    def try_bytes_caps_face(self) -> None:
         """Take Input as Touch Tap, as Mouse Click, or as Keyboard Chord, till Quit"""
+
+        mt = mouse_terminal()
+        stdio = mt.stdio
 
         assert DSR_6 == "\033[" "6n"
         assert XTWINOPS_18 == "\033[" "18t"
 
-        # Run inside a Terminal, till Quit
+        # As late as now, trace the Writes of MouseTerminal.__enter__
 
-        with MouseTerminal() as mt:  # todo2: small With bodies
-            self._touch_terminal_ = mt  # replaces
+        kcaps_list = list()
+        for entry_data in mt.entries:
+            kcaps = kbytes_to_precise_kcaps(entry_data)
+            kcaps_list.append(kcaps)
 
-            stdio = mt.stdio
+        tprint()
+        tprint("Setup:", " ".join(kcaps_list))
 
-            # As late as now, trace the Writes of MouseTerminal.__enter__
+        # Launch a wide Ruler
 
-            kcaps_list = list()
-            for entry_data in mt.entries:
-                kcaps = kbytes_to_precise_kcaps(entry_data)
-                kcaps_list.append(kcaps)
+        tprint()
+        tprint(30 * "123456789 ")
 
-            tprint()
-            tprint("Setup:", " ".join(kcaps_list))
+        # Launch a fetch of Terminal Width x Height
 
-            # Launch a wide Ruler
+        tprint()
+        tprint("⎋[18T")
+        mt.stdio.write("\033[18t")  # the ⎋[18 T Call
+        while True:
+            ti = mt.read_terminal_input(timeout=None)
+            if ti:
+                break
+        self.ti_tprint(ti)  # the ⎋[8 T Reply
 
-            tprint()
-            tprint(30 * "123456789 ")
+        # Launch a fetch of Terminal Cursor Y X
 
-            # Launch a fetch of Terminal Width x Height
+        tprint()
+        tprint("⎋[6N")
+        mt.stdio.write("\033[6n")  # the ⎋[ 6N Call
+        while True:
+            ti = mt.read_terminal_input(timeout=None)
+            if ti:
+                break
+        self.ti_tprint(ti)  # the ⎋[ ⇧R reply
 
-            tprint()
-            tprint("⎋[18T")
-            mt.stdio.write("\033[18t")  # the ⎋[18 T Call
-            while True:
-                ti = mt.read_terminal_input(timeout=None)
-                if ti:
-                    break
-            self.ti_tprint(ti)  # the ⎋[8 T Reply
+        # Run till quit
 
-            # Launch a fetch of Terminal Cursor Y X
+        tprint()
+        mt.row_y = min(mt.y_height, mt.row_y + 1)
+        while True:
 
-            tprint()
-            tprint("⎋[6N")
-            mt.stdio.write("\033[6n")  # the ⎋[ 6N Call
-            while True:
-                ti = mt.read_terminal_input(timeout=None)
-                if ti:
-                    break
+            # Prompt
+
+            if mt.column_x == X1:
+                text = f"{mt.row_y};{mt.column_x}"
+                tprint(text, end=" ")
+                mt.column_x += len(text + " ")
+
+            # Flush and read, but trace each Byte as it comes
+
+            stdio.flush()
+            (kbyte, kbytes) = mt.read_bytes(timeout=None)
+            self.kbyte_tprint(kbyte)
+
+            if not kbytes:
+                continue
+
+            # Trace the Key Caps, as they come
+
+            ti = TerminalInput(kbytes)
             self.ti_tprint(ti)  # the ⎋[ ⇧R reply
 
-            # Run till quit
+            # Quit on demand
 
-            tprint()
-            mt.row_y = min(mt.y_height, mt.row_y + 1)
-            while True:
-
-                # Prompt
-
-                if mt.column_x == X1:
-                    text = f"{mt.row_y};{mt.column_x}"
-                    tprint(text, end=" ")
-                    mt.column_x += len(text + " ")
-
-                # Flush and read, but trace each Byte as it comes
-
-                stdio.flush()
-                (kbyte, kbytes) = mt.read_bytes(timeout=None)
-                self.kbyte_tprint(kbyte)
-
-                if not kbytes:
-                    continue
-
-                # Trace the Key Caps, as they come
-
-                ti = TerminalInput(kbytes)
-                self.ti_tprint(ti)  # the ⎋[ ⇧R reply
-
-                # Quit on demand
-
-                caps = ti.caps
-                if caps in ("⌃C", "⌃D", "⌃Z", "⌃\\"):
-                    sys.exit()
+            caps = ti.caps
+            if caps in ("⌃C", "⌃D", "⌃Z", "⌃\\"):
+                sys.exit()
 
     def kbyte_tprint(self, kbyte: bytes) -> int:
         """Print each Byte, as they come"""
@@ -370,7 +441,7 @@ class MainClass:
         caps = ti.caps
         face = ti.face
 
-        mt = self.touch_terminal
+        mt = mouse_terminal()
 
         burst_kbytes = mt._arrows_kbytes_lately_
         mt._arrows_kbytes_lately_ = b""
@@ -403,184 +474,80 @@ class MainClass:
             mt.row_y = min(mt.y_height, mt.row_y + 1)
             mt.column_x = X1
 
-    #
-    # Say what we got for Input, if Keyboard Chord, if Arrow Burst, and how long we waited
-    #
+
+#
+# Say what we got for Input, if Keyboard Chord, if Arrow Burst, and how long we waited
+#
+
+
+class TerminalPokeStudio:
 
     def try_byte_times(self) -> None:
         """Say what we got for Input, if Keyboard Chord, if Arrow Burst, and how long we waited"""
 
+        mt = mouse_terminal()
+
         assert DSR_6 == "\033[" "6n"
         assert XTWINOPS_18 == "\033[" "18t"
 
-        # Take in the Shell Command-Line Args
+        # As late as now, trace the Writes of MouseTerminal.__enter__
 
-        ns = self.parse_less_beeps_args()
-        assert ns.yolo, (ns.yolo, ns)
+        kcaps_list = list()
+        for entry_data in mt.entries:
+            kcaps = kbytes_to_precise_kcaps(entry_data)
+            kcaps_list.append(kcaps)
 
-        # Run till quit
+        tprint()
+        tprint("Setup:", " ".join(kcaps_list))
 
-        with MouseTerminal() as mt:  # todo2: small With bodies - move out into Classes
+        # Launch a wide Ruler
 
-            # As late as now, trace the Writes of MouseTerminal.__enter__
+        tprint()
+        tprint(30 * "123456789 ")
 
-            kcaps_list = list()
-            for entry_data in mt.entries:
-                kcaps = kbytes_to_precise_kcaps(entry_data)
-                kcaps_list.append(kcaps)
+        # Launch a fetch of Terminal Width x Height
 
-            tprint()
-            tprint("Setup:", " ".join(kcaps_list))
+        tprint()
+        tprint("⎋[18T")
+        mt.stdio.write("\033[18t")  # ⎋[18T call for reply ⎋[8;{rows};{columns}T
+        tp = mt.read_terminal_poke(timeout=None)
+        rep = tp.to_sketch_text()  # the ⎋[8 T reply
+        tprint(rep)
 
-            # Launch a wide Ruler
+        # Launch a fetch of Terminal Cursor Y X
 
-            tprint()
-            tprint(30 * "123456789 ")
+        tprint()
+        tprint("⎋[6N")
+        mt.stdio.write("\033[6n")  # ⎋[6N calls for reply ⎋[{y};{x}⇧R
+        tp = mt.read_terminal_poke(timeout=None)
+        rep = tp.to_sketch_text()  # the ⎋[ ⇧R reply
+        tprint(rep)
 
-            # Launch a fetch of Terminal Width x Height
+        # Run till Quit
 
-            tprint()
-            tprint("⎋[18T")
-            mt.stdio.write("\033[18t")  # ⎋[18T call for reply ⎋[8;{rows};{columns}T
+        while True:
+
+            mt.stdio.flush()
             tp = mt.read_terminal_poke(timeout=None)
-            rep = tp.to_sketch_text()  # the ⎋[8 T reply
-            tprint(rep)
+            reads_plus = (tp.reads + (tp.extra,)) if tp.extra else tp.reads
 
-            # Launch a fetch of Terminal Cursor Y X
+            breaking = False
+            for read in reads_plus:
+                precise = kbytes_to_precise_kcaps(read)
+                if precise in ("⌃C", "⌃D", "⌃Z", "⌃\\"):
+                    breaking = True
 
-            tprint()
-            tprint("⎋[6N")
-            mt.stdio.write("\033[6n")  # ⎋[6N calls for reply ⎋[{y};{x}⇧R
-            tp = mt.read_terminal_poke(timeout=None)
-            rep = tp.to_sketch_text()  # the ⎋[ ⇧R reply
-            tprint(rep)
+            rep = tp.to_sketch_text()
+            tprint(rep)  # could be repr(tp) or str(tp)
 
-            # Run till Quit
+            if breaking:
+                break
 
-            while True:
+            # quits at Cat ⌃C ⌃D ⌃Z ⌃\
+            # todo1: Quit at Emacs ⌃X ⌃C, ⌃X ⌃S
+            # todo1: Quit at Vim ⇧Z ⇧Q, ⇧Z ⇧Z
 
-                mt.stdio.flush()
-                tp = mt.read_terminal_poke(timeout=None)
-                reads_plus = (tp.reads + (tp.extra,)) if tp.extra else tp.reads
-
-                breaking = False
-                for read in reads_plus:
-                    precise = kbytes_to_precise_kcaps(read)
-                    if precise in ("⌃C", "⌃D", "⌃Z", "⌃\\"):
-                        breaking = True
-
-                rep = tp.to_sketch_text()
-                tprint(rep)  # could be repr(tp) or str(tp)
-
-                if breaking:
-                    break
-
-                # quits at Cat ⌃C ⌃D ⌃Z ⌃\
-                # todo1: Quit at Emacs ⌃X ⌃C, ⌃X ⌃S
-                # todo1: Quit at Vim ⇧Z ⇧Q, ⇧Z ⇧Z
-
-            # todo3: Decipher ⌥-Click encoding at Google Cloud Shell
-
-    #
-    #
-    #
-
-    def parse_less_beeps_args(self) -> argparse.Namespace:
-        """Take in the Shell Command-Line Args"""
-
-        parser = self.compile_less_beeps_doc()
-
-        argv = sys.argv[1:]
-        if not argv:
-            if os.path.basename(sys.argv[0]) in ("+", "@"):
-                argv = ["--yolo"]
-
-        ns = parser.parse_args_if(argv)
-
-        return ns
-
-    def compile_less_beeps_doc(self) -> ArgDocParser:
-        """Declare the Options & Positional Arguments"""
-
-        doc = __main__.__doc__
-        assert doc, (doc,)
-
-        parser = ArgDocParser(doc, add_help=True)
-
-        yolo_help = "do what's popular now"
-        parser.add_argument("--yolo", action="count", help=yolo_help)
-
-        return parser
-
-
-#
-#
-#
-
-
-# todo3: rewrite screen
-# todo3: Route .tprint's through last MouseTerminal if it exists
-# todo3: Primarily mirror, but also update the Hardware if it overlaps, like track Y X in projection
-# todo3: Left Arrow wraps inside of a Line wrapped across Multiple Rows (Right Arrow doesn't)
-
-
-class TerminalStudio:
-    """Run inside a Terminal, till Quit"""
-
-    def __init__(self) -> None:
-
-        self.touch_terminal = MouseTerminal()
-
-    def __enter__(self) -> typing.Self:
-        mt = self.touch_terminal
-        mt.__enter__()
-        return self
-
-    def __exit__(self, *exc_info: object) -> None:
-        mt = self.touch_terminal
-        mt.__exit__(*exc_info)
-
-    def terminal_input_exec(self, ti: TerminalInput) -> None:
-        """Reply to 1 Terminal Input"""
-
-        mc = main_instances[-1]
-
-        caps = ti.caps
-        face = ti.face
-
-        if caps in ("⌃C", "⌃D", "⌃Z", "⌃\\"):
-            sys.exit()
-
-        if face == "F1":
-            tprint()
-            tprint("⌃D to quit")
-            tprint("F1 - Show this menu")
-            tprint("⎋F1 - Show a menu of tests to run")
-            return
-
-        if face == "⎋F1":
-            tprint()
-            tprint("⌃D to quit")
-            tprint("⎋F1 - Show this menu")
-            tprint("⎋F2 - Trace the Timing of Bytes of Input")
-            tprint("⎋F3 - Trace the Key Caps of Input")
-            tprint("⎋F4 - Loopback the Bytes of Input")
-            return
-
-        if face == "⎋F2":
-            mc.try_byte_times()
-            sys.exit()  # todo1: stop exiting after ⎋F2
-
-        if face == "⎋F3":
-            mc.try_key_caps()
-            sys.exit()  # todo1: stop exiting after ⎋F3
-
-        if face == "⎋F4":
-            tprint("⎋F4")
-            mc.try_loopback()
-            sys.exit()  # todo1: stop exiting after ⎋F4
-
-        tprint(ti.caps, end=" ")
+        # todo3: Decipher ⌥-Click encoding at Google Cloud Shell
 
 
 #
@@ -858,7 +825,20 @@ PN_MAX_32100 = 32100  # a Numeric [Int] beyond the Counts of Rows & Columns at a
 PS0 = 0  # min Ps of Csi is 0
 
 
-touch_terminals = list()
+mouse_terminals: list[MouseTerminal] = list()
+
+
+def mouse_terminal() -> MouseTerminal:
+
+    if mouse_terminals:
+        return mouse_terminals[-1]
+
+    mt = MouseTerminal()
+
+    assert mouse_terminals, (mouse_terminals,)
+    assert mt == mouse_terminals[-1], (mt, mouse_terminals[-1])
+
+    return mt
 
 
 class MouseTerminal:
@@ -891,7 +871,7 @@ class MouseTerminal:
 
     def __init__(self) -> None:
 
-        touch_terminals.append(self)
+        mouse_terminals.append(self)
 
         assert sys.__stderr__ is not None
         stdio = sys.__stderr__
@@ -1471,6 +1451,7 @@ class MouseTerminal:
         # ('\033[<8;25;80m', b'\033[C',)  # Down Arrow into the Southeast Corner
 
 
+@dataclasses.dataclass(order=True)  # , frozen=True)
 class TerminalInput:
     """Hold 1 Terminal Input"""
 
@@ -1497,6 +1478,8 @@ class TerminalInput:
         self.kbytes = kbytes
         self.caps = caps
         self.face = face
+
+        # todo: freeze TerminalInput after __init__
 
     def to_csi_ints_if(self, backtail: bytes, start: bytes, default: int) -> list[int]:
         """Pick out the Nonnegative Int Literals of a CSI Escape Sequence"""
@@ -1525,6 +1508,7 @@ class TerminalInput:
         return list()
 
 
+# @dataclasses.dataclass(order=True, frozen=True)
 class TerminalBytePack:
     """Hold 1 Control Char, else 1 or more Text Chars, else some Bytes"""
 
@@ -2902,7 +2886,7 @@ def tprint(*args: object, end: str = "\r\n") -> None:
 
     text = " ".join(str(_) for _ in args)
 
-    mt = touch_terminals[-1]
+    mt = mouse_terminals[-1]
     stdio = mt.stdio
     tcgetattr = mt.tcgetattr
 
