@@ -172,8 +172,12 @@ class TerminalStudio:
         caps = ti.caps
         face = ti.face
 
+        #
+
         if caps in ("⌃C", "⌃D", "⌃Z", "⌃\\"):
             sys.exit()
+
+        #
 
         if face == "F1":
             tprint()
@@ -181,6 +185,14 @@ class TerminalStudio:
             tprint("F1 - Show this menu")
             tprint("⎋F1 - Show a menu of tests to run")
             return
+
+        if face == "F2":
+            tprint("F2")
+            board = TicTacTuhGameboard()
+            board.try_tic_tac_tuh()
+            sys.exit()  # todo1: stop exiting after F2
+
+        #
 
         if face == "⎋F1":
             tprint()
@@ -207,12 +219,77 @@ class TerminalStudio:
             tss.try_loopback()
             sys.exit()  # todo1: stop exiting after ⎋F4
 
+        #
+
         tprint(ti.caps, end=" ")
 
     # todo3: rewrite screen
     # todo3: Route .tprint's through last MouseTerminal if it exists
     # todo3: Mirror, but also update the Hardware if it overlaps, like track Y X in projection
     # todo3: Left Arrow wraps inside of a Line wrapped across Multiple Rows (Right Arrow doesn't)
+
+
+#
+# Run 1 Tic-Tac-Tuh Gameboard on Screen  # todo4: rename to 'wide x high' from 'width x height'
+#
+
+
+class TicTacTuhGameboard:  # 31 Wide x 23 High
+    """Run 1 Tic-Tac-Tuh Gameboard on Screen"""
+
+    x_glyph = """
+        ·············
+        ··██·····██··
+        ···▐██·██▌···
+        ·····███·····
+        ···▐██·██▌···
+        ··██·····██··
+        ·············
+    """  # 23456789 x 5
+
+    o_glyph = """
+        ·············
+        ····█████····
+        ···██···██···
+        ···██···██···
+        ···██···██···
+        ····█████····
+        ·············
+    """
+
+    def try_tic_tac_tuh(self) -> None:
+        """Run 1 Tic-Tac-Tuh Gameboard on Screen"""
+
+        x_glyph = self.x_glyph
+        o_glyph = self.o_glyph
+
+        assert "·" == unicodedata.lookup("Middle Dot")
+        assert "█" == unicodedata.lookup("Full Block")
+        assert "▌" == unicodedata.lookup("Left Half Block")
+        assert "▐" == unicodedata.lookup("Right Half Block")
+
+        x = textwrap.dedent(x_glyph).strip().replace("·", " ")
+        o = textwrap.dedent(o_glyph).strip().replace("·", " ")
+
+        n = 3 * len(x.splitlines()[-1]) + 2 * 2 + 2 - 4
+
+        tprint("\033[46m" + " ", n * " ", " ")
+
+        for x_line, o_line in zip(x.splitlines(), o.splitlines()):
+            tprint(" " + x_line + "██" + o_line + "██" + x_line + " ", end="\r\n")
+
+        tprint(" ", n * "█", " ")
+
+        for x_line, o_line in zip(x.splitlines(), o.splitlines()):
+            tprint(" " + o_line + "██" + x_line + "██" + o_line + " ", end="\r\n")
+
+        tprint(" ", n * "█", " ")
+
+        for x_line, o_line in zip(x.splitlines(), o.splitlines()):
+            s_line = len(x_line) * " "
+            tprint(" " + s_line + "██" + o_line + "██" + x_line + " ", end="\r\n")
+
+        tprint(" ", n * " ", " " + "\033[m")
 
 
 #
@@ -231,7 +308,7 @@ class TerminalScreenStudio:
         assert CSI == "\033["
         assert DSR_6 == "\033[" "6n"
         assert XTWINOPS_18 == "\033[" "18t"
-        assert CUP_Y_X == "\033[" "{};{}H"  # # CSI 04/08 [Choose] Cursor Position
+        assert CUP_Y_X == "\033[" "{};{}H"  # CSI 04/08 [Choose] Cursor Position
 
         # Ask for Height, Width, Cursor Y, Cursor X, and then also some other Input
 
@@ -991,7 +1068,7 @@ class MouseTerminal:
         paste_y = self.paste_y
         paste_x = self.paste_x
 
-        assert CUP_Y_X == "\033[" "{};{}H"  # # CSI 04/08 [Choose] Cursor Position
+        assert CUP_Y_X == "\033[" "{};{}H"  # CSI 04/08 [Choose] Cursor Position
 
         if paste_y < y_height:
             paste_y = paste_y + 1
@@ -1240,6 +1317,8 @@ class MouseTerminal:
 
                 self.paste_y = -1
                 self.paste_x = -1
+
+                # todo4: Vertical Paste doesn't, not without more accurate .column_x
 
     #
     # Read a single Byte from Keyboard, Mouse, and Touch
@@ -2122,7 +2201,7 @@ SS3 = "\033O"
 CSI = "\033["
 
 
-CUP_Y_X = "\033[" "{};{}H"  # # CSI 04/08 [Choose] Cursor Position
+CUP_Y_X = "\033[" "{};{}H"  # CSI 04/08 [Choose] Cursor Position
 
 
 DSR_5 = "\033[" "5n"  # CSI 06/14 [Request] Device Status Report  # Ps 5 Request DSR_0
