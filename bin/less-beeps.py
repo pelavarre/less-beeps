@@ -1051,6 +1051,16 @@ class MouseTerminal:
         kbytearray = self.kbytearray
         _pack_ = self._pack_
 
+        pack_kbytes = _pack_.to_bytes()  # maybe not .closed
+
+        # Accept the ⌥`` encoded as an Immediate Pair of b"``"
+
+        if not _pack_.closed:
+            if pack_kbytes == b"``":
+                poke_kbyte = b"`"
+                _pack_.close()
+                return (poke_kbyte, pack_kbytes)
+
         # Fetch one Poke, unless Input Bytes already fetched
 
         tp = TerminalPoke(hit=0, delays=tuple(), reads=tuple(), extra=b"")
@@ -1133,10 +1143,6 @@ class MouseTerminal:
                 assert not _pack_.closed, (_pack_, poke_kbytes)
 
                 return
-
-        if pack_kbytes == b"``":
-            _pack_.close()
-            return
 
         # Close the Multibyte Heads of the Headbook when followed by an Unprintable
 
