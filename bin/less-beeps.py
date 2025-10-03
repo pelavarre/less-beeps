@@ -1223,14 +1223,16 @@ class MouseTerminal:
         if len(se_ints) == 1:
             ps = se_ints[-1]
 
-            assert -1 not in (self.row_y, self.column_x), (self.row_y, self.column_x)
-
             if ps == 200:
+
+                assert -1 not in (self.row_y, self.column_x), (self.row_y, self.column_x)
 
                 self.paste_y = self.row_y
                 self.paste_x = self.column_x
 
             if ps == 201:
+
+                assert -1 not in (self.row_y, self.column_x), (self.row_y, self.column_x)
 
                 if -1 not in (self.paste_y, self.paste_x):
                     if self.column_x != self.paste_x:
