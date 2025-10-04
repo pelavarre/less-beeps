@@ -73,12 +73,14 @@ Or run a specific game without waiting for help
 
 ## Installation Options
 
-### macOS/iOS
+### macOS
 Find a macOS Terminal in **Finder → Go → Utilities** <br>
-Find a Linux Terminal in **Safari** (requires internet connection) <br>
+
+### iOS
+Find a Linux Terminal in **Safari** (requires internet connection) (also works in macOS) <br>
 
 ### Windows
-Run Python directly inside a Windows Command Prompt <br>
+Run **Python** directly inside a Windows Command Prompt <br>
 Or run Python inside the Windows Subsystem for Linux (WSL) <br>
 
 ### Don't got those? You can still try a Linux, up free online
