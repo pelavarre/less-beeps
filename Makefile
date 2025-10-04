@@ -98,7 +98,7 @@ smoke: black flake8 mypy
 black:
 	~/.pyvenvs/black/bin/black \
 		--line-length=101 \
-			bin/
+			$$(ls bin/*.py |grep -v ^bin/__main__.py)
 
 # --line-length=101  # my 2024 Window Width, over PyPi·Org Black Default of 89 != 80 != 71
 

@@ -1578,23 +1578,35 @@ class MouseTerminal:
         # Take Inputs in whatever order  # todo: Log if Input ever comes out of order
 
         ti = None
+
+        assert timeout is None, timeout  # todo: test non-none timeouts
         while yxhw_backtails:  # todo3: count .yxhw_backtails per second
 
             # Hang invisibly while Multibyte Sequences arrive slowly  # todo3: Do better
 
-            ti = self.read_terminal_input(timeout=timeout)
-            if not ti:
-                return ti
+            (kbyte, kbytes) = self.read_bytes(timeout=timeout)
+            if timeout is None:
+                assert kbyte is not None, (kbyte, timeout)
+            if not kbytes:
+                continue
 
-            caps = ti.caps
-            pack = ti.pack
+            ti2 = TerminalInput(kbytes)
+            assert ti2, (kbytes,)
+
+            if not ti2:
+                assert ti is None, (ti,)
+                ti = ti2
+                continue
+
+            caps = ti2.caps
+            pack = ti2.pack
 
             # Take Csi Inputs
 
             if caps.startswith("⎋["):
                 backtail = bytes(pack.back + pack.tail)
                 if backtail and (backtail in yxhw_backtails):
-                    ints = ti.to_csi_ints_if(backtail, start=b"", default=-1)
+                    ints = ti2.to_csi_ints_if(backtail, start=b"", default=-1)
                     if ints:
 
                         yxhw_backtails.remove(backtail)
@@ -1606,13 +1618,17 @@ class MouseTerminal:
             if b"" in yxhw_backtails:
                 yxhw_backtails.remove(b"")
 
-                break
+                assert ti is None, (ti,)
+                ti = ti2
 
         assert ti, (ti,)
 
         # Succeed
 
         return ti
+
+        # todo: write to refresh H W Y X again after evalling other Input vs H W Y X?
+        # todo: listen for signals of H W changing? (and show no signals come from Y X changing?)
 
     #
     # Read a parsed Terminal Input, or just Framed Bytes, from Keyboard, Mouse, and Touch
