@@ -15,7 +15,7 @@ options:
 examples:
   ./bin/less-beeps.py --yolo
   bin/@ F2
-  bin/@ Esc-F4
+  bin/@ Esc-F5
 """
 
 # code reviewed by People, Black, Flake8, Mypy-Strict, & Pylance-Standard
@@ -321,28 +321,264 @@ class TerminalStudio:
 class TicTacTuhGameboard:  # 31 Wide x 23 High
     """Run 1 Tic-Tac-Tuh Gameboard on Screen"""
 
-    x_glyph = """
-        ·············
-        ··██·····██··
-        ···▐██·██▌···
-        ·····███·····
-        ···▐██·██▌···
-        ··██·····██··
-        ·············
-    """  # 23456789 x 5
-
-    o_glyph = """
-        ·············
-        ····█████····
-        ···██···██···
-        ···██···██···
-        ···██···██···
-        ····█████····
-        ·············
-    """
+    code_by_tytx: dict[tuple[int, int], str] = dict()  # define ⌥-Click & Click at each Y X
+    last_y: int = -1  # the Southmost Screen Row written
 
     def try_tic_tac_tuh(self) -> None:
         """Run 1 Tic-Tac-Tuh Gameboard on Screen"""
+
+        self.v3()
+
+    def v3(self) -> None:
+
+        mt = mouse_terminal()
+        fileno = mt.fileno
+        stdio = mt.stdio
+
+        #
+
+        stdio.write("\033[48;5;255m")
+        stdio.write("\033[2J")  # ⎋[J works, but ⎋[H ⎋[2J gets more test
+
+        #
+
+        self.fetch_y_high_x_width()
+
+        (y_high, x_width) = (mt.y_high, mt.x_wide)
+        assert -1 not in (y_high, x_width), (y_high, x_width)  # todo: stop asserting init order
+
+        self.ttt_board_redraw()
+
+        assert self.last_y != -1, (self.last_y,)  # todo: stop asserting init order
+        last_y = self.last_y
+
+        #
+
+        while True:
+            ti = mt.read_yxhw_terminal_input(timeout=None)
+            if not ti:
+                continue  # todo: show multibyte compositions well inside Tic-Tac-Tuh
+
+            # Take Return Keystroke in place of Mouse Click
+
+            if ti.face == "Return":
+                tytx = (mt.row_y, mt.column_x)
+                code = self.code_by_tytx.get(tytx, default_eq_None)
+                if code:
+                    stdio.write(code)
+
+                continue
+
+            # Convert Mouse ⌥-Click Release to Csi, or Mouse Click Release to Csi
+
+            m_ints = ti.to_csi_ints_if(b"m", start=b"<", default=-1)
+            if len(m_ints) == 3:
+                (f, x, y) = m_ints  # f x y, not f y x
+
+                f0 = 0  # none of ⌃ ⌥ ⇧
+                f8 = int("0b01000", base=0)  # f = ⌥ of 0b⌃⌥⇧00
+                if f in (f0, f8):  # Click or ⌥-Click
+                    stdio.write(f"\033[{y};{x}H")  # no bounds caps on Mouse Click or ⌥-Click
+
+                    tytx = (y, x)
+                    code = self.code_by_tytx.get(tytx, default_eq_None)
+                    if code:
+                        stdio.write(code)
+
+                    continue
+
+            #
+
+            if ti.face in ("←", "↑", "→", "↓"):
+
+                kbytes = ti.kbytes
+                stdio.flush()  # before each 'os.write'
+
+                fd = fileno
+                data = kbytes
+                os.write(fd, data)
+
+                continue
+
+            #
+
+            break
+
+        #
+
+        debug_exit_draining = False
+        if debug_exit_draining:
+
+            while True:
+                print(ti)
+                ti = mt.read_terminal_input(timeout=None)
+                if not ti:
+                    continue  # todo: show multibyte compositions well inside Tic-Tac-Tuh
+
+                caps = ti.caps
+                if caps in ("⌃C", "⌃D", "⌃Z", "⌃\\"):
+                    break
+
+        #
+
+        stdio.write(f"\033[{last_y + 2}H")
+
+    def ttt_board_redraw(self) -> None:
+        """Draw the Board again, with its present Moves made, and in its present Colors"""
+
+        code_by_tytx = self.code_by_tytx
+
+        mt = mouse_terminal()
+        stdio = mt.stdio
+
+        assert "█" == unicodedata.lookup("Full Block")
+
+        (y_high, x_width) = (mt.y_high, mt.x_wide)
+        assert -1 not in (y_high, x_width), (y_high, x_width)  # todo: stop asserting init order
+
+        (y0, x0) = self.find_y0x0()
+
+        xo_board = TicTacTuhGameboard.xo_board
+        xo_text = textwrap.dedent(xo_board)
+        xo_rows = list(_ for _ in xo_text.splitlines() if _)
+        xo_wide = max(len(_.lstrip()) for _ in xo_rows)
+
+        y = y0 - len(xo_rows) // 2
+        x = x0 - xo_wide // 2
+
+        from_codes = "+-/|" + "*.12345678ABCDEFGH"
+        to_glyphs = len("+-/|") * "█" + len("*.12345678ABCDEFGH") * " "
+        trans = str.maketrans(from_codes, to_glyphs)
+
+        #
+
+        stdio.write("\033[m")
+
+        last_y = -1
+        for dy, xo_row in enumerate(xo_rows):
+            assert xo_row == xo_row.rstrip(), (xo_row, xo_row.rstrip())
+
+            row = xo_row.lstrip()
+            dx = len(xo_row) - len(row)
+
+            stdio.write(f"\033[{y + dy};{x + dx}H")
+            stdio.write(row.translate(trans))
+
+            for i, t in enumerate(row):
+                ty = y + dy
+                tx = x + dx + i
+
+                tytx = (ty, tx)
+                code_by_tytx[tytx] = t
+
+            last_y = y + dy
+
+        self.last_y = last_y
+
+        #
+
+        stdio.write(f"\033[{y0};{x0}H")
+
+    def v2(self) -> None:
+
+        mt = mouse_terminal()
+        stdio = mt.stdio
+
+        self.fetch_y_high_x_width()
+        (y0, x0) = self.find_y0x0()
+
+        # Blank out the Board
+
+        row = 0
+        col = 0
+
+        y = y0 + 8 * (row - 1) - 1
+        x = x0 + 15 * (col - 1) - 2
+
+        y -= 2
+        x -= 4
+
+        for dy in range(3 * 7 + 4):
+            stdio.write(f"\033[{y + dy};{x}H")
+            stdio.write(47 * " ")
+
+        # Draw two Vertical Stripes
+
+        row = 0
+        for col in range(1, 3):
+            y = y0 + 8 * (row - 1) - 1
+            x = x0 + 15 * (col - 1) - 2
+
+            y -= 1
+            x -= 4
+
+            for dy in range(3 * 7 + 2):
+                stdio.write(f"\033[{y + dy};{x}H")
+                stdio.write("█" "█")
+
+        # Draw two Horizontal Stripes
+
+        col = 0
+        for row in range(1, 3):
+            y = y0 + 8 * (row - 1) - 1
+            x = x0 + 15 * (col - 1) - 2
+
+            y -= 2
+            x -= 2
+
+            stdio.write(f"\033[{y};{x}H")
+            for dx in range(3 * 13 + 4):
+                stdio.write("█")
+
+        # Take Mouse Clicks inside the Perimeter of the Cell
+
+        for row in range(3):
+            for col in range(3):
+                y = y0 + 8 * (row - 1) - 1
+                x = x0 + 15 * (col - 1) - 2
+
+                for dy in range(5):
+                    stdio.write(f"\033[{y + dy};{x}H")
+                    for dx in range(9):
+                        stdio.write("·")
+
+        # Exit below the Board
+
+        stdio.write(3 * "\r\n")
+        stdio.write("\r\n")
+
+    def fetch_y_high_x_width(self) -> None:
+        """Count out Screen Rows Wide x Columns High"""
+
+        mt = mouse_terminal()
+
+        mt.stdio.write("\033[18t")  # the ⎋[18 T Call  # todo: earlier/ more robustly
+        while True:
+            ti = mt.read_terminal_input(timeout=None)
+            if ti:
+                break
+
+        # tprint(ti)
+        # time.sleep(0.3)
+
+        # todo: drop .fetch_y_high_x_width as redundant with .read_yxhw_terminal_input
+
+    def find_y0x0(self) -> tuple[int, int]:
+        """Center on the Middle, as defined by Vim etc"""
+
+        mt = mouse_terminal()
+
+        (y_high, x_width) = (mt.y_high, mt.x_wide)
+        assert -1 not in (y_high, x_width), (y_high, x_width)
+
+        y0 = y_high // 2 + y_high % 2
+        x0 = x_width // 2 + x_width % 2
+
+        return (y0, x0)
+
+        # todo: move .find_y0x0 into an App Class over MouseTerminal
+
+    def v1(self) -> None:
 
         x_glyph = self.x_glyph
         o_glyph = self.o_glyph
@@ -386,6 +622,64 @@ class TicTacTuhGameboard:  # 31 Wide x 23 High
 
         # todo: "\033[m" needed before each "\n" that can be a "\n" written into the Last Row
 
+    xo_board = """
+
+                         .............
+                         ..111222333..
+                         ....77..88...
+                     ......444555666......
+        ...............................................
+        ...............||.............||...............
+        ....*********..||..*********..||..*********....
+        ....*********..||..*********..||..*********....
+        ....*********..||..*********..||..*********....
+        ....*********..||..*********..||..*********....
+        ....*********..||..*********..||..*********....
+        ...............||.............||...............
+        ..-------------++/////////////++-------------..
+        ...............//.............//...............
+        ....*********..//..*********..//..*********....
+        ....*********..//..*********..//..*********....
+        ....*********..//..*********..//..*********....
+        ....*********..//..*********..//..*********....
+        ....*********..//..*********..//..*********....
+        ...............//.............//...............
+        ..-------------++/////////////++-------------..
+        ...............||.............||...............
+        ....*********..||..*********..||..*********....
+        ....*********..||..*********..||..*********....
+        ....*********..||..*********..||..*********....
+        ....*********..||..*********..||..*********....
+        ....*********..||..*********..||..*********....
+        ...............||.............||...............
+        ...............................................
+                     ......AAABBBCCC......
+                         ....GG.HH....
+                         ..DDDEEEFFF..
+                         .............
+
+    """
+
+    x_glyph = """
+        ·············
+        ··██·····██··
+        ···▐██·██▌···
+        ·····███·····
+        ···▐██·██▌···
+        ··██·····██··
+        ·············
+    """  # 23456789 x 5
+
+    o_glyph = """
+        ·············
+        ····█████····
+        ···██···██···
+        ···██···██···
+        ···██···██···
+        ····█████····
+        ·············
+    """
+
 
 #
 # Take Input, edit it, and write it back out
@@ -398,75 +692,27 @@ class TerminalScreenStudio:
         """Take Input, edit it, and write it back out"""
 
         mt = mouse_terminal()
-        stdio = mt.stdio
 
-        assert CSI == "\033["
-        assert DCH_X == "\033[" "{}" "P"
-        assert DSR_6 == "\033[" "6n"
-        assert XTWINOPS_18 == "\033[" "18t"
-        assert CUP_Y_X == "\033[" "{};{}H"  # CSI 04/08 [Choose] Cursor Position
-
-        # Ask for Height, Width, Cursor Y, Cursor X, and then also some other Input
-
-        backtails = list()
         while True:
+            ti = mt.read_yxhw_terminal_input(timeout=None)
+            if not ti:
+                continue
 
-            if b"t" not in backtails:
-                stdio.write("\033[18t")  # ⎋[18T call for reply ⎋[8;{rows};{columns}T
-                backtails.append(b"t")
+            self.try_one_loopback(ti)
 
-            if b"R" not in backtails:
-                stdio.write("\033[6n")  # ⎋[6N calls for reply ⎋[{y};{x}⇧R
-                backtails.append(b"R")
-
-            assert b"" not in backtails, (backtails,)
-            backtails.append(b"")  # waits for whatever other reply
-
-            # Take Inputs in whatever order  # todo: Log if Input ever comes out of order
-
-            ti = None
-            while backtails:
-
-                # Hang invisibly while Multibyte Sequences arrive slowly  # todo3: Do better
-
-                ti = mt.read_terminal_input(timeout=None)
-                if not ti:
-                    continue
-
-                caps = ti.caps
-                pack = ti.pack
-
-                # Take Csi Inputs
-
-                if caps.startswith("⎋["):
-                    backtail = bytes(pack.back + pack.tail)
-                    if backtail and (backtail in backtails):
-                        ints = ti.to_csi_ints_if(backtail, start=b"", default=-1)
-                        if ints:
-
-                            backtails.remove(backtail)
-
-                            continue
-
-                # Take Input other than the first Height, Width, Cursor Y, Cursor X
-
-                if b"" in backtails:
-                    backtails.remove(b"")
-
-                    break
-
-            assert ti, (ti,)
-
-            self.try_one_loopback(mt, ti=ti)
-
-    def try_one_loopback(self, mt: MouseTerminal, ti: TerminalInput) -> None:
+    def try_one_loopback(self, ti: TerminalInput) -> None:
         """Convert some Inputs, and loop the rest back"""
+
+        mt = mouse_terminal()
 
         stdio = mt.stdio
         fileno = mt.fileno
 
         kbytes = ti.kbytes
         caps = ti.caps
+
+        assert CR == "\r"
+        assert CUP_Y_X == "\033[" "{};{}H"  # CSI 04/08 [Choose] Cursor Position
 
         # Convert Single-Byte Control Inputs
 
@@ -1131,6 +1377,8 @@ class MouseTerminal:
 
     _arrows_kbytes_lately_: bytes  # matched by .tp_from_startswith_mouse_arrow_kbytes
 
+    yxhw_backtails: list[bytes]  # remember what .read_yxhw_terminal_input is waiting for
+
     #
     # Init, enter, exit, and poll
     #
@@ -1163,6 +1411,8 @@ class MouseTerminal:
         self.paste_x = -1
 
         self._arrows_kbytes_lately_ = b""
+
+        self.yxhw_backtails = list()
 
     def __enter__(self) -> typing.Self:
         r"""Stop line-buffering Input, stop replacing \n Output with \r\n, etc"""
@@ -1296,6 +1546,73 @@ class MouseTerminal:
         return fileno_hit
 
         # 'timeout' is None for Never, 0 for Now, else a Float of Seconds
+
+    #
+    # Take next Input from a Y X in a High Wide Screen
+    #
+
+    def read_yxhw_terminal_input(self, timeout: float | None) -> TerminalInput | None:
+        """Take next Input from a Y X in a High Wide Screen"""
+
+        stdio = self.stdio
+        yxhw_backtails = self.yxhw_backtails
+
+        assert CSI == "\033["
+        assert DCH_X == "\033[" "{}" "P"
+        assert DSR_6 == "\033[" "6n"
+        assert XTWINOPS_18 == "\033[" "18t"
+
+        # Ask for Height, Width, Cursor Y, Cursor X, and then also some other Input
+
+        if b"t" not in yxhw_backtails:
+            stdio.write("\033[18t")  # ⎋[18T call for reply ⎋[8;{rows};{columns}T
+            yxhw_backtails.append(b"t")
+
+        if b"R" not in yxhw_backtails:
+            stdio.write("\033[6n")  # ⎋[6N calls for reply ⎋[{y};{x}⇧R
+            yxhw_backtails.append(b"R")
+
+        if b"" not in yxhw_backtails:
+            yxhw_backtails.append(b"")  # waits for whatever other reply
+
+        # Take Inputs in whatever order  # todo: Log if Input ever comes out of order
+
+        ti = None
+        while yxhw_backtails:  # todo3: count .yxhw_backtails per second
+
+            # Hang invisibly while Multibyte Sequences arrive slowly  # todo3: Do better
+
+            ti = self.read_terminal_input(timeout=timeout)
+            if not ti:
+                return ti
+
+            caps = ti.caps
+            pack = ti.pack
+
+            # Take Csi Inputs
+
+            if caps.startswith("⎋["):
+                backtail = bytes(pack.back + pack.tail)
+                if backtail and (backtail in yxhw_backtails):
+                    ints = ti.to_csi_ints_if(backtail, start=b"", default=-1)
+                    if ints:
+
+                        yxhw_backtails.remove(backtail)
+
+                        continue
+
+            # Take Input other than the first Height, Width, Cursor Y, Cursor X
+
+            if b"" in yxhw_backtails:
+                yxhw_backtails.remove(b"")
+
+                break
+
+        assert ti, (ti,)
+
+        # Succeed
+
+        return ti
 
     #
     # Read a parsed Terminal Input, or just Framed Bytes, from Keyboard, Mouse, and Touch
@@ -2383,6 +2700,9 @@ class TerminalBytePack:
         return False
 
     # todo: Limit rate of input so livelocks go less wild, like in Keyboard/ Screen loopback
+
+
+CR = "\r"
 
 
 ESC = "\033"
