@@ -283,20 +283,25 @@ class TerminalStudio:
             return
 
         if face == "⎋F2":
-            tps = TerminalPokeStudio()
-            tps.try_byte_times()
+            tbs = TerminalByteStudio()
+            tbs.try_single_byte_times()
             sys.exit()  # todo1: stop exiting after ⎋F2
 
         if face == "⎋F3":
-            tis = TerminalInputStudio()
-            tis.try_bytes_caps_face()
+            tps = TerminalPokeStudio()
+            tps.try_byte_burst_times()
             sys.exit()  # todo1: stop exiting after ⎋F3
 
         if face == "⎋F4":
-            tprint("⎋F4")
+            tis = TerminalInputStudio()
+            tis.try_bytes_caps_face()
+            sys.exit()  # todo1: stop exiting after ⎋F4
+
+        if face == "⎋F5":
+            tprint("⎋F5")
             tss = TerminalScreenStudio()
             tss.try_loopback()
-            sys.exit()  # todo1: stop exiting after ⎋F4
+            sys.exit()  # todo1: stop exiting after ⎋F5
 
         #
 
@@ -650,7 +655,7 @@ class TerminalInputStudio:
 
 class TerminalPokeStudio:
 
-    def try_byte_times(self) -> None:
+    def try_byte_burst_times(self) -> None:
         """Say what we got for Input, if Keyboard Chord, if Arrow Burst, and how long we waited"""
 
         mt = mouse_terminal()
@@ -693,6 +698,7 @@ class TerminalPokeStudio:
 
         # Run till Quit
 
+        tprint()
         while True:
 
             mt.stdio.flush()
@@ -715,7 +721,99 @@ class TerminalPokeStudio:
             # todo1: Quit at Emacs ⌃X ⌃C, ⌃X ⌃S
             # todo1: Quit at Vim ⇧Z ⇧Q, ⇧Z ⇧Z
 
+        kcaps_list = list()
+        for exit_data in mt.exits:
+            kcaps = kbytes_to_precise_kcaps(exit_data)
+            kcaps_list.append(kcaps)
+
+        tprint()
+        tprint("Teardown:", " ".join(kcaps_list))
+
         # todo3: Decipher ⌥-Click encoding at Google Cloud Shell
+
+
+#
+# Say Byte-for-Byte what we got for Input, without compressing and bundling
+#
+
+
+class TerminalByteStudio:
+
+    def try_single_byte_times(self) -> None:
+        """Say Byte-for-Byte what we got for Input, without compressing and bundling"""
+
+        mt = mouse_terminal()
+
+        # As late as now, trace the Writes of MouseTerminal.__enter__
+
+        tprint()
+        tprint("Setup:")
+
+        for entry_data in mt.entries:
+            for b in entry_data:
+                tprint(bytes([b]))
+
+        # Launch a wide Ruler
+
+        tprint()
+        tprint(30 * "123456789 ")
+
+        # Launch a fetch of Terminal Width x Height
+
+        for t in "\033[18t":
+            tprint(t.encode())
+        mt.stdio.write("\033[18t")
+
+        # Launch a fetch of Terminal Cursor Y X
+
+        for t in "\033[6n":
+            tprint(t.encode())
+        mt.stdio.write("\033[6n")
+
+        # Run till Quit
+
+        tprint()
+        t0 = time.time()
+        while True:
+
+            mt.stdio.flush()
+
+            read_list = list()
+            delay_list = list()
+
+            fd = mt.fileno
+            length = 1
+
+            read = os.read(fd, length)
+            t1 = time.time()
+
+            read_list.append(read)
+            delay_list.append(t1 - t0)
+            t0 = t1
+
+            while mt._kbhit_(timeout=0.000_001):
+
+                read = os.read(fd, length)
+                t1 = time.time()
+
+                read_list.append(read)
+                delay_list.append(t1 - t0)
+                t0 = t1
+
+            if read_list == [b"\r"]:
+                tprint()
+                continue
+
+            for read, delay in zip(read_list, delay_list):
+                tprint(f"{read!r} {sketch(delay, near=1e-3)}")
+
+            breaking = False
+            for read in read_list:
+                if read in (b"\x03", b"\x04", b"\x1a", b"\x1c"):  # ("⌃C", "⌃D", "⌃Z", "⌃\\"):
+                    breaking = True
+
+            if breaking:
+                break
 
 
 #
