@@ -8,6 +8,7 @@ Nine classic games, reimagined with customizable rules and Easter Eggs
 ```
 git clone https://github.com/pelavarre/less-beeps.git
 cd less-beeps/
+which -a python3
 python3 bin/less-beeps.py --yolo
 ```
 
