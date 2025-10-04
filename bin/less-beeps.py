@@ -331,9 +331,14 @@ class TicTacTuhGameboard:  # 31 Wide x 23 High
 
     def v3(self) -> None:
 
+        code_by_tytx = self.code_by_tytx
+
         mt = mouse_terminal()
         fileno = mt.fileno
         stdio = mt.stdio
+
+        assert SM_DECTCEM == "\033[" "?25h"
+        assert RM_DECTCEM == "\033[" "?25l"
 
         #
 
@@ -354,20 +359,11 @@ class TicTacTuhGameboard:  # 31 Wide x 23 High
 
         #
 
+        mousing = False
         while True:
             ti = mt.read_yxhw_terminal_input(timeout=None)
             if not ti:
                 continue  # todo: show multibyte compositions well inside Tic-Tac-Tuh
-
-            # Take Return Keystroke in place of Mouse Click
-
-            if ti.face == "Return":
-                tytx = (mt.row_y, mt.column_x)
-                code = self.code_by_tytx.get(tytx, default_eq_None)
-                if code:
-                    stdio.write(code)
-
-                continue
 
             # Convert Mouse ⌥-Click Release to Csi, or Mouse Click Release to Csi
 
@@ -378,15 +374,35 @@ class TicTacTuhGameboard:  # 31 Wide x 23 High
                 f0 = 0  # none of ⌃ ⌥ ⇧
                 f8 = int("0b01000", base=0)  # f = ⌥ of 0b⌃⌥⇧00
                 if f in (f0, f8):  # Click or ⌥-Click
-                    stdio.write(f"\033[{y};{x}H")  # no bounds caps on Mouse Click or ⌥-Click
 
                     tytx = (y, x)
-                    code = self.code_by_tytx.get(tytx, default_eq_None)
-                    if code:
+                    code = code_by_tytx.get(tytx, default_eq_None)
+                    if code and (code not in "+."):  # "+-/|" + "*.12345678ABCDEFGH"
+                        mousing = True
+                        stdio.write("\033[?25l")
+                        stdio.write("\0337")
+                        stdio.write(f"\033[{y};{x}H")  # no bounds caps on Mouse Click or ⌥-Click
                         stdio.write(code)
+                        stdio.write("\0338")
+                    elif not mousing:
+                        stdio.write(f"\033[{y};{x}H")  # no bounds caps on Mouse Click or ⌥-Click
 
                     continue
 
+            mousing = False
+            stdio.write("\033[?25h")
+
+            # Take Return Keystroke in place of Mouse Click
+
+            if ti.face == "Return":
+                tytx = (mt.row_y, mt.column_x)
+                code = self.code_by_tytx.get(tytx, default_eq_None)
+                if code and (code not in "+."):  # "+-/|" + "*.12345678ABCDEFGH"
+                    stdio.write("\0337")
+                    stdio.write(code)
+                    stdio.write("\0338")
+
+                continue
             #
 
             if ti.face in ("←", "↑", "→", "↓"):
@@ -2753,6 +2769,9 @@ _SM_BRACKETED_PASTE_ = "\033[" "?2004h"  # codes Start/ End as ⎋[200~ and ⎋[
 _RM_BRACKETED_PASTE_ = "\033[" "?2004l"
 _START_PASTE_ = "\033[" "200~"  # ⎋[200⇧~
 _END_PASTE_ = "\033[" "201~"  # ⎋[201⇧~
+
+SM_DECTCEM = "\033[" "?25h"  # 06/08 Set Mode (SMS) 25 VT220 Show Cursor
+RM_DECTCEM = "\033[" "?25l"  # 06/12 Reset Mode (RM) 25 VT220 Hide Cursor
 
 
 @dataclasses.dataclass(order=True, frozen=True)
