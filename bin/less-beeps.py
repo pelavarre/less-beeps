@@ -81,8 +81,8 @@ def main() -> None:
 
     phone = False
     try:
-        (x_width, y_height) = os.get_terminal_size()
-        if x_width < 72:
+        (x_wide, y_high) = os.get_terminal_size()
+        if x_wide < 72:
             phone = True
     except Exception:
         pass
@@ -314,7 +314,7 @@ class TerminalStudio:
 
 
 #
-# Run 1 Tic-Tac-Tuh Gameboard on Screen  # todo4: rename to 'wide x high' from 'width x height'
+# Run 1 Tic-Tac-Tuh Gameboard on Screen
 #
 
 
@@ -561,7 +561,7 @@ class TerminalInputStudio:
         # Run till quit
 
         tprint()
-        mt.row_y = min(mt.y_height, mt.row_y + 1)
+        mt.row_y = min(mt.y_high, mt.row_y + 1)
         while True:
 
             # Prompt
@@ -643,8 +643,8 @@ class TerminalInputStudio:
                 else:
                     tprint(">", caps, kbytes)
 
-        if -1 not in (mt.y_height, mt.row_y, mt.column_x):
-            mt.row_y = min(mt.y_height, mt.row_y + 1)
+        if -1 not in (mt.y_high, mt.row_y, mt.column_x):
+            mt.row_y = min(mt.y_high, mt.row_y + 1)
             mt.column_x = X1
 
 
@@ -1003,7 +1003,7 @@ class ArgDocParser:
         fromfile = "{} --help".format(basename)
 
         # Fetch the Parser Doc from a fitting virtual Terminal
-        # Fetch from a Black Terminal of 89 columns, not from the current Terminal width
+        # Fetch from a Black Terminal of 89 columns, not from the current Terminal Width
         # Fetch from later Python of "options:", not earlier Python of "optional arguments:"
 
         if "COLUMNS" not in os.environ:
@@ -1122,8 +1122,8 @@ class MouseTerminal:
     kbytearray: bytearray  # cleared then formed by .read_key_caps_plus and .getch
     _pack_: TerminalBytePack  # cleared then formed by .read_key_caps_plus
 
-    y_height: int  # Terminal Screen Pane Rows, else -1
-    x__width: int  # Terminal Screen Pane Columns, else -1
+    y_high: int  # Terminal Screen Pane Rows, else -1
+    x_wide: int  # Terminal Screen Pane Columns, else -1
     row_y: int  # Terminal Cursor Y Row, else -1
     column_x: int  # Terminal Cursor X Column, else -1
     paste_y: int  # Bracketed Paste Cursor Y Row, else -1
@@ -1155,8 +1155,8 @@ class MouseTerminal:
         self.kbytearray = bytearray()
         self._pack_ = TerminalBytePack(b"")
 
-        self.y_height = -1
-        self.x_width = -1
+        self.y_high = -1
+        self.x_wide = -1
         self.row_y = -1
         self.column_x = -1
         self.paste_y = -1
@@ -1253,13 +1253,13 @@ class MouseTerminal:
         """Break Paste Line at Cursor"""
 
         stdio = self.stdio
-        y_height = self.y_height
+        y_high = self.y_high
         paste_y = self.paste_y
         paste_x = self.paste_x
 
         assert CUP_Y_X == "\033[" "{};{}H"  # CSI 04/08 [Choose] Cursor Position
 
-        if paste_y < y_height:
+        if paste_y < y_high:
             paste_y = paste_y + 1
         else:
             stdio.write("\n")
@@ -1365,12 +1365,12 @@ class MouseTerminal:
 
         kbytearray = self.kbytearray
 
-        y_height = self.y_height
-        x_width = self.x_width
+        y_high = self.y_high
+        x_wide = self.x_wide
         row_y = self.row_y
         column_x = self.column_x
 
-        if -1 in (y_height, x_width, row_y, column_x):
+        if -1 in (y_high, x_wide, row_y, column_x):
             return
 
         (mouse_kbytes, arrow_kbytes) = self.tp_from_startswith_mouse_arrow_kbytes(tp)
@@ -1454,7 +1454,7 @@ class MouseTerminal:
         if ti.backtail == b"R":
             self._ti_snoop_row_y_column_x_(ti)
         elif ti.backtail == b"t":
-            self._ti_snoop_y_height_x_width_(ti)
+            self._ti_snoop_y_high_x_wide_(ti)
         elif ti.backtail == b"~":
             self._ti_snoop_paste_start_end_(ti)
 
@@ -1468,7 +1468,7 @@ class MouseTerminal:
             self.row_y = yx_ints[0]
             self.column_x = yx_ints[-1]
 
-    def _ti_snoop_y_height_x_width_(self, ti: TerminalInput) -> None:
+    def _ti_snoop_y_high_x_wide_(self, ti: TerminalInput) -> None:
         """Snoop ⎋[8 T Terminal Window Pane > Y-Height x X-Width Report"""
 
         assert XTWINOPS_8_H_W == "\033[" "8;{};{}t"
@@ -1476,8 +1476,8 @@ class MouseTerminal:
         nhw_ints = ti.to_csi_ints_if(b"t", start=b"", default=PN1)  # ⎋[8 T
         if len(nhw_ints) == 3:
             assert nhw_ints[0] == 8, (nhw_ints[0], nhw_ints)
-            self.y_height = nhw_ints[1]
-            self.x_width = nhw_ints[2]
+            self.y_high = nhw_ints[1]
+            self.x_wide = nhw_ints[2]
 
     def _ti_snoop_paste_start_end_(self, ti: TerminalInput) -> None:
         """Snoop ⎋[200~ ⎋[201~ Start/ End of Bracketed Paste"""
@@ -1649,13 +1649,13 @@ class MouseTerminal:
 
         kbytes = tp.to_kbytes()
 
-        y_height = self.y_height
-        x_width = self.x_width
+        y_high = self.y_high
+        x_wide = self.x_wide
         row_y = self.row_y
         column_x = self.column_x
 
-        assert Y1 <= row_y <= y_height, (row_y, y_height)
-        assert X1 <= column_x <= x_width, (column_x, x_width)
+        assert Y1 <= row_y <= y_high, (row_y, y_high)
+        assert X1 <= column_x <= x_wide, (column_x, x_wide)
 
         dy_dx_by_arrow_kbytes = DY_DX_BY_ARROW_KBYTES
 
@@ -1685,27 +1685,27 @@ class MouseTerminal:
 
             # Move our more virtual Arrow Cursor (not the more real Terminal Cursor outside)
 
-            if x > x_width:
+            if x > x_wide:
                 x = X1
-                y = min(y + 1, y_height)
+                y = min(y + 1, y_high)
 
-            assert Y1 <= y <= y_height, (y, y_height)
-            assert X1 <= x <= x_width, (x, x_width)
+            assert Y1 <= y <= y_high, (y, y_high)
+            assert X1 <= x <= x_wide, (x, x_wide)
 
             y += dy
             x += dx
 
-            y = max(Y1, min(y, y_height))
+            y = max(Y1, min(y, y_high))
 
             if x < X1:
-                x = x_width
+                x = x_wide
                 y = max(Y1, y - 1)
 
-        if x > x_width:
-            x = x_width  # caps differently at end of Arrow Burst
+        if x > x_wide:
+            x = x_wide  # caps differently at end of Arrow Burst
 
-        assert Y1 <= y <= y_height, (y, y_height)
-        assert X1 <= x <= x_width, (x, x_width)
+        assert Y1 <= y <= y_high, (y, y_high)
+        assert X1 <= x <= x_wide, (x, x_wide)
 
         # Give up here, if no Arrow Burst found
 
