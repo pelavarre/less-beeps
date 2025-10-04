@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 
 r"""
-usage: less-beeps.py [-h] [--yolo]
+usage: less-beeps.py [-h] [--yolo] [CHORD ...]
 
 give away nine classic simple Terminal games
+
+positional arguments:
+  CHORD       a Keyboard Chord to take as if pressed, such as 'F2' or 'Esc-F4'
 
 options:
   -h, --help  show this help message and exit
@@ -11,6 +14,8 @@ options:
 
 examples:
   ./bin/less-beeps.py --yolo
+  bin/@ F2
+  bin/@ Esc-F4
 """
 
 # code reviewed by People, Black, Flake8, Mypy-Strict, & Pylance-Standard
@@ -121,6 +126,7 @@ class MainClass:
 
         with TerminalStudio() as ts:
             with MouseTerminal() as mt:
+                mt.kbytearray.extend(ns.chords_kbytes)
                 while True:
 
                     #
@@ -146,6 +152,10 @@ class MainClass:
     def parse_less_beeps_args(self) -> argparse.Namespace:
         """Take in the Shell Command-Line Args"""
 
+        kcap_by_ktext = KCAP_BY_KTEXT
+
+        #
+
         parser = self.compile_less_beeps_doc()
 
         argv = sys.argv[1:]
@@ -155,15 +165,60 @@ class MainClass:
 
         ns = parser.parse_args_if(argv)
 
+        #
+
+        chords = ns.chords
+        chords_kbytes = b""
+        for chord in chords:
+            caps_list = chord_to_caps_list(chord)
+            caps = "".join(caps_list)
+
+            ktext = ""
+            for k, v in kcap_by_ktext.items():
+                if v == caps:
+                    ktext = k
+                    break
+            if caps.startswith("⎋") and (caps != "⎋"):
+                caps = caps[len("⎋") :]
+                for k, v in kcap_by_ktext.items():
+                    if v == caps:
+                        ktext = k
+                        break
+                assert ktext, (ktext, caps, chord)
+                chords_kbytes += b"\033"
+                for k, v in kcap_by_ktext.items():
+                    if v == caps:
+                        ktext = k
+                        break
+
+            assert ktext, (ktext, caps, chord)
+
+            kbytes = ktext.encode()
+            assert kbytes, (kbytes, ktext)
+
+            chords_kbytes += kbytes
+
+        ns.chords_kbytes = chords_kbytes
+
+        if chords_kbytes:
+            ns.yolo = True
+
+        #
+
         return ns
 
     def compile_less_beeps_doc(self) -> ArgDocParser:
         """Declare the Options & Positional Arguments"""
 
+        assert argparse.ZERO_OR_MORE == "*"
+
         doc = __main__.__doc__
         assert doc, (doc,)
 
         parser = ArgDocParser(doc, add_help=True)
+
+        chord_help = "a Keyboard Chord to take as if pressed, such as 'F2' or 'Esc-F4'"
+        parser.add_argument("chords", metavar="CHORD", nargs="*", help=chord_help)
 
         yolo_help = "do what's popular now"
         parser.add_argument("--yolo", action="count", help=yolo_help)
@@ -222,8 +277,9 @@ class TerminalStudio:
             tprint("⌃D to quit")
             tprint("⎋F1 - Show this menu")
             tprint("⎋F2 - Trace the Timing of Bytes of Input")
-            tprint("⎋F3 - Trace the Key Caps of Input")
-            tprint("⎋F4 - Loopback the Bytes of Input")
+            tprint("⎋F3 - Trace the Timing of Bursts of Bytes of Input")
+            tprint("⎋F4 - Trace the Key Caps of Input")
+            tprint("⎋F5 - Loopback the Bytes of Input")
             return
 
         if face == "⎋F2":
@@ -296,23 +352,34 @@ class TicTacTuhGameboard:  # 31 Wide x 23 High
 
         n = 3 * len(x.splitlines()[-1]) + 2 * 2 + 2 - 4
 
-        tprint("\033[46m" + " ", n * " ", " ")
+        tprint("\033[46m" + " ", n * " ", " " + "\033[m")
 
         for x_line, o_line in zip(x.splitlines(), o.splitlines()):
-            tprint(" " + x_line + "██" + o_line + "██" + x_line + " ", end="\r\n")
+            tprint(
+                "\033[46m" + " " + x_line + "██" + o_line + "██" + x_line + " " + "\033[m",
+                end="\r\n",
+            )
 
-        tprint(" ", n * "█", " ")
+        tprint("\033[46m" + " ", n * "█", " " + "\033[m")
 
         for x_line, o_line in zip(x.splitlines(), o.splitlines()):
-            tprint(" " + o_line + "██" + x_line + "██" + o_line + " ", end="\r\n")
+            tprint(
+                "\033[46m" + " " + o_line + "██" + x_line + "██" + o_line + " " + "\033[m",
+                end="\r\n",
+            )
 
-        tprint(" ", n * "█", " ")
+        tprint("\033[46m" + " ", n * "█", " " + "\033[m")
 
         for x_line, o_line in zip(x.splitlines(), o.splitlines()):
             s_line = len(x_line) * " "
-            tprint(" " + s_line + "██" + o_line + "██" + x_line + " ", end="\r\n")
+            tprint(
+                "\033[46m" + " " + s_line + "██" + o_line + "██" + x_line + " " + "\033[m",
+                end="\r\n",
+            )
 
-        tprint(" ", n * " ", " " + "\033[m")
+        tprint("\033[46m" + " ", n * " ", " " + "\033[m")
+
+        # todo: "\033[m" needed before each "\n" that can be a "\n" written into the Last Row
 
 
 #
@@ -2754,6 +2821,56 @@ OPTION_KTEXT_BY_KT = {
 # hand-sorted by ⌥E ⌥I ⌥N ⌥U ⌥` order
 
 
+def chord_to_caps_list(chord: str) -> list[str]:
+    """Convert 'F2' to ['F2'] and 'Esc-F4' to ['⎋', 'F4'] and so on"""
+
+    d = {
+        "Esc": "⎋",
+        "Meta": "⎋",
+        "Control": "⌃",
+        "Ctrl": "⌃",
+        "Alt": "⌥",
+        "Option": "⌥",
+        "Shift": "⇧",
+        "Command": "⌘",
+        "Fn": "Fn",
+    }
+
+    caps_list: list[str] = list()
+
+    text = chord
+    while text:
+
+        short = ""
+        long = ""
+        for k, v in d.items():
+            if text.startswith(k + "+"):
+                short = k + "+"
+                long = v
+            elif text.startswith(k + "-"):
+                short = k + "-"
+                long = v
+            elif text.startswith(k):
+                short = k
+                long = v
+
+        fm = re.match(r"^F[0-9]+", text)
+
+        if short and long:
+            pass
+        elif fm:
+            short = long = fm.group(0)
+            if caps_list and caps_list[-1] == "Fn":
+                caps_list.pop()
+        else:
+            short = long = text[:1]
+
+        text = text.removeprefix(short)
+        caps_list.append(long)
+
+    return caps_list
+
+
 def kbytes_to_concise_kcaps_if(kbytes: bytes) -> str:
     """Choose Keycaps to speak of the Bytes of 1 Keyboard Chord"""
 
@@ -2999,11 +3116,16 @@ def tprint(*args: object, end: str = "\r\n") -> None:
 
     text = " ".join(str(_) for _ in args)
 
-    mt = mouse_terminals[-1]
-    stdio = mt.stdio
-    tcgetattr = mt.tcgetattr
+    assert sys.__stderr__ is not None
+    stdio: typing.TextIO = sys.__stderr__
 
-    assert tcgetattr, (tcgetattr,)
+    if mouse_terminals:
+
+        mt = mouse_terminals[-1]
+        stdio = mt.stdio
+        tcgetattr = mt.tcgetattr
+
+        assert tcgetattr, (tcgetattr,)
 
     print(text, end=end, file=stdio)
 
