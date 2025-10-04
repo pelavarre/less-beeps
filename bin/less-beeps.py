@@ -98,6 +98,8 @@ def main() -> None:
     mc = MainClass()
     mc.main_class_run()
 
+    # todo2: work inside a Pane chosen by $LINE $COLUMN $LINES $COLUMNS
+
 
 @dataclasses.dataclass(order=True)  # , frozen=True)
 class MainClass:
@@ -120,6 +122,23 @@ class MainClass:
         with TerminalStudio() as ts:
             with MouseTerminal() as mt:
                 while True:
+
+                    #
+
+                    pack = mt._pack_
+                    if pack:
+                        kbytes = pack.to_bytes()
+                        caps = kbytes_to_precise_kcaps(kbytes)
+                        mt.stdio.write(caps)  # todo2: more perfect checkpoint & revert caps trace
+
+                        mt.kbhit(timeout=None)
+
+                        pn = len(caps)
+                        mt.stdio.write(pn * "\b")
+                        mt.stdio.write(f"\033[{pn}P")
+
+                    #
+
                     ti = mt.read_terminal_input(timeout=None)
                     if ti:
                         ts.terminal_input_exec(ti)
@@ -173,6 +192,10 @@ class TerminalStudio:
         face = ti.face
 
         #
+
+        if caps == "⌃M":
+            tprint()
+            return
 
         if caps in ("⌃C", "⌃D", "⌃Z", "⌃\\"):
             sys.exit()
@@ -306,6 +329,7 @@ class TerminalScreenStudio:
         stdio = mt.stdio
 
         assert CSI == "\033["
+        assert DCH_X == "\033[" "{}" "P"
         assert DSR_6 == "\033[" "6n"
         assert XTWINOPS_18 == "\033[" "18t"
         assert CUP_Y_X == "\033[" "{};{}H"  # CSI 04/08 [Choose] Cursor Position
@@ -2202,6 +2226,8 @@ CSI = "\033["
 
 
 CUP_Y_X = "\033[" "{};{}H"  # CSI 04/08 [Choose] Cursor Position
+
+DCH_X = "\033[" "{}" "P"  # CSI 05/00 Delete Character
 
 
 DSR_5 = "\033[" "5n"  # CSI 06/14 [Request] Device Status Report  # Ps 5 Request DSR_0
