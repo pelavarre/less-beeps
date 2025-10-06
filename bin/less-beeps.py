@@ -1246,20 +1246,20 @@ def sketch(f: float, near: float) -> str:
         return "0"  # 0
 
     neg = "-" if (f < 0) else ""  # omits '+' at left
-    abs_ = abs(f)
+    abs_f = abs(f)
 
-    sci = math.floor(math.log10(abs_))
+    sci = math.floor(math.log10(abs_f))
     eng = (sci // 3) * 3
-    precise = abs_ / (10**eng)
-    assert 1 <= precise <= 1000, (precise, abs_, eng, f)  # todo: Log if '== 1000' ever happens
+    precise = abs_f / (10**eng)
+    assert 1 <= precise <= 1000, (precise, abs_f, eng, f)  # todo: Log if '== 1000' ever happens
 
     dotted = round(precise, 1)  # 1.0  # 9.9  # 10.0
-    assert 1.0 <= dotted <= 1000.0, (dotted, abs_, eng, f)
+    assert 1.0 <= dotted <= 1000.0, (dotted, abs_f, eng, f)
 
     concise = dotted
     if concise >= 10:
         concise = round(precise)  # 10  # 1000
-        assert 10 <= concise <= 1000, (concise, abs_, eng, f)
+        assert 10 <= concise <= 1000, (concise, abs_f, eng, f)
 
     log10_near = int(math.log10(near))
     if eng == log10_near:
@@ -1687,7 +1687,7 @@ class MouseTerminal:
                 del kbytearray[: len(arrow_kbytes)]
                 kbytearray[0:0] = mouse_kbytes
 
-    def _take_one_byte_if_(self) -> None:
+    def _take_one_byte_if_(self) -> None:  # todo2: merge ._take_one_byte_if_ into TerminalBytePack
         """Add the next Byte into the Pack, or don't, and close the Pack, or don't"""
 
         kbytearray = self.kbytearray
@@ -2617,7 +2617,7 @@ class TerminalBytePack:
         """Take 1 Char into CSI or Esc CSI Sequence, else return 1..4 Bytes that don't fit"""
 
         assert len(decode) == 1, decode
-        ord_ = ord(decode)
+        code = ord(decode)
         encode = decode.encode()
 
         head = self.head
@@ -2635,12 +2635,12 @@ class TerminalBytePack:
         assert not tail, (tail,)
         assert not closed, (closed,)
 
-        byte = chr(ord_).encode()
+        byte = chr(code).encode()
         assert byte == encode, (byte, encode)
 
         # Decline 1..4 Bytes of Unprintable or Multi-Byte Char
 
-        if not (0x20 <= ord_ <= 0x7F):
+        if not (0x20 <= code <= 0x7F):
             return byte  # declines 2..4 Bytes of 1 Unprintable or Multi-Byte Char
 
             # todo: More test of Unprintable/ Undecodable Tails after ⎋[ or ⎋⎋[
@@ -2652,15 +2652,15 @@ class TerminalBytePack:
         assert CSI_F_CHARS == "@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~"
 
         if not back:
-            if 0x30 <= ord_ < 0x40:  # 16 Codes  # 0123456789:;<=>?
+            if 0x30 <= code < 0x40:  # 16 Codes  # 0123456789:;<=>?
                 neck.extend(byte)
                 return b""  # takes 1 of 16 Parameter Byte Codes
 
-        if 0x20 <= ord_ < 0x30:  # 16 Codes  # Spacebar !"#$%&\'()*+,-./
+        if 0x20 <= code < 0x30:  # 16 Codes  # Spacebar !"#$%&\'()*+,-./
             back.extend(byte)
             return b""  # takes 1 of 16 Intermediate Byte Codes
 
-        if 0x40 <= ord_ < 0x7F:  # 63 Codes  # @A Z[\\]^_`a z{|}~
+        if 0x40 <= code < 0x7F:  # 63 Codes  # @A Z[\\]^_`a z{|}~
             assert not tail, (tail,)
             tail.extend(byte)
             self.closed = True
@@ -2678,7 +2678,7 @@ class TerminalBytePack:
         """Take 1 Char into OSC Sequence, else return 1..4 Bytes that don't fit"""
 
         assert len(decode) == 1, decode
-        ord_ = ord(decode)
+        code = ord(decode)
         encode = decode.encode()
 
         head = self.head
@@ -2696,19 +2696,19 @@ class TerminalBytePack:
         assert not tail, (tail,)
         assert not closed, (closed,)
 
-        byte = chr(ord_).encode()
+        byte = chr(code).encode()
         assert byte == encode, (byte, encode)
 
         # Decline 1..4 Bytes of Unprintable or Multi-Byte Char
 
-        if (ord_ != 0x07) and not (0x20 <= ord_ <= 0x7F):
+        if (code != 0x07) and not (0x20 <= code <= 0x7F):
             return byte  # declines 2..4 Bytes of 1 Unprintable or Multi-Byte Char
 
             # todo: More test of Unprintable/ Undecodable Tails after ⎋]
 
         # Accept Bytes into Back till ⌃G BEL as Tail
 
-        if ord_ != 0x07:
+        if code != 0x07:
             back.extend(byte)
         else:
             tail.extend(byte)
