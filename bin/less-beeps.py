@@ -440,28 +440,26 @@ class TicTacTuhGameboard:  # 31 Wide x 23 High
         mt = mouse_terminal()
         stdio = mt.stdio
 
-        #
-
-        assert theme_color
-
         if not theme_color:
 
-            assert False
+            self.colors_screen_back = "\033[48;5;234m"  # 234 = #2 Dark
+            self.colors_board_back = "\033[48;5;232m"  # 232 = #0 Dark
+            self.colors_wall_front = "\033[38;5;231m"  # 231 = #24 Light
 
         else:
             d = math.sqrt(sum((_**2) for _ in theme_color))
             max_d = math.sqrt(3 * (0xFFFF**2))
             if d < (max_d / 2):  # Darkmode
 
-                self.colors_screen_back = "\033[48;5;234m"
-                self.colors_board_back = ""
-                self.colors_wall_front = "\033[38;5;231m"
+                self.colors_screen_back = "\033[48;5;234m"  # 234 = #2 Dark
+                self.colors_board_back = "\033[48;5;232m"  # 232 = #0 Dark
+                self.colors_wall_front = "\033[38;5;231m"  # 231 = #24 Light
 
             else:  # Lightmode
 
-                self.colors_screen_back = "\033[48;5;255m"
-                self.colors_board_back = "\033[48;5;231m"
-                self.colors_wall_front = "\033[38;5;233m"
+                self.colors_screen_back = "\033[48;5;254m"  # 254 = #22 Light
+                self.colors_board_back = "\033[48;5;231m"  # 231 = #24 Light
+                self.colors_wall_front = "\033[38;5;234m"  # 234 = #2 Dark
 
             # stdio.write("\033[38;5;31m")  # 31 = #023 DarkCyan
 
@@ -1585,7 +1583,8 @@ class MouseTerminal:
         assert OSC == "\033]"  # ⎋]
         assert ST == "\033\134" == "\033\\"
 
-        stdio.write("\033]11;?\a")
+        stdio.write("\033]11;?\a")  # tests our non-reply Code while commented out
+        stdio.write("\033[5n")  # asks for ⎋[0N in place of a missing ⎋ ] 1 1 ; R G B ⇧: Osc Reply
 
         kbytes = b""
         while not kbytes:
@@ -1868,16 +1867,16 @@ class MouseTerminal:
         assert DSR_0 == "\033[" "0n"
 
         tp = self.read_terminal_poke(timeout=timeout)
-        kbytes = tp.to_kbytes()
+        kbytes = tp.to_kbytes()  # can be '\033[0n\033[0n'
 
-        assert kbytes != b"\033[0n", (kbytes, tp)  # todo: Log if ⎋[0 N ever comes (as Paste?)
+        assert kbytes != b"\033[0n", (kbytes, tp)  # todo: Log if ⎋[0 N ever comes alone (as Paste?)
 
         if tp.reads and tp.reads[-1].endswith(b"\033[0n"):
             tp_reads_n1 = tp.reads[-1].removesuffix(b"\033[0n")
             tp_reads = tp.reads[:-1] + (tp_reads_n1,)
 
             tp = dataclasses.replace(tp, reads=tp_reads)
-            kbytes = tp.to_kbytes()
+            kbytes = tp.to_kbytes()  # todo: Log if ⎋[0 N ever comes as KByte Fill when unexpected?
 
         kbytearray.extend(kbytes)
 
@@ -1942,7 +1941,7 @@ class MouseTerminal:
                 stdio.flush()  # todo: Don't call for Reply to close Text, except to close the ` of ⌥``
             else:
                 m = re.search(rb"\033\[0n", string=read_plus)
-                if m:
+                if m and (m.end() > 0):
                     extra = read_plus[m.end() :]
                     read = read_plus[: m.end()]
 
