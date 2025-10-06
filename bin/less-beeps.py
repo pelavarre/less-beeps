@@ -331,10 +331,6 @@ class TicTacTuhGameboard:  # 31 Wide x 23 High
     def try_tic_tac_tuh(self) -> None:
         """Run 1 Tic-Tac-Tuh Gameboard on Screen"""
 
-        self.v3()
-
-    def v3(self) -> None:
-
         code_by_tytx = self.code_by_tytx
 
         mt = mouse_terminal()
@@ -1585,6 +1581,10 @@ class MouseTerminal:
 
         stdio = self.stdio
 
+        assert BEL == "\007"  # 07/07 Bell
+        assert OSC == "\033]"  # ⎋]
+        assert ST == "\033\134" == "\033\\"
+
         stdio.write("\033]11;?\a")
 
         kbytes = b""
@@ -1595,8 +1595,12 @@ class MouseTerminal:
             return ()
 
         m = re.fullmatch(
-            b"\033]11;rgb:([0-9A-Fa-f]{4})/([0-9A-Fa-f]{4})/([0-9A-Fa-f]{4})\x07", string=kbytes
+            rb"\033]11;rgb:"
+            rb"([0-9A-Fa-f]{4})/([0-9A-Fa-f]{4})/([0-9A-Fa-f]{4})"
+            rb"(\007|\033\134)",
+            string=kbytes,
         )
+
         assert m, (kbytes,)
 
         rgb = (int(m.group(1), 0x10), int(m.group(2), 0x10), int(m.group(3), 0x10))
@@ -1687,7 +1691,7 @@ class MouseTerminal:
                 del kbytearray[: len(arrow_kbytes)]
                 kbytearray[0:0] = mouse_kbytes
 
-    def _take_one_byte_if_(self) -> None:  # todo2: merge ._take_one_byte_if_ into TerminalBytePack
+    def _take_one_byte_if_(self) -> None:  # noqa C901 too complex (18
         """Add the next Byte into the Pack, or don't, and close the Pack, or don't"""
 
         kbytearray = self.kbytearray
@@ -1695,6 +1699,8 @@ class MouseTerminal:
         _pack_ = self._pack_
 
         pack_kbytes = _pack_.to_bytes()  # maybe not .closed
+        pack_startswith_osc = pack_kbytes.startswith(b"\033]")
+        pack_endswith_esc = pack_kbytes.endswith(b"\033")
 
         poke_kbytes = bytes(kbytearray)
         poke_kbyte = bytes(poke_kbytes[:1])  # does peek, doesn't pop
@@ -1723,8 +1729,12 @@ class MouseTerminal:
             poke_decode_if = ""
 
         closing_head = False
-        if pack_kbytes.startswith(b"\033]") and (poke_kbyte == b"\x07"):
-            pass
+        if pack_startswith_osc and (poke_kbyte == b"\007"):
+            pass  # \007 BEL
+        elif pack_startswith_osc and (poke_kbytes.startswith(b"\033\134")):
+            pass  # \033 \134 Esc \ String Terminator (ST)
+        elif pack_startswith_osc and pack_endswith_esc and (poke_kbyte == b"\134"):
+            pass  # \033 \134 Esc \ String Terminator (ST)
         elif (not poke_decode_if) or (not poke_decode_if[:1].isprintable()):
             if pack_kbytes in headbook:
                 if pack_kbytes != b"\033":  # ⎋
@@ -1732,6 +1742,10 @@ class MouseTerminal:
 
         closing_tail = False
         if not closing_head:
+
+            # if poke_kbyte == b"\033":  # ⎋  # todo: why did i code these lines circa 2025-10-06 ?
+            #     if pack_kbytes == b"\033":  # ⎋
+            #         closing_tail = True
 
             extra = _pack_.take_one_if(poke_kbyte)  # truthy at ⎋ [ ⇧! 9, etc
             pack_kbytes = _pack_.to_bytes()  # replaces  # maybe .closed, maybe not
@@ -1743,6 +1757,9 @@ class MouseTerminal:
                 assert ok, (ok, _pack_, pack_kbytes)
                 closing_tail = True
 
+            # if (packet_kbytes == b"\033\033") and (len(poke_kbytes) <= 1):  # ⎋⎋
+            #     closing_tail = True  # todo: why did i code these lines circa 2025-09-29 ?
+
             if not closing_tail:
                 kbytearray.pop(0)
                 return
@@ -1753,6 +1770,7 @@ class MouseTerminal:
         if closing_head or closing_tail:
             _pack_.close()
 
+        # todo2: merge ._take_one_byte_if_ into TerminalBytePack
         # todo1: Think more about accepting more than ⎋ as a prefix for whatever
 
     def _ti_snoop_(self, ti: TerminalInput) -> None:
@@ -2692,29 +2710,42 @@ class TerminalBytePack:
         assert OSC == "\033]", (OSC,)  # ⎋]
         assert bytes(head) == b"\033]", (head,)  # ⎋]
 
-        assert not neck, (neck,)
         assert not tail, (tail,)
         assert not closed, (closed,)
 
         byte = chr(code).encode()
         assert byte == encode, (byte, encode)
 
-        # Decline 1..4 Bytes of Unprintable or Multi-Byte Char
+        # Accept Printable Bytes into this Osc Sequence
 
-        if (code != 0x07) and not (0x20 <= code <= 0x7F):
-            return byte  # declines 2..4 Bytes of 1 Unprintable or Multi-Byte Char
+        if not back:
+            if 0x20 <= code <= 0x7F:
+                neck.extend(byte)
+                return b""
 
-            # todo: More test of Unprintable/ Undecodable Tails after ⎋]
+        # Accept \033 \134 Esc \ String Terminator (ST) into Back and Tail
 
-        # Accept Bytes into Back till ⌃G BEL as Tail
+        if not back:
+            if encode == b"\033":
+                back.extend(byte)
+                return b""
 
-        if code != 0x07:
-            back.extend(byte)
-        else:
+        if back == b"\033":
+            if code == 0o134 == 0x5C == ord("\\"):
+                tail.extend(byte)
+                self.closed = True
+                return b""
+
+        # Accept \007 BEL, much as if String Terminator (ST)
+
+        if code == 0o007:  # BEL
             tail.extend(byte)
             self.closed = True
+            return b""
 
-        return b""
+        # Decline 1 Bytes of Unprintable or Multi-Byte Char
+
+        return byte  # declines 1 Byte of 1 Unprintable or Multi-Byte Char
 
     def close_if_csi_shift_m(self) -> bool:
         """Convert to Csi ⎋[⇧M cut short, if now standing open as 3 of 6 Char Mouse Report"""
@@ -2741,14 +2772,14 @@ class TerminalBytePack:
     # todo: Limit rate of input so livelocks go less wild, like in Keyboard/ Screen loopback
 
 
-CR = "\r"
+BEL = "\a"  # U+0007 Bell (BEL)
+CR = "\r"  # U+000D Carriage Return (CR)
+ESC = "\033"  # U+001B Escape (ESC)
 
-
-ESC = "\033"
-SS3 = "\033O"
-CSI = "\033["
-OSC = "\033]"
-
+SS3 = "\033O"  # 01/11 04/15 Single Shift Three (SS3)
+CSI = "\033["  # 01/11 05/11 Control Sequence Introducer
+OSC = "\033]"  # 01/11 05/13 Operating System Command
+ST = "\033\134"  # 05/11 05/12 String Terminator
 
 CUP_Y_X = "\033[" "{};{}H"  # CSI 04/08 [Choose] Cursor Position
 
@@ -3580,13 +3611,11 @@ def tprint(*args: object, end: str = "\r\n") -> None:
     assert sys.__stderr__ is not None
     stdio: typing.TextIO = sys.__stderr__
 
-    if mouse_terminals:
-
-        mt = mouse_terminals[-1]
-        stdio = mt.stdio
-        tcgetattr = mt.tcgetattr
-
-        assert tcgetattr, (tcgetattr,)
+    # if mouse_terminals:  # goes falsey while debugging
+    #     mt = mouse_terminals[-1]
+    #     stdio = mt.stdio
+    #     tcgetattr = mt.tcgetattr
+    #     assert tcgetattr, (tcgetattr,)
 
     print(text, end=end, file=stdio)
 
