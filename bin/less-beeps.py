@@ -324,6 +324,10 @@ class TicTacTuhGameboard:  # 31 Wide x 23 High
     code_by_tytx: dict[tuple[int, int], str] = dict()  # define ⌥-Click & Click at each Y X
     last_y: int = -1  # the Southmost Screen Row written
 
+    colors_screen_back: str = ""
+    colors_board_back: str = ""
+    colors_wall_front: str = ""
+
     def try_tic_tac_tuh(self) -> None:
         """Run 1 Tic-Tac-Tuh Gameboard on Screen"""
 
@@ -342,17 +346,13 @@ class TicTacTuhGameboard:  # 31 Wide x 23 High
 
         #
 
-        stdio.write("\033[48;5;255m")
-        stdio.write("\033[2J")  # ⎋[J works, but ⎋[H ⎋[2J gets more test
-
-        #
-
         self.fetch_y_high_x_width()
-
         (y_high, x_width) = (mt.y_high, mt.x_wide)
         assert -1 not in (y_high, x_width), (y_high, x_width)  # todo: stop asserting init order
 
-        self.ttt_board_redraw()
+        theme_color = mt.read_appearance_theme_if()
+
+        self.ttt_board_draw(theme_color)
 
         assert self.last_y != -1, (self.last_y,)  # todo: stop asserting init order
         last_y = self.last_y
@@ -439,10 +439,50 @@ class TicTacTuhGameboard:  # 31 Wide x 23 High
 
         stdio.write(f"\033[{last_y + 2}H")
 
+    def ttt_board_draw(self, theme_color: tuple[int, int, int] | tuple[()]) -> None:
+
+        mt = mouse_terminal()
+        stdio = mt.stdio
+
+        #
+
+        assert theme_color
+
+        if not theme_color:
+
+            assert False
+
+        else:
+            d = math.sqrt(sum((_**2) for _ in theme_color))
+            max_d = math.sqrt(3 * (0xFFFF**2))
+            if d < (max_d / 2):  # Darkmode
+
+                self.colors_screen_back = "\033[48;5;234m"
+                self.colors_board_back = ""
+                self.colors_wall_front = "\033[38;5;231m"
+
+            else:  # Lightmode
+
+                self.colors_screen_back = "\033[48;5;255m"
+                self.colors_board_back = "\033[48;5;231m"
+                self.colors_wall_front = "\033[38;5;233m"
+
+            # stdio.write("\033[38;5;31m")  # 31 = #023 DarkCyan
+
+        colors_screen_back = self.colors_screen_back
+
+        stdio.write("\033[m")
+        stdio.write(colors_screen_back)
+        stdio.write("\033[2J")  # ⎋[J works, but ⎋[H ⎋[2J gets more test
+
+        self.ttt_board_redraw()
+
     def ttt_board_redraw(self) -> None:
         """Draw the Board again, with its present Moves made, and in its present Colors"""
 
         code_by_tytx = self.code_by_tytx
+        colors_board_back = self.colors_board_back
+        colors_wall_front = self.colors_wall_front
 
         mt = mouse_terminal()
         stdio = mt.stdio
@@ -469,6 +509,8 @@ class TicTacTuhGameboard:  # 31 Wide x 23 High
         #
 
         stdio.write("\033[m")
+        stdio.write(colors_board_back)
+        stdio.write(colors_wall_front)
 
         last_y = -1
         for dy, xo_row in enumerate(xo_rows):
@@ -494,74 +536,6 @@ class TicTacTuhGameboard:  # 31 Wide x 23 High
         #
 
         stdio.write(f"\033[{y0};{x0}H")
-
-    def v2(self) -> None:
-
-        mt = mouse_terminal()
-        stdio = mt.stdio
-
-        self.fetch_y_high_x_width()
-        (y0, x0) = self.find_y0x0()
-
-        # Blank out the Board
-
-        row = 0
-        col = 0
-
-        y = y0 + 8 * (row - 1) - 1
-        x = x0 + 15 * (col - 1) - 2
-
-        y -= 2
-        x -= 4
-
-        for dy in range(3 * 7 + 4):
-            stdio.write(f"\033[{y + dy};{x}H")
-            stdio.write(47 * " ")
-
-        # Draw two Vertical Stripes
-
-        row = 0
-        for col in range(1, 3):
-            y = y0 + 8 * (row - 1) - 1
-            x = x0 + 15 * (col - 1) - 2
-
-            y -= 1
-            x -= 4
-
-            for dy in range(3 * 7 + 2):
-                stdio.write(f"\033[{y + dy};{x}H")
-                stdio.write("█" "█")
-
-        # Draw two Horizontal Stripes
-
-        col = 0
-        for row in range(1, 3):
-            y = y0 + 8 * (row - 1) - 1
-            x = x0 + 15 * (col - 1) - 2
-
-            y -= 2
-            x -= 2
-
-            stdio.write(f"\033[{y};{x}H")
-            for dx in range(3 * 13 + 4):
-                stdio.write("█")
-
-        # Take Mouse Clicks inside the Perimeter of the Cell
-
-        for row in range(3):
-            for col in range(3):
-                y = y0 + 8 * (row - 1) - 1
-                x = x0 + 15 * (col - 1) - 2
-
-                for dy in range(5):
-                    stdio.write(f"\033[{y + dy};{x}H")
-                    for dx in range(9):
-                        stdio.write("·")
-
-        # Exit below the Board
-
-        stdio.write(3 * "\r\n")
-        stdio.write("\r\n")
 
     def fetch_y_high_x_width(self) -> None:
         """Count out Screen Rows Wide x Columns High"""
@@ -594,49 +568,10 @@ class TicTacTuhGameboard:  # 31 Wide x 23 High
 
         # todo: move .find_y0x0 into an App Class over MouseTerminal
 
-    def v1(self) -> None:
-
-        x_glyph = self.x_glyph
-        o_glyph = self.o_glyph
-
-        assert "·" == unicodedata.lookup("Middle Dot")
-        assert "█" == unicodedata.lookup("Full Block")
-        assert "▌" == unicodedata.lookup("Left Half Block")
-        assert "▐" == unicodedata.lookup("Right Half Block")
-
-        x = textwrap.dedent(x_glyph).strip().replace("·", " ")
-        o = textwrap.dedent(o_glyph).strip().replace("·", " ")
-
-        n = 3 * len(x.splitlines()[-1]) + 2 * 2 + 2 - 4
-
-        tprint("\033[46m" + " ", n * " ", " " + "\033[m")
-
-        for x_line, o_line in zip(x.splitlines(), o.splitlines()):
-            tprint(
-                "\033[46m" + " " + x_line + "██" + o_line + "██" + x_line + " " + "\033[m",
-                end="\r\n",
-            )
-
-        tprint("\033[46m" + " ", n * "█", " " + "\033[m")
-
-        for x_line, o_line in zip(x.splitlines(), o.splitlines()):
-            tprint(
-                "\033[46m" + " " + o_line + "██" + x_line + "██" + o_line + " " + "\033[m",
-                end="\r\n",
-            )
-
-        tprint("\033[46m" + " ", n * "█", " " + "\033[m")
-
-        for x_line, o_line in zip(x.splitlines(), o.splitlines()):
-            s_line = len(x_line) * " "
-            tprint(
-                "\033[46m" + " " + s_line + "██" + o_line + "██" + x_line + " " + "\033[m",
-                end="\r\n",
-            )
-
-        tprint("\033[46m" + " ", n * " ", " " + "\033[m")
-
-        # todo: "\033[m" needed before each "\n" that can be a "\n" written into the Last Row
+    assert "·" == unicodedata.lookup("Middle Dot")
+    assert "█" == unicodedata.lookup("Full Block")
+    assert "▌" == unicodedata.lookup("Left Half Block")
+    assert "▐" == unicodedata.lookup("Right Half Block")
 
     xo_board = """
 
@@ -1646,6 +1581,27 @@ class MouseTerminal:
         # todo: write to refresh H W Y X again after evalling other Input vs H W Y X?
         # todo: listen for signals of H W changing? (and show no signals come from Y X changing?)
 
+    def read_appearance_theme_if(self) -> tuple[int, int, int] | tuple[()]:
+
+        stdio = self.stdio
+
+        stdio.write("\033]11;?\a")
+
+        kbytes = b""
+        while not kbytes:
+            (kbyte, kbytes) = self.read_bytes(timeout=None)
+
+        if kbytes == b"\033[0n":  # injectable at test via stdio.write("\033[5n")
+            return ()
+
+        m = re.fullmatch(
+            b"\033]11;rgb:([0-9A-Fa-f]{4})/([0-9A-Fa-f]{4})/([0-9A-Fa-f]{4})\x07", string=kbytes
+        )
+        assert m, (kbytes,)
+
+        rgb = (int(m.group(1), 0x10), int(m.group(2), 0x10), int(m.group(3), 0x10))
+        return rgb
+
     #
     # Read a parsed Terminal Input, or just Framed Bytes, from Keyboard, Mouse, and Touch
     #
@@ -1743,7 +1699,7 @@ class MouseTerminal:
         poke_kbytes = bytes(kbytearray)
         poke_kbyte = bytes(poke_kbytes[:1])  # does peek, doesn't pop
 
-        headbook = (b"\033", b"\033\033", b"\033\033O", b"\033\033[", b"\033O", b"\033[")
+        headbook = (b"\033", b"\033\033", b"\033\033O", b"\033\033[", b"\033O", b"\033[", b"\033]")
         assert TerminalBytePack.Headbook == headbook
 
         # Accept the ⌥`` encoded as an Immediate Pair of b"``"
@@ -1767,7 +1723,9 @@ class MouseTerminal:
             poke_decode_if = ""
 
         closing_head = False
-        if (not poke_decode_if) or (not poke_decode_if[:1].isprintable()):
+        if pack_kbytes.startswith(b"\033]") and (poke_kbyte == b"\x07"):
+            pass
+        elif (not poke_decode_if) or (not poke_decode_if[:1].isprintable()):
             if pack_kbytes in headbook:
                 if pack_kbytes != b"\033":  # ⎋
                     closing_head = True  # ⎋⎋ ⎋⎋O ⎋⎋[ ⎋O ⎋[
@@ -2148,7 +2106,7 @@ class TerminalBytePack:
 
     closed: bool = False  # closed because completed, or because continuation undefined
 
-    Headbook = (b"\033", b"\033\033", b"\033\033O", b"\033\033[", b"\033O", b"\033[")
+    Headbook = (b"\033", b"\033\033", b"\033\033O", b"\033\033[", b"\033O", b"\033[", b"\033]")
 
     #
     # Init, Bool, Repr, Str, and .require_simple to check invariants
@@ -2573,6 +2531,7 @@ class TerminalBytePack:
         assert ESC == "\033"  # ⎋
         assert CSI == "\033["  # ⎋[
         assert SS3 == "\033O"  # ⎋⇧O
+        assert OSC == "\033]"  # ⎋]
 
         # Look only outside of Mouse Reports
 
@@ -2596,7 +2555,7 @@ class TerminalBytePack:
         #   ⎋[ CSI  # ⎋⎋[ Esc CSI
         #
 
-        headbook = (b"\033", b"\033\033", b"\033\033O", b"\033\033[", b"\033O", b"\033[")
+        headbook = (b"\033", b"\033\033", b"\033\033O", b"\033\033[", b"\033O", b"\033[", b"\033]")
         assert TerminalBytePack.Headbook == headbook
 
         head_plus = bytes(head + data)
@@ -2643,6 +2602,12 @@ class TerminalBytePack:
         assert len(decodes) == 1, (decodes, data)
         assert data == decode.encode(), (data, decodes)
 
+        # Take or don't take 1 Decodable Char into OSC Sequence
+
+        if bytes(head) == b"\033]":
+            osc_extras = self._take_one_osc_if_(decode)
+            return osc_extras  # maybe empty
+
         # Take or don't take 1 Decodable Char into CSI or Esc CSI Sequence
 
         esc_csi_extras = self._take_one_esc_csi_if_(decode)
@@ -2675,7 +2640,7 @@ class TerminalBytePack:
 
         # Decline 1..4 Bytes of Unprintable or Multi-Byte Char
 
-        if ord_ > 0x7F:
+        if not (0x20 <= ord_ <= 0x7F):
             return byte  # declines 2..4 Bytes of 1 Unprintable or Multi-Byte Char
 
             # todo: More test of Unprintable/ Undecodable Tails after ⎋[ or ⎋⎋[
@@ -2709,6 +2674,48 @@ class TerminalBytePack:
 
         # todo: Limit the length of a CSI Escape Sequence
 
+    def _take_one_osc_if_(self, decode: str) -> bytes:
+        """Take 1 Char into OSC Sequence, else return 1..4 Bytes that don't fit"""
+
+        assert len(decode) == 1, decode
+        ord_ = ord(decode)
+        encode = decode.encode()
+
+        head = self.head
+        neck = self.neck
+        back = self.back
+        tail = self.tail
+        closed = self.closed
+
+        # Look only at unclosed OSC Sequence
+
+        assert OSC == "\033]", (OSC,)  # ⎋]
+        assert bytes(head) == b"\033]", (head,)  # ⎋]
+
+        assert not neck, (neck,)
+        assert not tail, (tail,)
+        assert not closed, (closed,)
+
+        byte = chr(ord_).encode()
+        assert byte == encode, (byte, encode)
+
+        # Decline 1..4 Bytes of Unprintable or Multi-Byte Char
+
+        if (ord_ != 0x07) and not (0x20 <= ord_ <= 0x7F):
+            return byte  # declines 2..4 Bytes of 1 Unprintable or Multi-Byte Char
+
+            # todo: More test of Unprintable/ Undecodable Tails after ⎋]
+
+        # Accept Bytes into Back till ⌃G BEL as Tail
+
+        if ord_ != 0x07:
+            back.extend(byte)
+        else:
+            tail.extend(byte)
+            self.closed = True
+
+        return b""
+
     def close_if_csi_shift_m(self) -> bool:
         """Convert to Csi ⎋[⇧M cut short, if now standing open as 3 of 6 Char Mouse Report"""
 
@@ -2740,6 +2747,7 @@ CR = "\r"
 ESC = "\033"
 SS3 = "\033O"
 CSI = "\033["
+OSC = "\033]"
 
 
 CUP_Y_X = "\033[" "{};{}H"  # CSI 04/08 [Choose] Cursor Position
@@ -3018,7 +3026,7 @@ DY_DX_BY_ARROW_KBYTES = {
 
 KCAP_SEP = " "  # separates '⇧Tab' from '⇧T a b', '⎋⇧FnX' from '⎋⇧Fn X', etc
 
-# headbook = (b"\033", b"\033\033", b"\033\033O", b"\033\033[", b"\033O", b"\033[")
+# headbook = (b"\033", b"\033\033", b"\033\033O", b"\033\033[", b"\033O", b"\033[", b"\033]")
 # assert TerminalBytePack.Headbook == headbook
 
 KCAP_BY_KTEXT = {  # r"←|↑|→|↓" and so on  # ⌃ ⌥ ⇧ ⌃⌥ ⌃⇧ ⌥⇧ ⌃⌥⇧ and so on
@@ -3330,7 +3338,7 @@ def kbytes_to_concise_kcaps_if(kbytes: bytes) -> str:
     ktext = kbytes.decode()  # todo: .kbytes_to_concise_kcaps_if may raise UnicodeDecodeError
     kcap_by_ktext = KCAP_BY_KTEXT  # '\e\e[A' for ⎋↑ etc
 
-    headbook = (b"\033", b"\033\033", b"\033\033O", b"\033\033[", b"\033O", b"\033[")
+    headbook = (b"\033", b"\033\033", b"\033\033O", b"\033\033[", b"\033O", b"\033[", b"\033]")
     assert TerminalBytePack.Headbook == headbook
 
     assert KCAP_SEP == " "
