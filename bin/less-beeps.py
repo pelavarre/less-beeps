@@ -322,19 +322,26 @@ class TerminalStudio:
 class TicTacTuhGameboard:  # 31 Wide x 23 High
     """Run 1 Tic-Tac-Tuh Gameboard on Screen"""
 
+    #
+    # Split the Game into parts:  Layout, State, Replies to Input, & Colors
+    #
+
     yx: tuple[int, int] = (-1, -1)
     last_y: int = -1  # the Southmost Screen Row written
 
     cells: dict[int, dict[int, str]]  # 3 Rows x 3 Cols
 
-    rune_by_tytx: dict[tuple[int, int], str] = dict()  # define ⌥-Click & Click at each Y X
+    rune_by_tytx: dict[tuple[int, int], str] = dict()  # defines ⌥-Click & Click at each Y X
     func_by_rune: dict[str, abc.Callable[[str, tuple[int, int]], bool]] = dict()
+    tapping: bool = False  # hides Keyboard while taking Input from Tap or Click
 
     colors_screen_back: str = ""
     colors_board_back: str = ""
     colors_wall_front: str = ""
 
     def __init__(self) -> None:
+
+        # Fill the Board with Rows of Columns of Cells
 
         cells: dict[int, dict[int, str]]
         cells = dict()
@@ -344,23 +351,38 @@ class TicTacTuhGameboard:  # 31 Wide x 23 High
             for col in range(3):  # todo: magic 3 Cols
                 cells[row][col] = ""
 
-        func_by_rune: dict[str, abc.Callable[[str, tuple[int, int]], bool]]
-        func_by_rune = {
+        # Choose one Func per Rune
+
+        d: dict[str, abc.Callable[[str, tuple[int, int]], bool]]
+
+        d = {
+            "": self.click_away,
             "*": self.cell_stamp,
+            "+": self.click_away,
             "-": self.board_flip_wide,
+            ".": self.click_away,
             "<": self.board_turn_left,
             ">": self.board_turn_right,
             "|": self.board_spin_high,
         }
 
+        for t in "DF_n←↑→↓⇧⌃⌘⌥":
+            assert t not in d.keys(), (t, d.keys())
+            d[t] = self.keycap_click
+
+        func_by_rune = d
+
+        # Init this
+
         self.cells = cells
         self.func_by_rune = func_by_rune
 
-    def try_tic_tac_tuh(self) -> None:  # noqa C901 complex (19  # todo4:
-        """Run 1 Tic-Tac-Tuh Gameboard on Screen"""
+    #
+    # Play the Game
+    #
 
-        func_by_rune = self.func_by_rune
-        rune_by_tytx = self.rune_by_tytx
+    def try_tic_tac_tuh(self) -> None:
+        """Run 1 Tic-Tac-Tuh Gameboard on Screen"""
 
         mt = mouse_terminal()
         fileno = mt.fileno
@@ -369,7 +391,7 @@ class TicTacTuhGameboard:  # 31 Wide x 23 High
         assert SM_DECTCEM == "\033[" "?25h"
         assert RM_DECTCEM == "\033[" "?25l"
 
-        #
+        # Launch
 
         self.fetch_y_high_x_width()
         (y_high, x_width) = (mt.y_high, mt.x_wide)
@@ -382,10 +404,10 @@ class TicTacTuhGameboard:  # 31 Wide x 23 High
         assert self.last_y != -1, (self.last_y,)  # todo: stop asserting init order
         last_y = self.last_y
 
-        #
-
-        mousing = True
+        self.tapping = True
         stdio.write("\033[?25l")
+
+        # Run till Quit
 
         while True:
             ti = mt.read_yxhw_terminal_input(timeout=None)
@@ -395,12 +417,12 @@ class TicTacTuhGameboard:  # 31 Wide x 23 High
             if ti.caps == "⎋[0N":  # todo: log when DSR_0 comes in
                 continue
 
-            #
+            # Quit at any of many Quit Keystrokes
 
             if ti.caps in ("⌃C", "⌃D", "⌃Z", "⌃\\"):
                 break
 
-            # Convert Mouse ⌥-Click Release to Csi, or Mouse Click Release to Csi
+            # Convert Tap/ Click Release to Csi, with or without an ⌥ Option/Alt Shift
 
             m_ints = ti.to_csi_ints_if(b"M", start=b"<", default=-1)
             if len(m_ints) == 3:  # todo: log when CSI ⇧M Mouse-Press comes in
@@ -413,42 +435,28 @@ class TicTacTuhGameboard:  # 31 Wide x 23 High
                 f0 = 0  # none of ⌃ ⌥ ⇧
                 f8 = int("0b01000", base=0)  # f = ⌥ of 0b⌃⌥⇧00
                 if f in (f0, f8):  # Click or ⌥-Click
-
                     tytx = (y, x)
-                    rune = rune_by_tytx.get(tytx, default_eq_None)
-                    if rune and (rune not in "+."):  # "+-<>|" + "*.12345678ABCDEFGH"
-                        mousing = True
-                        stdio.write("\033[?25l")
 
-                        ok = False
-                        if rune in func_by_rune.keys():
-                            func = func_by_rune[rune]
-                            ok = func(rune, tytx)
+                    # Dispatch Tap or Click,
+                    # and hide Keyboard while taking Input from Tap or Click
 
-                        if not ok:
-                            stdio.write("\0337")
-                            stdio.write(f"\033[{y};{x}H")  # no bounds caps on Mouse Click or ⌥-Click
-                            stdio.write(rune)
-                            stdio.write("\0338")
-
-                    elif not mousing:
-
-                        stdio.write(f"\033[{y};{x}H")  # no bounds caps on Mouse Click or ⌥-Click
+                    tapping = self.click_dispatch_if(tytx, ti=ti)
+                    self.tapping = tapping  # .tapping written only by this Def simplifies review
 
                     continue
 
-            mousing = False
+            # Show Keyboard while taking Input from Keyboard
+
+            self.tapping = False
             stdio.write("\033[?25h")
 
-            # Take Return Keystroke in place of Mouse Click
+            # Take Return Keystroke in place of Tap or Click
 
             if ti.face == "Return":
                 tytx = (mt.row_y, mt.column_x)
-                rune = self.rune_by_tytx.get(tytx, default_eq_None)
-                if rune and (rune not in "+."):  # "+-<>|" + "*.12345678ABCDEFGH"
-                    stdio.write("\0337")
-                    stdio.write(rune)
-                    stdio.write("\0338")
+
+                tapping = self.click_dispatch_if(tytx, ti=ti)
+                assert not tapping, (tapping, tytx, ti)  # because was False and is Keystroke
 
                 continue
 
@@ -472,26 +480,162 @@ class TicTacTuhGameboard:  # 31 Wide x 23 High
             else:
                 tprint(ti.caps, end="")
 
-        #
-
-        debug_exit_draining = False
-        if debug_exit_draining:
-
-            while True:
-                print(ti)
-                ti = mt.read_terminal_input(timeout=None)
-                if not ti:
-                    continue  # todo: show multibyte compositions well inside Tic-Tac-Tuh
-
-                caps = ti.caps
-                if caps in ("⌃C", "⌃D", "⌃Z", "⌃\\"):
-                    break
-
-        #
-
         stdio.write(f"\033[{last_y + 2}H")
 
+    def click_dispatch_if(self, tytx: tuple[int, int], ti: TerminalInput) -> bool:
+        """Dispatch Tap or Click, and say to hide Keyboard or not"""
+
+        (ty, tx) = tytx
+        m_ints = ti.to_csi_ints_if(b"m", start=b"<", default=-1)
+
+        tapping = self.tapping
+        rune_by_tytx = self.rune_by_tytx
+        func_by_rune = self.func_by_rune
+
+        mt = mouse_terminal()
+        stdio = mt.stdio
+
+        # Hide Keyboard while taking Input from Tap or Click
+
+        rune_get = rune_by_tytx.get(tytx, default_eq_None)
+        rune = rune_get if rune_get else ""
+
+        if m_ints and rune and (rune not in "+."):
+            tapping = True
+            stdio.write("\033[?25l")
+
+        # Call the Func named by the Rune
+
+        func = func_by_rune[rune if rune else ""]
+
+        ok = func(rune, tytx)
+        if not ok:
+            ok = self.click_reject(rune, tytx)
+            assert ok, (ok, rune, tytx, ti)
+
+        # Say to show, or say to hide, the Keyboard
+
+        return tapping
+
+    #
+    # Reply to each Tap/ Click/ Keystroke
+    #
+
+    def click_away(self, rune: str, tytx: tuple[int, int]) -> bool:
+        """Show this Tap/ Click/ Keystroke defined to mean almost nothing"""
+
+        (ty, tx) = tytx
+
+        tapping = self.tapping
+
+        mt = mouse_terminal()
+        stdio = mt.stdio
+
+        if not tapping:
+            stdio.write(f"\033[{ty};{tx}H")  # no bounds caps on Mouse Click or ⌥-Click
+
+        return True
+
+        # todo4: Flash the cursor at .click_away  # Echo this Tap/ Click/ Keystroke
+
+    def click_reject(self, rune: str, tytx: tuple[int, int]) -> bool:
+        """Show this Tap/ Click/ Keystroke not yet defined"""
+
+        (ty, tx) = tytx
+
+        mt = mouse_terminal()
+        stdio = mt.stdio
+
+        stdio.write("\0337")
+        stdio.write(f"\033[{ty};{tx}H")
+        stdio.write(rune)
+        stdio.write("\0338")
+
+        return True
+
+    def board_flip_wide(self, rune: str, tytx: tuple[int, int]) -> bool:
+        """Flip the Board head over heels, across a Horizontal Axis in the Middle"""
+
+        cells = self.cells
+
+        wide_0 = (cells[0][0], cells[0][1], cells[0][2])
+        wide_1 = (cells[1][0], cells[1][1], cells[1][2])
+        wide_2 = (cells[2][0], cells[2][1], cells[2][2])
+
+        wide = [wide_2, wide_1, wide_0]
+
+        for row in range(3):  # todo: magic 3 Rows
+            wide_row = wide[row]
+            for col, fresh in zip(range(3), wide_row):  # todo: magic 3 Cols
+                self.row_col_fresh_stamp(row, col=col, fresh=fresh)
+
+        return True
+
+    def board_spin_high(self, rune: str, tytx: tuple[int, int]) -> bool:
+        """Spin the Board by swapping Left with Right, across a Vertical Axis in the Middle"""
+
+        cells = self.cells
+
+        high_0 = (cells[0][0], cells[1][0], cells[2][0])
+        high_1 = (cells[0][1], cells[1][1], cells[2][1])
+        high_2 = (cells[0][2], cells[1][2], cells[2][2])
+
+        high = [high_2, high_1, high_0]
+
+        for col in range(3):  # todo: magic 3 Cols
+            high_col = high[col]
+            for row, fresh in zip(range(3), high_col):  # todo: magic 3 Rows
+                self.row_col_fresh_stamp(row, col=col, fresh=fresh)
+
+        return True
+
+    def board_turn_left(self, rune: str, tytx: tuple[int, int]) -> bool:
+        """Rotate the Board of Cells Counter-ClockWise (CCW)"""
+
+        cells = self.cells
+
+        high_0 = (cells[0][0], cells[1][0], cells[2][0])
+        high_1 = (cells[0][1], cells[1][1], cells[2][1])
+        high_2 = (cells[0][2], cells[1][2], cells[2][2])
+
+        wide = [high_2, high_1, high_0]
+
+        for row in range(3):  # todo: magic 3 Rows
+            wide_row = wide[row]
+            for col, fresh in zip(range(3), wide_row):  # todo: magic 3 Cols
+                self.row_col_fresh_stamp(row, col=col, fresh=fresh)
+
+        return True
+
+    def board_turn_right(self, rune: str, tytx: tuple[int, int]) -> bool:
+        """Rotate the Board of Cells ClockWise (CW)"""
+
+        cells = self.cells
+
+        wide_0 = (cells[0][0], cells[0][1], cells[0][2])
+        wide_1 = (cells[1][0], cells[1][1], cells[1][2])
+        wide_2 = (cells[2][0], cells[2][1], cells[2][2])
+
+        high = [wide_2, wide_1, wide_0]
+
+        for col in range(3):  # todo: magic 3 Cols
+            high_col = high[col]
+            for row, fresh in zip(range(3), high_col):  # todo: magic 3 Rows
+                self.row_col_fresh_stamp(row, col=col, fresh=fresh)
+
+        return True
+
+    def keycap_click(self, rune: str, tytx: tuple[int, int]) -> bool:
+        """Virtually press the Keycap that looks like the Rune"""
+
+        return True  # todo4: Code up the .keycap_click
+
+    #
+    # Draw the Board at Launch, and then redraw it when needed
+    #
+
     def ttt_board_draw(self, theme_color: tuple[int, int, int] | tuple[()]) -> None:
+        """Draw the Board at Launch"""
 
         mt = mouse_terminal()
         stdio = mt.stdio
@@ -528,9 +672,11 @@ class TicTacTuhGameboard:  # 31 Wide x 23 High
         self.ttt_board_redraw()
 
     def ttt_board_redraw(self) -> None:
-        """Draw the Board again, with its present Moves made, and in its present Colors"""
+        """Draw the Board at launch or later: its Cells and its Colors"""
 
         rune_by_tytx = self.rune_by_tytx
+
+        colors_screen_back = self.colors_screen_back
         colors_board_back = self.colors_board_back
         colors_wall_front = self.colors_wall_front
 
@@ -553,11 +699,17 @@ class TicTacTuhGameboard:  # 31 Wide x 23 High
         x = x0 - xo_wide // 2
         yx = (y, x)
 
-        from_codes = "+-<>|" + "*." "12345678" "@" "ABCDEFGH"
-        to_glyphs = len("+-<>|") * "█" + len("*.12345678@ABCDEFGH") * " "
+        # Choose Glyphs for Tap/ Click Widgets
+
+        from_codes = "+-<>|" + "*." "12345678" "@_" "abcdefgh"
+        from_codes += "DFn←↑→↓⇧⌃⌘⌥"
+
+        to_glyphs = len("+-<>|") * "█" + len("*.12345678@_abcdefgh") * " "
+        to_glyphs += "DFn←↑→↓⇧⌃⌘⌥"
+
         trans = str.maketrans(from_codes, to_glyphs)
 
-        # Write Colors
+        # Write Colors first
 
         stdio.write("\033[m")
         stdio.write(colors_board_back)
@@ -588,12 +740,29 @@ class TicTacTuhGameboard:  # 31 Wide x 23 High
                 rune_by_tytx[tytx] = t
 
             stdio.write(f"\033[{y + dy};{x + dx}H")
-            stdio.write(row.translate(trans))
 
             last_y = y + dy
 
+            for i, t in enumerate(row):
+
+                if t in "DF_n←↑→↓⇧⌃⌘⌥":
+                    stdio.write("\033[m")
+                    stdio.write(colors_screen_back)
+                    stdio.write(colors_wall_front)
+
+                    if t == "⌥":
+                        stdio.write("\033[7m")
+
+                write = t.translate(trans)
+                stdio.write(write)
+
         assert cycx != (-1, -1), (cycx,)
-        assert last_y != -1, (last_y,)
+
+        # Write Colors last
+
+        stdio.write("\033[m")
+        stdio.write(colors_board_back)
+        stdio.write(colors_wall_front)
 
         # Place the Y X Cursor
 
@@ -635,90 +804,13 @@ class TicTacTuhGameboard:  # 31 Wide x 23 High
 
         # todo: move .find_y0x0 into an App Class over MouseTerminal
 
-    assert "·" == unicodedata.lookup("Middle Dot")
-    assert "█" == unicodedata.lookup("Full Block")
-    assert "▌" == unicodedata.lookup("Left Half Block")
-    assert "▐" == unicodedata.lookup("Right Half Block")
-
-    #
-    #
-    #
-
-    def board_flip_wide(self, rune: str, tytx: tuple[int, int]) -> bool:
-
-        cells = self.cells
-
-        wide_0 = (cells[0][0], cells[0][1], cells[0][2])
-        wide_1 = (cells[1][0], cells[1][1], cells[1][2])
-        wide_2 = (cells[2][0], cells[2][1], cells[2][2])
-
-        wide = [wide_2, wide_1, wide_0]
-
-        for row in range(3):  # todo: magic 3 Rows
-            wide_row = wide[row]
-            for col, fresh in zip(range(3), wide_row):  # todo: magic 3 Cols
-                self.row_col_fresh_stamp(row, col=col, fresh=fresh)
-
-        return True
-
-    def board_spin_high(self, rune: str, tytx: tuple[int, int]) -> bool:
-
-        cells = self.cells
-
-        high_0 = (cells[0][0], cells[1][0], cells[2][0])
-        high_1 = (cells[0][1], cells[1][1], cells[2][1])
-        high_2 = (cells[0][2], cells[1][2], cells[2][2])
-
-        high = [high_2, high_1, high_0]
-
-        for col in range(3):  # todo: magic 3 Cols
-            high_col = high[col]
-            for row, fresh in zip(range(3), high_col):  # todo: magic 3 Rows
-                self.row_col_fresh_stamp(row, col=col, fresh=fresh)
-
-        return True
-
-    def board_turn_left(self, rune: str, tytx: tuple[int, int]) -> bool:
-
-        cells = self.cells
-
-        high_0 = (cells[0][0], cells[1][0], cells[2][0])
-        high_1 = (cells[0][1], cells[1][1], cells[2][1])
-        high_2 = (cells[0][2], cells[1][2], cells[2][2])
-
-        wide = [high_2, high_1, high_0]
-
-        for row in range(3):  # todo: magic 3 Rows
-            wide_row = wide[row]
-            for col, fresh in zip(range(3), wide_row):  # todo: magic 3 Cols
-                self.row_col_fresh_stamp(row, col=col, fresh=fresh)
-
-        return True
-
-    def board_turn_right(self, rune: str, tytx: tuple[int, int]) -> bool:
-
-        cells = self.cells
-
-        wide_0 = (cells[0][0], cells[0][1], cells[0][2])
-        wide_1 = (cells[1][0], cells[1][1], cells[1][2])
-        wide_2 = (cells[2][0], cells[2][1], cells[2][2])
-
-        high = [wide_2, wide_1, wide_0]
-
-        for col in range(3):  # todo: magic 3 Cols
-            high_col = high[col]
-            for row, fresh in zip(range(3), high_col):  # todo: magic 3 Rows
-                self.row_col_fresh_stamp(row, col=col, fresh=fresh)
-
-        return True
-
     def cell_stamp(self, rune: str, tytx: tuple[int, int]) -> bool:
+        """Choose Glyph by Rune and then stamp the Cell at the Y X"""
 
         (ty, tx) = tytx
 
         cells = self.cells
         yx = self.yx
-        flats = self.cells_to_flats()
 
         (y, x) = yx
 
@@ -728,16 +820,16 @@ class TicTacTuhGameboard:  # 31 Wide x 23 High
         row = dy // 8  # todo: magic 8
         col = dx // 15  # todo: magic 15
 
-        #
+        # Pick the next Glyph
+
+        flats = self.cells_to_flats()
 
         x_count = flats.count("X")
         o_count = flats.count("O")
-        if x_count <= o_count:
-            bias = "X"
-        else:
-            bias = "O"
 
-        #
+        bias = "X" if (x_count <= o_count) else "O"
+
+        # Stamp out the present non-blank Glyph, else stamp the next Glyph
 
         stale = cells[row][col]
         assert stale in ("X", "O", " ", ""), (stale,)
@@ -800,6 +892,7 @@ class TicTacTuhGameboard:  # 31 Wide x 23 High
         cells[row][col] = fresh
 
     def cells_to_flats(self) -> str:
+        """Flatten the Cells into a Text"""
 
         cells = self.cells
 
@@ -814,6 +907,10 @@ class TicTacTuhGameboard:  # 31 Wide x 23 High
         text = "\n".join(flats)
 
         return text
+
+    #
+    # Sketch out the Board and the X O Glyphs
+    #
 
     xo_board = """
 
@@ -846,12 +943,17 @@ class TicTacTuhGameboard:  # 31 Wide x 23 High
         ....*********..||..*********..||..*********....
         ...............||.............||...............
         ...............................................
-                     ......AAABBBCCC......
-                         ....GG.HH....
-                         ..DDDEEEFFF..
-                         .............
+                     ......aaabbbccc......
+                         ....gg.hh....
+                         ..dddeeefff.._______⌃_⌥_⇧_⌘_Fn
+                         ............._______D_←_↑_→_↓_
 
     """
+
+    assert "·" == unicodedata.lookup("Middle Dot")
+    assert "█" == unicodedata.lookup("Full Block")
+    assert "▌" == unicodedata.lookup("Left Half Block")
+    assert "▐" == unicodedata.lookup("Right Half Block")
 
     x_glyph = """
         ·············
@@ -1650,7 +1752,7 @@ class MouseTerminal:
         entries.append(b"\033[?2004h")
         exits.append(b"\033[?2004l")
 
-        if flags.phone:
+        if True:  # if flags.phone:  # todo4:
             entries.append(b"\033[?1000;1006h")
             exits.append(b"\033[?1000;1006l")
 
@@ -1951,7 +2053,7 @@ class MouseTerminal:
                 del kbytearray[: len(arrow_kbytes)]
                 kbytearray[0:0] = mouse_kbytes
 
-    def _take_one_byte_if_(self) -> None:  # noqa C901 too complex (18
+    def _take_one_byte_if_(self) -> None:  # noqa C901 too complex (18  # todo4:
         """Add the next Byte into the Pack, or don't, and close the Pack, or don't"""
 
         kbytearray = self.kbytearray
