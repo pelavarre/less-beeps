@@ -728,18 +728,26 @@ class TicTacTuhGameboard:  # 31 Wide x 23 High
         row = dy // 8  # todo: magic 8
         col = dx // 15  # todo: magic 15
 
-        stale = cells[row][col]
-        assert stale in ("X", "O", " ", ""), (stale,)
-
-        if stale != "":
-            return False
+        #
 
         x_count = flats.count("X")
         o_count = flats.count("O")
         if x_count <= o_count:
-            fresh = "X"
+            bias = "X"
         else:
-            fresh = "O"
+            bias = "O"
+
+        #
+
+        stale = cells[row][col]
+        assert stale in ("X", "O", " ", ""), (stale,)
+
+        if stale == "X":
+            fresh = " "
+        elif stale == "O":
+            fresh = " "
+        else:
+            fresh = bias
 
         self.row_col_fresh_stamp(row, col=col, fresh=fresh)
 
