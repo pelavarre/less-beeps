@@ -346,7 +346,11 @@ class TicTacTuhGameboard:  # 31 Wide x 23 High
 
         func_by_rune: dict[str, abc.Callable[[str, tuple[int, int]], bool]]
         func_by_rune = {
-            "*": self.step_here,
+            "*": self.cell_stamp,
+            "-": self.board_flip_wide,
+            "<": self.board_turn_left,
+            ">": self.board_turn_right,
+            "|": self.board_spin_high,
         }
 
         self.cells = cells
@@ -412,7 +416,7 @@ class TicTacTuhGameboard:  # 31 Wide x 23 High
 
                     tytx = (y, x)
                     rune = rune_by_tytx.get(tytx, default_eq_None)
-                    if rune and (rune not in "+."):  # "+-/|" + "*.12345678ABCDEFGH"
+                    if rune and (rune not in "+."):  # "+-<>|" + "*.12345678ABCDEFGH"
                         mousing = True
                         stdio.write("\033[?25l")
 
@@ -441,7 +445,7 @@ class TicTacTuhGameboard:  # 31 Wide x 23 High
             if ti.face == "Return":
                 tytx = (mt.row_y, mt.column_x)
                 rune = self.rune_by_tytx.get(tytx, default_eq_None)
-                if rune and (rune not in "+."):  # "+-/|" + "*.12345678ABCDEFGH"
+                if rune and (rune not in "+."):  # "+-<>|" + "*.12345678ABCDEFGH"
                     stdio.write("\0337")
                     stdio.write(rune)
                     stdio.write("\0338")
@@ -549,8 +553,8 @@ class TicTacTuhGameboard:  # 31 Wide x 23 High
         x = x0 - xo_wide // 2
         yx = (y, x)
 
-        from_codes = "+-/|" + "*." "12345678" "@" "ABCDEFGH"
-        to_glyphs = len("+-/|") * "█" + len("*.12345678@ABCDEFGH") * " "
+        from_codes = "+-<>|" + "*." "12345678" "@" "ABCDEFGH"
+        to_glyphs = len("+-<>|") * "█" + len("*.12345678@ABCDEFGH") * " "
         trans = str.maketrans(from_codes, to_glyphs)
 
         # Write Colors
@@ -640,7 +644,75 @@ class TicTacTuhGameboard:  # 31 Wide x 23 High
     #
     #
 
-    def step_here(self, rune: str, tytx: tuple[int, int]) -> bool:
+    def board_flip_wide(self, rune: str, tytx: tuple[int, int]) -> bool:
+
+        cells = self.cells
+
+        wide_0 = (cells[0][0], cells[0][1], cells[0][2])
+        wide_1 = (cells[1][0], cells[1][1], cells[1][2])
+        wide_2 = (cells[2][0], cells[2][1], cells[2][2])
+
+        wide = [wide_2, wide_1, wide_0]
+
+        for row in range(3):  # todo: magic 3 Rows
+            wide_row = wide[row]
+            for col, fresh in zip(range(3), wide_row):  # todo: magic 3 Cols
+                self.row_col_fresh_stamp(row, col=col, fresh=fresh)
+
+        return True
+
+    def board_spin_high(self, rune: str, tytx: tuple[int, int]) -> bool:
+
+        cells = self.cells
+
+        high_0 = (cells[0][0], cells[1][0], cells[2][0])
+        high_1 = (cells[0][1], cells[1][1], cells[2][1])
+        high_2 = (cells[0][2], cells[1][2], cells[2][2])
+
+        high = [high_2, high_1, high_0]
+
+        for col in range(3):  # todo: magic 3 Cols
+            high_col = high[col]
+            for row, fresh in zip(range(3), high_col):  # todo: magic 3 Rows
+                self.row_col_fresh_stamp(row, col=col, fresh=fresh)
+
+        return True
+
+    def board_turn_left(self, rune: str, tytx: tuple[int, int]) -> bool:
+
+        cells = self.cells
+
+        high_0 = (cells[0][0], cells[1][0], cells[2][0])
+        high_1 = (cells[0][1], cells[1][1], cells[2][1])
+        high_2 = (cells[0][2], cells[1][2], cells[2][2])
+
+        wide = [high_2, high_1, high_0]
+
+        for row in range(3):  # todo: magic 3 Rows
+            wide_row = wide[row]
+            for col, fresh in zip(range(3), wide_row):  # todo: magic 3 Cols
+                self.row_col_fresh_stamp(row, col=col, fresh=fresh)
+
+        return True
+
+    def board_turn_right(self, rune: str, tytx: tuple[int, int]) -> bool:
+
+        cells = self.cells
+
+        wide_0 = (cells[0][0], cells[0][1], cells[0][2])
+        wide_1 = (cells[1][0], cells[1][1], cells[1][2])
+        wide_2 = (cells[2][0], cells[2][1], cells[2][2])
+
+        high = [wide_2, wide_1, wide_0]
+
+        for col in range(3):  # todo: magic 3 Cols
+            high_col = high[col]
+            for row, fresh in zip(range(3), high_col):  # todo: magic 3 Rows
+                self.row_col_fresh_stamp(row, col=col, fresh=fresh)
+
+        return True
+
+    def cell_stamp(self, rune: str, tytx: tuple[int, int]) -> bool:
 
         (ty, tx) = tytx
 
@@ -676,7 +748,7 @@ class TicTacTuhGameboard:  # 31 Wide x 23 High
     def row_col_fresh_stamp(self, row: int, col: int, fresh: str) -> None:
         """Stamp the fresh Rune at the Row Col"""
 
-        assert fresh in ("X", "O", " "), (fresh,)  # never ''
+        assert fresh in ("X", "O", " ", ""), (fresh,)
 
         cells = self.cells
         yx = self.yx
@@ -749,15 +821,15 @@ class TicTacTuhGameboard:  # 31 Wide x 23 High
         ....*********..||..*********..||..*********....
         ....*********..||..*********..||..*********....
         ...............||.............||...............
-        ..-------------++/////////////++-------------..
-        ...............//.............//...............
-        ....*********..//..@********..//..*********....
-        ....*********..//..*********..//..*********....
-        ....*********..//..*********..//..*********....
-        ....*********..//..*********..//..*********....
-        ....*********..//..*********..//..*********....
-        ...............//.............//...............
-        ..-------------++/////////////++-------------..
+        ..-------------++<<<<<<<<<<<<<++-------------..
+        ...............<<.............>>...............
+        ....*********..<<..@********..>>..*********....
+        ....*********..<<..*********..>>..*********....
+        ....*********..<<..*********..>>..*********....
+        ....*********..<<..*********..>>..*********....
+        ....*********..<<..*********..>>..*********....
+        ...............<<.............>>...............
+        ..-------------++>>>>>>>>>>>>>++-------------..
         ...............||.............||...............
         ....*********..||..*********..||..*********....
         ....*********..||..*********..||..*********....
