@@ -27,6 +27,7 @@ import __main__
 import argparse
 import bdb
 import collections
+import collections.abc as abc
 import dataclasses
 import difflib
 import math
@@ -321,17 +322,41 @@ class TerminalStudio:
 class TicTacTuhGameboard:  # 31 Wide x 23 High
     """Run 1 Tic-Tac-Tuh Gameboard on Screen"""
 
-    code_by_tytx: dict[tuple[int, int], str] = dict()  # define ⌥-Click & Click at each Y X
+    yx: tuple[int, int] = (-1, -1)
     last_y: int = -1  # the Southmost Screen Row written
+
+    cells: dict[int, dict[int, str]]  # 3 Rows x 3 Cols
+
+    rune_by_tytx: dict[tuple[int, int], str] = dict()  # define ⌥-Click & Click at each Y X
+    func_by_rune: dict[str, abc.Callable[[str, tuple[int, int]], bool]] = dict()
 
     colors_screen_back: str = ""
     colors_board_back: str = ""
     colors_wall_front: str = ""
 
-    def try_tic_tac_tuh(self) -> None:
+    def __init__(self) -> None:
+
+        cells: dict[int, dict[int, str]]
+        cells = dict()
+
+        for row in range(3):  # todo: magic 3 Rows
+            cells[row] = dict()
+            for col in range(3):  # todo: magic 3 Cols
+                cells[row][col] = ""
+
+        func_by_rune: dict[str, abc.Callable[[str, tuple[int, int]], bool]]
+        func_by_rune = {
+            "*": self.step_here,
+        }
+
+        self.cells = cells
+        self.func_by_rune = func_by_rune
+
+    def try_tic_tac_tuh(self) -> None:  # noqa C901 complex (19  # todo4:
         """Run 1 Tic-Tac-Tuh Gameboard on Screen"""
 
-        code_by_tytx = self.code_by_tytx
+        func_by_rune = self.func_by_rune
+        rune_by_tytx = self.rune_by_tytx
 
         mt = mouse_terminal()
         fileno = mt.fileno
@@ -355,11 +380,21 @@ class TicTacTuhGameboard:  # 31 Wide x 23 High
 
         #
 
-        mousing = False
+        mousing = True
+        stdio.write("\033[?25l")
+
         while True:
             ti = mt.read_yxhw_terminal_input(timeout=None)
             if not ti:
                 continue  # todo: show multibyte compositions well inside Tic-Tac-Tuh
+
+            if ti.caps == "⎋[0N":  # todo: log when this happens
+                continue
+
+            #
+
+            if ti.caps in ("⌃C", "⌃D", "⌃Z", "⌃\\"):
+                break
 
             # Convert Mouse ⌥-Click Release to Csi, or Mouse Click Release to Csi
 
@@ -372,15 +407,24 @@ class TicTacTuhGameboard:  # 31 Wide x 23 High
                 if f in (f0, f8):  # Click or ⌥-Click
 
                     tytx = (y, x)
-                    code = code_by_tytx.get(tytx, default_eq_None)
-                    if code and (code not in "+."):  # "+-/|" + "*.12345678ABCDEFGH"
+                    rune = rune_by_tytx.get(tytx, default_eq_None)
+                    if rune and (rune not in "+."):  # "+-/|" + "*.12345678ABCDEFGH"
                         mousing = True
                         stdio.write("\033[?25l")
-                        stdio.write("\0337")
-                        stdio.write(f"\033[{y};{x}H")  # no bounds caps on Mouse Click or ⌥-Click
-                        stdio.write(code)
-                        stdio.write("\0338")
+
+                        ok = False
+                        if rune in func_by_rune.keys():
+                            func = func_by_rune[rune]
+                            ok = func(rune, tytx)
+
+                        if not ok:
+                            stdio.write("\0337")
+                            stdio.write(f"\033[{y};{x}H")  # no bounds caps on Mouse Click or ⌥-Click
+                            stdio.write(rune)
+                            stdio.write("\0338")
+
                     elif not mousing:
+
                         stdio.write(f"\033[{y};{x}H")  # no bounds caps on Mouse Click or ⌥-Click
 
                     continue
@@ -392,13 +436,14 @@ class TicTacTuhGameboard:  # 31 Wide x 23 High
 
             if ti.face == "Return":
                 tytx = (mt.row_y, mt.column_x)
-                code = self.code_by_tytx.get(tytx, default_eq_None)
-                if code and (code not in "+."):  # "+-/|" + "*.12345678ABCDEFGH"
+                rune = self.rune_by_tytx.get(tytx, default_eq_None)
+                if rune and (rune not in "+."):  # "+-/|" + "*.12345678ABCDEFGH"
                     stdio.write("\0337")
-                    stdio.write(code)
+                    stdio.write(rune)
                     stdio.write("\0338")
 
                 continue
+
             #
 
             if ti.face in ("←", "↑", "→", "↓"):
@@ -414,7 +459,10 @@ class TicTacTuhGameboard:  # 31 Wide x 23 High
 
             #
 
-            break
+            if ti.face:
+                tprint(ti.face, end="")
+            else:
+                tprint(ti.caps, end="")
 
         #
 
@@ -474,7 +522,7 @@ class TicTacTuhGameboard:  # 31 Wide x 23 High
     def ttt_board_redraw(self) -> None:
         """Draw the Board again, with its present Moves made, and in its present Colors"""
 
-        code_by_tytx = self.code_by_tytx
+        rune_by_tytx = self.rune_by_tytx
         colors_board_back = self.colors_board_back
         colors_wall_front = self.colors_wall_front
 
@@ -495,41 +543,58 @@ class TicTacTuhGameboard:  # 31 Wide x 23 High
 
         y = y0 - len(xo_rows) // 2
         x = x0 - xo_wide // 2
+        yx = (y, x)
 
-        from_codes = "+-/|" + "*.12345678ABCDEFGH"
-        to_glyphs = len("+-/|") * "█" + len("*.12345678ABCDEFGH") * " "
+        from_codes = "+-/|" + "*." "12345678" "@" "ABCDEFGH"
+        to_glyphs = len("+-/|") * "█" + len("*.12345678@ABCDEFGH") * " "
         trans = str.maketrans(from_codes, to_glyphs)
 
-        #
+        # Write Colors
 
         stdio.write("\033[m")
         stdio.write(colors_board_back)
         stdio.write(colors_wall_front)
 
+        # Write every Tile of the Board
+
+        cycx = (-1, -1)
         last_y = -1
+
         for dy, xo_row in enumerate(xo_rows):
             assert xo_row == xo_row.rstrip(), (xo_row, xo_row.rstrip())
 
             row = xo_row.lstrip()
             dx = len(xo_row) - len(row)
 
+            for i, t in enumerate(row):
+                assert t in from_codes, (t, from_codes)
+
+                ty = y + dy
+                tx = x + dx + i
+                tytx = (ty, tx)
+
+                if t == "@":
+                    assert cycx == (-1, -1), (cycx, t, tytx)
+                    cycx = tytx
+
+                rune_by_tytx[tytx] = t
+
             stdio.write(f"\033[{y + dy};{x + dx}H")
             stdio.write(row.translate(trans))
 
-            for i, t in enumerate(row):
-                ty = y + dy
-                tx = x + dx + i
-
-                tytx = (ty, tx)
-                code_by_tytx[tytx] = t
-
             last_y = y + dy
 
+        assert cycx != (-1, -1), (cycx,)
+        assert last_y != -1, (last_y,)
+
+        # Place the Y X Cursor
+
+        (cy, cx) = cycx
+        # stdio.write(f"\033[{cy};{cx}H")
+        stdio.write(f"\033[{y};{x}H")
+
+        self.yx = yx
         self.last_y = last_y
-
-        #
-
-        stdio.write(f"\033[{y0};{x0}H")
 
     def fetch_y_high_x_width(self) -> None:
         """Count out Screen Rows Wide x Columns High"""
@@ -567,6 +632,105 @@ class TicTacTuhGameboard:  # 31 Wide x 23 High
     assert "▌" == unicodedata.lookup("Left Half Block")
     assert "▐" == unicodedata.lookup("Right Half Block")
 
+    #
+    #
+    #
+
+    def step_here(self, rune: str, tytx: tuple[int, int]) -> bool:
+
+        (ty, tx) = tytx
+
+        cells = self.cells
+        yx = self.yx
+        flats = self.cells_to_flats()
+
+        (y, x) = yx
+
+        dy = ty - y - 6  # todo: magic 6
+        dx = tx - x - 4  # todo: magic 4
+
+        row = dy // 8  # todo: magic 8
+        col = dx // 15  # todo: magic 15
+
+        stale = cells[row][col]
+        assert stale in ("X", "O", " ", ""), (stale,)
+
+        if stale != "":
+            return False
+
+        x_count = flats.count("X")
+        o_count = flats.count("O")
+        if x_count <= o_count:
+            fresh = "X"
+        else:
+            fresh = "O"
+
+        self.row_col_fresh_stamp(row, col=col, fresh=fresh)
+
+        return True
+
+    def row_col_fresh_stamp(self, row: int, col: int, fresh: str) -> None:
+        """Stamp the fresh Rune at the Row Col"""
+
+        assert fresh in ("X", "O", " "), (fresh,)  # never ''
+
+        cells = self.cells
+        yx = self.yx
+
+        x_glyph = self.x_glyph
+        o_glyph = self.o_glyph
+        xo_glyph = self.xo_glyph
+
+        mt = mouse_terminal()
+        stdio = mt.stdio
+
+        # Form the Write
+
+        (y, x) = yx
+
+        gy = y + 5 + row * 8  # todo: magic 6, magic 8
+        gx = x + 2 + col * 15  # todo: magic 4, magic 15
+
+        x_masks = textwrap.dedent(x_glyph).strip().splitlines()
+        o_masks = textwrap.dedent(o_glyph).strip().splitlines()
+        xo_masks = textwrap.dedent(xo_glyph).strip().splitlines()
+
+        if fresh == "X":
+            masks = x_masks
+        elif fresh == "O":
+            masks = o_masks
+        else:
+            masks = xo_masks
+
+        # Write the Write
+
+        for mask in masks:
+            stdio.write(f"\033[{gy};{gx}H")
+            gy += 1
+
+            write = mask.replace("·", " ")
+            stdio.write(write)
+
+        # Mirror the Write
+
+        cells[row][col] = fresh
+
+    def cells_to_flats(self) -> str:
+
+        cells = self.cells
+
+        flats = list()
+        for row in range(3):  # todo: magic 3 Rows
+            for col in range(3):  # todo: magic 3 Cols
+                cell = cells[row][col]
+
+                flat = cell if cell else "_"
+                flats.append(flat)
+
+        text = "\n".join(flats)
+
+        return text
+
     xo_board = """
 
                          .............
@@ -583,7 +747,7 @@ class TicTacTuhGameboard:  # 31 Wide x 23 High
         ...............||.............||...............
         ..-------------++/////////////++-------------..
         ...............//.............//...............
-        ....*********..//..*********..//..*********....
+        ....*********..//..@********..//..*********....
         ....*********..//..*********..//..*********....
         ....*********..//..*********..//..*********....
         ....*********..//..*********..//..*********....
@@ -622,6 +786,16 @@ class TicTacTuhGameboard:  # 31 Wide x 23 High
         ···██···██···
         ···██···██···
         ····█████····
+        ·············
+    """
+
+    xo_glyph = """
+        ·············
+        ·············
+        ·············
+        ·············
+        ·············
+        ·············
         ·············
     """
 
@@ -1025,7 +1199,7 @@ class ArgDocParser:
     text: str  # something like the __main__.__doc__, but dedented and stripped
     closing: str  # the last Graf of the Epilog, minus its Top Line
 
-    add_argument: typing.Callable[..., object]
+    add_argument: abc.Callable[..., object]
 
     def __init__(self, doc: str, add_help: bool) -> None:
 
@@ -1386,6 +1560,9 @@ class MouseTerminal:
         tty.setraw(fileno, when=before)  # Tty SetRaw defaults to TcsaFlush
         # tty.setcbreak(fileno, when=termios.TCSAFLUSH)  # for ⌃C prints Py Traceback
 
+        entries.append(b"\033[?25l")  # todo: drop the practically always unneeded .entries
+        exits.append(b"\033[?25h")
+
         entries.append(b"\033[?2004h")
         exits.append(b"\033[?2004l")
 
@@ -1433,7 +1610,7 @@ class MouseTerminal:
 
         self.tcgetattr = list()  # replaces
 
-        stdio.flush()  # for '__exit__' of BytesTerminal
+        stdio.flush()  # for '__exit__' of MouseTerminal
 
         assert after in (termios.TCSADRAIN, termios.TCSAFLUSH), (after,)
 
@@ -1483,7 +1660,7 @@ class MouseTerminal:
 
         assert tcgetattr, (tcgetattr,)
 
-        stdio.flush()  # for .kbhit of BytesTerminal
+        stdio.flush()  # for .kbhit of MouseTerminal
 
         (r, w, x) = select.select([fileno], [], [], timeout)
         fileno_hit = fileno in r
