@@ -388,7 +388,7 @@ class TicTacTuhGameboard:  # 31 Wide x 23 High
             if not ti:
                 continue  # todo: show multibyte compositions well inside Tic-Tac-Tuh
 
-            if ti.caps == "⎋[0N":  # todo: log when this happens
+            if ti.caps == "⎋[0N":  # todo: log when DSR_0 comes in
                 continue
 
             #
@@ -397,6 +397,10 @@ class TicTacTuhGameboard:  # 31 Wide x 23 High
                 break
 
             # Convert Mouse ⌥-Click Release to Csi, or Mouse Click Release to Csi
+
+            m_ints = ti.to_csi_ints_if(b"M", start=b"<", default=-1)
+            if len(m_ints) == 3:  # todo: log when CSI ⇧M Mouse-Press comes in
+                continue
 
             m_ints = ti.to_csi_ints_if(b"m", start=b"<", default=-1)
             if len(m_ints) == 3:
