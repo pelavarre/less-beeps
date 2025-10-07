@@ -83,7 +83,7 @@ def main() -> None:
     phone = False
     try:
         (x_wide, y_high) = os.get_terminal_size()
-        if x_wide < 72:
+        if x_wide < 80:
             phone = True
     except Exception:
         pass
