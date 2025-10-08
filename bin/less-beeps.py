@@ -465,7 +465,7 @@ class TicTacTuhGameboard:  # 31 Wide x 23 High
             if ti.face in ("←", "↑", "→", "↓"):
 
                 kbytes = ti.kbytes
-                stdio.flush()  # before each 'os.write'
+                stdio.flush()  # before each 'os.write' of .try_tic_tac_tuh
 
                 fd = fileno
                 data = kbytes
@@ -497,8 +497,9 @@ class TicTacTuhGameboard:  # 31 Wide x 23 High
 
         # Hide Keyboard while taking Input from Tap or Click
 
-        rune_get = rune_by_tytx.get(tytx, default_eq_None)
-        rune = rune_get if rune_get else ""
+        rune = ""
+        if tytx in rune_by_tytx:
+            rune = rune_by_tytx[tytx]
 
         if m_ints and rune and (rune not in "+."):
             tapping = True
@@ -506,7 +507,8 @@ class TicTacTuhGameboard:  # 31 Wide x 23 High
 
         # Call the Func named by the Rune
 
-        func = func_by_rune[rune if rune else ""]
+        default_eq_func = self.click_reject
+        func = func_by_rune.get(rune, default_eq_func)
 
         ok = func(rune, tytx)
         if not ok:
@@ -531,12 +533,23 @@ class TicTacTuhGameboard:  # 31 Wide x 23 High
         mt = mouse_terminal()
         stdio = mt.stdio
 
+        # Move the Y X Cursor, in reply to Tap/ Click, while showing Keyboard
+
         if not tapping:
             stdio.write(f"\033[{ty};{tx}H")  # no bounds caps on Mouse Click or ⌥-Click
+            return True
+
+        # Flash the Y X Cursor as if moved, in reply to Tap/ Click, while hiding Keyboard
+
+        stdio.write("\0337")  # checkpoints Y X
+        stdio.write(f"\033[{ty};{tx}H")
+        stdio.write("\033[?25h")  # shows Cursor
+        stdio.flush()  # before each 'time.sleep' of .click_away
+        time.sleep(0.100)
+        stdio.write("\033[?25l")  # hides Cursor
+        stdio.write("\0338")  # reverts Y X
 
         return True
-
-        # todo4: Flash the cursor at .click_away  # Echo this Tap/ Click/ Keystroke
 
     def click_reject(self, rune: str, tytx: tuple[int, int]) -> bool:
         """Show this Tap/ Click/ Keystroke not yet defined"""
@@ -1045,7 +1058,7 @@ class TerminalScreenStudio:
 
         # Loop Input Bytes back, no matter if well known
 
-        stdio.flush()  # before each 'os.write'
+        stdio.flush()  # before each 'os.write' of .try_one_loopback
 
         fd = fileno
         data = kbytes
@@ -1068,7 +1081,6 @@ class TerminalInputStudio:
         """Take Input as Touch Tap, as Mouse Click, or as Keyboard Chord, till Quit"""
 
         mt = mouse_terminal()
-        stdio = mt.stdio
 
         assert DSR_6 == "\033[" "6n"
         assert XTWINOPS_18 == "\033[" "18t"
@@ -1125,7 +1137,6 @@ class TerminalInputStudio:
 
             # Flush and read, but trace each Byte as it comes
 
-            stdio.flush()
             (kbyte, kbytes) = mt.read_bytes(timeout=None)
             self.kbyte_tprint(kbyte)
 
@@ -1253,7 +1264,6 @@ class TerminalPokeStudio:
         tprint()
         while True:
 
-            mt.stdio.flush()
             tp = mt.read_terminal_poke(timeout=None)
             reads_plus = (tp.reads + (tp.extra,)) if tp.extra else tp.reads
 
@@ -1328,7 +1338,7 @@ class TerminalByteStudio:
         t0 = time.time()
         while True:
 
-            mt.stdio.flush()
+            mt.stdio.flush()  # before each 'os.read' of .try_single_byte_times
 
             read_list = list()
             delay_list = list()
@@ -1345,7 +1355,7 @@ class TerminalByteStudio:
 
             while mt._kbhit_(timeout=0.000_001):
 
-                read = os.read(fd, length)
+                read = os.read(fd, length)  # trust ._kbhit_ flush'es before 'os.read' here
                 t1 = time.time()
 
                 read_list.append(read)
@@ -1735,8 +1745,12 @@ class MouseTerminal:
         assert _SM_BRACKETED_PASTE_ == "\033[" "?2004h"
         assert _RM_BRACKETED_PASTE_ == "\033[" "?2004l"
 
+        # Enter once
+
         if tcgetattr:
             return self
+
+        stdio.flush()  # before each 'tty.setraw' of MouseTerminal.__enter__
 
         tcgetattr = termios.tcgetattr(fileno)  # replaces
         assert tcgetattr, (tcgetattr,)
@@ -1747,19 +1761,20 @@ class MouseTerminal:
         tty.setraw(fileno, when=before)  # Tty SetRaw defaults to TcsaFlush
         # tty.setcbreak(fileno, when=termios.TCSAFLUSH)  # for ⌃C prints Py Traceback
 
-        entries.append(b"\033[?25l")  # todo: drop the practically always unneeded .entries
+        # List the bits to write now, and the bits to clear at exit
+
+        entries.append(b"\033[?25l")  # shows/ hides Cursor  # commonly shown by default
         exits.append(b"\033[?25h")
 
-        entries.append(b"\033[?2004h")
+        entries.append(b"\033[?2004h")  # does/doesn't code Paste Start/ End as ⎋[200~ and ⎋[201~
         exits.append(b"\033[?2004l")
 
-        if True:  # if flags.phone:  # todo4:
-            entries.append(b"\033[?1000;1006h")
-            exits.append(b"\033[?1000;1006l")
+        entries.append(b"\033[?1000;1006h")  # doesn't/does need ⌥ Option/ Alt on Taps/ Clicks
+        exits.append(b"\033[?1000;1006l")
 
-        #
+        # Write bits now to promise this Client will serve the Terminal well
 
-        stdio.flush()  # before each 'os.write'
+        stdio.flush()  # before each 'os.write' of MouseTerminal.__enter__
 
         for entry_data in entries:
             fd = fileno
@@ -1767,9 +1782,11 @@ class MouseTerminal:
 
             os.write(fd, data)
 
-        #
+        # Succeed
 
         return self
+
+        # todo4: 'doesn't need ⌥ Option/ Alt on Taps/ Clicks' is wrong for all our test programs
 
     def __exit__(self, *exc_info: object) -> None:
         r"""Start line-buffering Input, start replacing \n Output with \r\n, etc"""
@@ -1785,7 +1802,7 @@ class MouseTerminal:
 
         #
 
-        stdio.flush()  # before each 'os.write'
+        stdio.flush()  # before each 'os.write' of MouseTerminal.__exit__
 
         for exit_data in exits:
             fd = fileno
@@ -1797,7 +1814,7 @@ class MouseTerminal:
 
         self.tcgetattr = list()  # replaces
 
-        stdio.flush()  # for '__exit__' of MouseTerminal
+        stdio.flush()  # before each 'termios.tcsetattr' of MouseTerminal.__exit__
 
         assert after in (termios.TCSADRAIN, termios.TCSAFLUSH), (after,)
 
@@ -1847,7 +1864,7 @@ class MouseTerminal:
 
         assert tcgetattr, (tcgetattr,)
 
-        stdio.flush()  # for .kbhit of MouseTerminal
+        stdio.flush()  # before 'select.select' of _kbhit_
 
         (r, w, x) = select.select([fileno], [], [], timeout)
         fileno_hit = fileno in r
@@ -2261,9 +2278,7 @@ class MouseTerminal:
         assert DSR_5 == "\033[" "5n"
         assert DSR_0 == "\033[" "0n"
 
-        # Flush Output, and wait for Input
-
-        stdio.flush()
+        # Wait for Input
 
         t0 = time.time()
         kbhit = self._kbhit_(timeout=timeout)
@@ -2284,6 +2299,8 @@ class MouseTerminal:
         m = None
         while not m:
 
+            stdio.flush()  # before 'os.read' of .read_terminal_poke
+
             fd = fileno
             length = 1
 
@@ -2291,7 +2308,7 @@ class MouseTerminal:
             read_plus = read
 
             while self._kbhit_(timeout=0.000_001):
-                read = os.read(fd, length)
+                read = os.read(fd, length)  # trust ._kbhit_ flush'es before 'os.read' here
                 read_plus += read
 
             t2 = time.time()
@@ -2301,9 +2318,14 @@ class MouseTerminal:
 
             read = read_plus
             if not read_list:
-                stdio.write("\033[5n")  # todo: Try calling for different Replies to close Input
-                stdio.flush()  # todo: Don't call for Reply to close Text, except to close the ` of ⌥``
+
+                stdio.write("\033[5n")
+
+                # todo: Try calling for different Replies to close Input
+                # todo: Don't call for Reply to close Text, except to close the ` of ⌥``
+
             else:
+
                 m = re.search(rb"\033\[0n", string=read_plus)
                 if m and (m.end() > 0):
                     extra = read_plus[m.end() :]
