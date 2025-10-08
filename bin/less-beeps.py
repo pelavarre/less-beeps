@@ -1763,8 +1763,8 @@ class MouseTerminal:
 
         # List the bits to write now, and the bits to clear at exit
 
-        entries.append(b"\033[?25l")  # shows/ hides Cursor  # commonly shown by default
-        exits.append(b"\033[?25h")
+        entries.append(b"\033[?25h")  # shows/ hides Cursor  # commonly shown by default
+        exits.append(b"\033[?25l")
 
         entries.append(b"\033[?2004h")  # does/doesn't code Paste Start/ End as ⎋[200~ and ⎋[201~
         exits.append(b"\033[?2004l")
@@ -1786,7 +1786,7 @@ class MouseTerminal:
 
         return self
 
-        # todo4: 'doesn't need ⌥ Option/ Alt on Taps/ Clicks' is wrong for all our test programs
+        # todo4: 'doesn't need ⌥ Option/ Alt on Taps/ Clicks' is wrong for every @ Esc-F
 
     def __exit__(self, *exc_info: object) -> None:
         r"""Start line-buffering Input, start replacing \n Output with \r\n, etc"""
@@ -2010,7 +2010,7 @@ class MouseTerminal:
 
         # Accept the ⌥`` encoded as an Immediate Pair of b"``"
 
-        if not _pack_.closed:
+        if not _pack_.closed:  # if closing out taking the ⌥`` encoded as rapid b"``"
             if pack_kbytes == b"``":
                 poke_kbyte = b"`"
                 _pack_.close()
@@ -2029,23 +2029,26 @@ class MouseTerminal:
         poke_kbytes = bytes(kbytearray)
         poke_kbyte = poke_kbytes[:1]  # does peek, doesn't pop
 
-        # Add the next Byte into the Pack, or don't, and close the Pack, or don't
+        # Add the next one or two Bytes into the Pack, or don't, and close the Pack, or don't
 
-        self._take_one_byte_if_()
+        self._take_enough_bytes_if_()
+
+        # Pass back just the first Byte taken, if not closed yet
+
         if not _pack_.closed:
             return (poke_kbyte, b"")
 
+        # Read, snoop, & clear the Pack, if closed
+
         kbytes = _pack_.to_bytes()
         assert kbytes, (kbytes, poke_kbyte, poke_kbytes)
-
-        # Read, snoop, & clear the Closed Pack
 
         ti = TerminalInput(kbytes)  # todo: redundant with Caller .read_terminal_input
         self._ti_snoop_(ti)
 
         _pack_.clear_pack()
 
-        # Return the Bytes of the Closed Pack
+        # Return the Bytes of the closed Pack
 
         return (poke_kbyte, kbytes)
 
@@ -2071,10 +2074,70 @@ class MouseTerminal:
                 del kbytearray[: len(arrow_kbytes)]
                 kbytearray[0:0] = mouse_kbytes
 
-    def _take_one_byte_if_(self) -> None:  # noqa C901 too complex (18  # todo4:
-        """Add the next Byte into the Pack, or don't, and close the Pack, or don't"""
+    def _take_enough_bytes_if_(self) -> None:
+        """Add the next one or two Bytes into the Pack, or don't, and close the Pack, or don't"""
 
         kbytearray = self.kbytearray
+        poke_kbytes = bytes(kbytearray)
+        poke_kbyte = bytes(poke_kbytes[:1])  # does peek, doesn't pop
+
+        _pack_ = self._pack_
+        pack_kbytes = _pack_.to_bytes()  # maybe not .closed
+
+        # Take 2 Bytes into the Pack as Text and leave the Pack open, sometimes
+
+        if self._take_two_bytes_if_():  # like if opening up taking the ⌥`` encoded as rapid b"``"
+            return
+
+        # Take 0 Bytes and close the Pack abruptly, sometimes
+
+        if self._take_no_bytes_if_():
+            return
+
+        # Try taking 1 Byte into the Pack
+
+        extra = _pack_.take_one_if(poke_kbyte)  # truthy at ⎋ [ ⇧! 9, etc
+        if not extra:
+            kbytearray.pop(0)
+
+        pack_kbytes = _pack_.to_bytes()  # replaces  # maybe .closed, maybe not
+        if (pack_kbytes == b"\033[M") and (len(poke_kbytes) <= 1):  # ⎋[M
+            ok = _pack_.close_if_csi_shift_m()
+            assert ok, (ok, _pack_, pack_kbytes)
+
+        # Close abruptly, if taking 1 Byte made Text, or if taking 0 Bytes
+
+        if _pack_.text or extra:
+            _pack_.close()
+
+        # todo4: multi-character & multi-line paste
+        # todo2: merge ._take_enough_bytes_if_ into TerminalBytePack
+        # todo1: Think more about accepting more than ⎋ as a prefix for whatever
+
+    def _take_two_bytes_if_(self) -> bool:
+        """Take 2 Bytes into the Pack as Text and leave the Pack open, sometimes"""
+
+        kbytearray = self.kbytearray
+        poke_kbytes = bytes(kbytearray)
+
+        _pack_ = self._pack_
+        if not _pack_:
+
+            if poke_kbytes == b"``":
+
+                kbytearray.clear()
+                _pack_.take_one(b"`")  # once
+                _pack_.take_one(b"`")  # twice
+
+                assert not _pack_.closed, (_pack_, poke_kbytes)
+
+                return True
+
+        return False
+
+    def _take_no_bytes_if_(self) -> bool:
+        """Take 0 Bytes and close the Pack abruptly, sometimes"""
+
         kbytearray = self.kbytearray
         _pack_ = self._pack_
 
@@ -2088,70 +2151,33 @@ class MouseTerminal:
         headbook = (b"\033", b"\033\033", b"\033\033O", b"\033\033[", b"\033O", b"\033[", b"\033]")
         assert TerminalBytePack.Headbook == headbook
 
-        # Accept the ⌥`` encoded as an Immediate Pair of b"``"
-
-        if not _pack_:
-            if poke_kbytes == b"``":
-
-                kbytearray.clear()
-                _pack_.take_one(b"`")  # once
-                _pack_.take_one(b"`")  # twice
-
-                assert not _pack_.closed, (_pack_, poke_kbytes)
-
-                return
-
-        # Close the Multibyte Heads of the Headbook when followed by an Unprintable
-
         try:
             poke_decode_if = poke_kbytes.decode()
         except UnicodeDecodeError:
             poke_decode_if = ""
 
-        closing_head = False
+        # Do take unprintable Bytes after the Head Bytes when taking to close an Osc Sequence
+
         if pack_startswith_osc and (poke_kbyte == b"\007"):
-            pass  # \007 BEL
+            return False  # \007 BEL
         elif pack_startswith_osc and (poke_kbytes.startswith(b"\033\134")):
-            pass  # \033 \134 Esc \ String Terminator (ST)
+            return False  # \033 \134 Esc \ String Terminator (ST)
         elif pack_startswith_osc and pack_endswith_esc and (poke_kbyte == b"\134"):
-            pass  # \033 \134 Esc \ String Terminator (ST)
-        elif (not poke_decode_if) or (not poke_decode_if[:1].isprintable()):
+            return False  # \033 \134 Esc \ String Terminator (ST)
+
+        # Generally do Not take unprintable Bytes after the Head Bytes
+
+        if (not poke_decode_if) or (not poke_decode_if[:1].isprintable()):
             if pack_kbytes in headbook:
                 if pack_kbytes != b"\033":  # ⎋
-                    closing_head = True  # ⎋⎋ ⎋⎋O ⎋⎋[ ⎋O ⎋[
 
-        closing_tail = False
-        if not closing_head:
+                    _pack_.close()
 
-            # if poke_kbyte == b"\033":  # ⎋  # todo: why did i code these lines circa 2025-10-06 ?
-            #     if pack_kbytes == b"\033":  # ⎋
-            #         closing_tail = True
+                    return True  # ⎋⎋ ⎋⎋O ⎋⎋[ ⎋O ⎋[
 
-            extra = _pack_.take_one_if(poke_kbyte)  # truthy at ⎋ [ ⇧! 9, etc
-            pack_kbytes = _pack_.to_bytes()  # replaces  # maybe .closed, maybe not
+        # Generally do take printable Bytes after the Head Bytes
 
-            closing_tail = bool(_pack_.text or _pack_.closed or extra)
-
-            if (pack_kbytes == b"\033[M") and (len(poke_kbytes) <= 1):  # ⎋[M
-                ok = _pack_.close_if_csi_shift_m()
-                assert ok, (ok, _pack_, pack_kbytes)
-                closing_tail = True
-
-            # if (packet_kbytes == b"\033\033") and (len(poke_kbytes) <= 1):  # ⎋⎋
-            #     closing_tail = True  # todo: why did i code these lines circa 2025-09-29 ?
-
-            if not closing_tail:
-                kbytearray.pop(0)
-                return
-
-            if not extra:  # keeps an untaken .extra inside .kbytearray
-                kbytearray.pop(0)  # pops a taken .extra
-
-        if closing_head or closing_tail:
-            _pack_.close()
-
-        # todo2: merge ._take_one_byte_if_ into TerminalBytePack
-        # todo1: Think more about accepting more than ⎋ as a prefix for whatever
+        return False
 
     def _ti_snoop_(self, ti: TerminalInput) -> None:
         """Mirror updates to Height, Width, Y, and X, as they fly by"""
@@ -4044,8 +4070,8 @@ def excepthook(  # ) -> ...:
 
     # Print the Traceback, etc
 
-    print(file=with_stderr)
-    print(file=with_stderr)
+    print(file=with_stderr)  # once
+    print(file=with_stderr)  # twice
     print("ExceptHook", file=with_stderr)
 
     with_excepthook(exc_type, exc_value, exc_traceback)
