@@ -739,11 +739,7 @@ class TicTacTuhGameboard:  # 31 Wide x 23 High
 
                 rune_by_tytx[tytx] = t
 
-            stdio.write(f"\033[{y + dy};{x + dx}H")
-
-            last_y = y + dy
-
-            for i, t in enumerate(row):
+                stdio.write(f"\033[{ty};{tx}H")
 
                 if t in "DF_n←↑→↓⇧⌃⌘⌥":
                     stdio.write("\033[m")
@@ -753,8 +749,14 @@ class TicTacTuhGameboard:  # 31 Wide x 23 High
                     if t == "⌥":
                         stdio.write("\033[7m")
 
-                write = t.translate(trans)
-                stdio.write(write)
+                if t != "_":
+                    write = t.translate(trans)
+                    stdio.write(write)
+
+                last_y = ty
+
+            stdio.write(colors_board_back)
+            stdio.write(colors_wall_front)
 
         assert cycx != (-1, -1), (cycx,)
 
@@ -767,8 +769,7 @@ class TicTacTuhGameboard:  # 31 Wide x 23 High
         # Place the Y X Cursor
 
         (cy, cx) = cycx
-        # stdio.write(f"\033[{cy};{cx}H")
-        stdio.write(f"\033[{y};{x}H")
+        stdio.write(f"\033[{cy};{cx}H")
 
         self.yx = yx
         self.last_y = last_y
