@@ -4089,32 +4089,44 @@ def excepthook(  # ) -> ...:
 
 _ = """  # our top choices
 
-https://unicode.org/charts/PDF/U0000.pdf
-https://unicode.org/charts/PDF/U0080.pdf
+    https://unicode.org/charts/PDF/U0000.pdf
+    https://unicode.org/charts/PDF/U0080.pdf
 
-https://en.wikipedia.org/wiki/ANSI_escape_code
-https://jvns.ca/blog/2025/03/07/escape-code-standards
+    https://en.wikipedia.org/wiki/ANSI_escape_code
+    https://jvns.ca/blog/2025/03/07/escape-code-standards
 
-https://invisible-island.net/xterm/ctlseqs/ctlseqs.html
+    https://invisible-island.net/xterm/ctlseqs/ctlseqs.html
 
-https://www.ecma-international.org/publications-and-standards/standards/ecma-48
-    /wp-content/uploads/ECMA-48_5th_edition_june_1991.pdf
+    https://www.ecma-international.org/publications-and-standards/standards/ecma-48
+        /wp-content/uploads/ECMA-48_5th_edition_june_1991.pdf
 
 """
 
 _ = """  # more breadth found via https://jvns.ca/blog/2025/03/07/escape-code-standards
 
-https://github.com/tmux/tmux/blob/master/tools/ansicode.txt  <= close to h/t jvns.ca
-https://man7.org/linux/man-pages/man4/console_codes.4.html
-https://sw.kovidgoyal.net/kitty/keyboard-protocol
-https://vt100.net/docs/vt100-ug/chapter3.html
+    https://github.com/tmux/tmux/blob/master/tools/ansicode.txt  <= close to h/t jvns.ca
+    https://man7.org/linux/man-pages/man4/console_codes.4.html
+    https://sw.kovidgoyal.net/kitty/keyboard-protocol
+    https://vt100.net/docs/vt100-ug/chapter3.html
 
-https://iterm2.com/feature-reporting
-https://gist.github.com/egmontkob/eb114294efbcd5adb1944c9f3cb5feda
-https://github.com/Alhadis/OSC8-Adoption?tab=readme-ov-file
+    https://iterm2.com/feature-reporting
+    https://gist.github.com/egmontkob/eb114294efbcd5adb1944c9f3cb5feda
+    https://github.com/Alhadis/OSC8-Adoption?tab=readme-ov-file
 
 """
 
+_ = """  # more famous Python Imports to run in place of Code here
+
+    curses — Terminal handling for character-cell displays
+    https://docs.python.org/3/library/curses.html for 'import curses'
+
+    tkinter — Python interface to Tcl/Tk¶
+    https://docs.python.org/3/library/tkinter.html
+
+    turtle — Turtle graphics
+    https://docs.python.org/3/library/turtle.html for 'import turtle'
+
+"""
 
 #
 # Run from the Shell Command Line, if not imported
