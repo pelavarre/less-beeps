@@ -25,14 +25,14 @@ Each of our games includes Easter Eggs that let you modify gameplay.
 You control the experience, not the other way around
 
 **Available games**
-- **Tic-Tac-Tuh** (Tic-Tac-Toe, but fun)
+- **TicTacTuh** (Tic-Tac-Toe, but fun)
 - **Chuckers** (Checkers inspired)
 - **Guh** (Go but inside a Terminal Window Pane)
 - **Chuss** (Chess reimagined)
 - **Pung** (Pong® homage)
 - **Puckmuhn** (Pac-Man® style)
 - **Snuck** (Snakes® variant)
-- **Dugh-Dugh** (Dig-Dug® 1982 brought into this century)
+- **DughDugh** (Dig-Dug® 1982 brought into this century)
 - **Tetrus** (Tetris® inspired)
 - **Pentuminuh** (Pentominos in place of Tetris® Tetrominos®)
 - **Lugohs** (LEGO®-style building)

@@ -61,11 +61,11 @@ _: object
 
 class flags:
 
-    apple = sys.platform == "darwin"
-    google = bool(os.environ.get("CLOUD_SHELL", default_eq_None))
-    iterm2 = os.environ.get("TERM_PROGRAM", default_eq_None) == "iTerm.app"
+    apple = sys.platform == "darwin"  # flags.apple
+    google = bool(os.environ.get("CLOUD_SHELL", default_eq_None))  # flags.google
+    iterm2 = os.environ.get("TERM_PROGRAM", default_eq_None) == "iTerm.app"  # flags.iterm2
 
-    phone = False
+    phone = False  # flags.phone
 
 
 #
@@ -262,6 +262,7 @@ class TerminalStudio:
             tprint()
             tprint("⌃D to quit")
             tprint("F1 - Show this menu")
+            tprint("F2 - TicTacTuh")
             tprint("⎋F1 - Show a menu of tests to run")
             return
 
@@ -641,7 +642,7 @@ class TicTacTuhGameboard:  # 31 Wide x 23 High
     def keycap_click(self, rune: str, tytx: tuple[int, int]) -> bool:
         """Virtually press the Keycap that looks like the Rune"""
 
-        return True  # todo4: Code up the .keycap_click
+        return True  # todo4: Code up the .keycap_click to like toggle off ⌥ Option/Alt Lock
 
     #
     # Draw the Board at Launch, and then redraw it when needed
@@ -798,8 +799,7 @@ class TicTacTuhGameboard:  # 31 Wide x 23 High
             if ti:
                 break
 
-        # tprint(ti)
-        # time.sleep(0.3)
+        mt._ti_snoop_(ti)
 
         # todo: drop .fetch_y_high_x_width as redundant with .read_yxhw_terminal_input
 
@@ -1007,7 +1007,7 @@ class TicTacTuhGameboard:  # 31 Wide x 23 High
 
 class TerminalScreenStudio:
 
-    def try_loopback(self) -> None:
+    def try_loopback(self) -> None:  # ⎋F5
         """Take Input, edit it, and write it back out"""
 
         mt = mouse_terminal()
@@ -1077,7 +1077,7 @@ class TerminalScreenStudio:
 
 class TerminalInputStudio:
 
-    def try_bytes_caps_face(self) -> None:
+    def try_bytes_caps_face(self) -> None:  # ⎋F4
         """Take Input as Touch Tap, as Mouse Click, or as Keyboard Chord, till Quit"""
 
         mt = mouse_terminal()
@@ -1137,7 +1137,7 @@ class TerminalInputStudio:
 
             # Flush and read, but trace each Byte as it comes
 
-            (kbyte, kbytes) = mt.read_bytes(timeout=None)
+            (kbyte, kbytes) = mt.read_kbyte_kbytes(timeout=None)
             self.kbyte_tprint(kbyte)
 
             if not kbytes:
@@ -1218,7 +1218,7 @@ class TerminalInputStudio:
 
 class TerminalPokeStudio:
 
-    def try_byte_burst_times(self) -> None:
+    def try_byte_burst_times(self) -> None:  # ⎋F3
         """Say what we got for Input, if Keyboard Chord, if Arrow Burst, and how long we waited"""
 
         mt = mouse_terminal()
@@ -1301,7 +1301,7 @@ class TerminalPokeStudio:
 
 class TerminalByteStudio:
 
-    def try_single_byte_times(self) -> None:
+    def try_single_byte_times(self) -> None:  # ⎋F2
         """Say Byte-for-Byte what we got for Input, without compressing and bundling"""
 
         mt = mouse_terminal()
@@ -1694,6 +1694,7 @@ class MouseTerminal:
     _arrows_kbytes_lately_: bytes  # matched by .tp_from_startswith_mouse_arrow_kbytes
 
     yxhw_backtails: list[bytes]  # remember what .read_yxhw_terminal_input is waiting for
+    yxhw_terminal_inputs: list[TerminalInput]  # remember what .read_yxhw_terminal_input has read
 
     #
     # Init, enter, exit, and poll
@@ -1729,6 +1730,7 @@ class MouseTerminal:
         self._arrows_kbytes_lately_ = b""
 
         self.yxhw_backtails = list()
+        self.yxhw_terminal_inputs = list()
 
     def __enter__(self) -> typing.Self:
         r"""Stop line-buffering Input, stop replacing \n Output with \r\n, etc"""
@@ -1763,24 +1765,26 @@ class MouseTerminal:
 
         # List the bits to write now, and the bits to clear at exit
 
-        entries.append(b"\033[?25h")  # shows/ hides Cursor  # commonly shown by default
-        exits.append(b"\033[?25l")
+        entries.append(b"\033[?25l")  # shows/ hides Cursor  # commonly shown by default
+        exits.append(b"\033[?25h")
 
         entries.append(b"\033[?2004h")  # does/doesn't code Paste Start/ End as ⎋[200~ and ⎋[201~
         exits.append(b"\033[?2004l")
 
-        entries.append(b"\033[?1000;1006h")  # doesn't/does need ⌥ Option/ Alt on Taps/ Clicks
-        exits.append(b"\033[?1000;1006l")
+        if flags.phone:
+            entries.append(b"\033[?1000;1006h")  # doesn't/does need ⌥ Option/ Alt on Taps/ Clicks
+            exits.append(b"\033[?1000;1006l")
 
         # Write bits now to promise this Client will serve the Terminal well
 
         stdio.flush()  # before each 'os.write' of MouseTerminal.__enter__
 
+        fd = fileno
         for entry_data in entries:
-            fd = fileno
             data = entry_data
-
             os.write(fd, data)
+
+        os.write(fd, b"\033[?25h")  # todo3: stop showing by default for us
 
         # Succeed
 
@@ -1882,11 +1886,18 @@ class MouseTerminal:
 
         stdio = self.stdio
         yxhw_backtails = self.yxhw_backtails
+        yxhw_terminal_inputs = self.yxhw_terminal_inputs
 
         assert CSI == "\033["
         assert DCH_X == "\033[" "{}" "P"
         assert DSR_6 == "\033[" "6n"
         assert XTWINOPS_18 == "\033[" "18t"
+
+        # Drain the Terminal-Input's fetched already
+
+        if yxhw_terminal_inputs:
+            ti = yxhw_terminal_inputs.pop(0)
+            return ti
 
         # Ask for Height, Width, Cursor Y, Cursor X, and then also some other Input
 
@@ -1903,40 +1914,38 @@ class MouseTerminal:
 
         # Take Inputs in whatever order  # todo: Log if Input ever comes out of order
 
-        ti = None
-
         assert timeout is None, timeout  # todo: test non-none timeouts
         while yxhw_backtails:  # todo3: count .yxhw_backtails per second
 
             # Hang invisibly while Multibyte Sequences arrive slowly  # todo3: Do better
 
-            (kbyte, kbytes) = self.read_bytes(timeout=timeout)
-            if timeout is None:
-                assert kbyte is not None, (kbyte, timeout)
+            (kbyte, kbytes) = self.read_kbyte_kbytes(timeout=timeout)
+            assert kbyte is not None, (kbyte, timeout)  # because timeout is None
+            assert kbytes is not None, (kbytes, timeout)  # because timeout is None
+
             if not kbytes:
                 continue
 
-            ti2 = TerminalInput(kbytes)
-            assert ti2, (kbytes,)
+            # Form 1 more TerminalInput per each burst of K Bytes
 
-            if not ti2:
-                assert ti is None, (ti,)
-                ti = ti2
-                continue
+            kbytes_ti = TerminalInput(kbytes)
+            assert kbytes_ti is not None, (kbytes_ti,)
+            assert kbytes_ti, (kbytes,)
 
-            caps = ti2.caps
-            pack = ti2.pack
+            caps = kbytes_ti.caps
+            pack = kbytes_ti.pack
 
             # Take Csi Inputs
 
             if caps.startswith("⎋["):
                 backtail = bytes(pack.back + pack.tail)
                 if backtail and (backtail in yxhw_backtails):
-                    ints = ti2.to_csi_ints_if(backtail, start=b"", default=-1)
+                    ints = kbytes_ti.to_csi_ints_if(backtail, start=b"", default=-1)
                     if ints:
 
-                        yxhw_backtails.remove(backtail)
+                        self._ti_snoop_(kbytes_ti)
 
+                        yxhw_backtails.remove(backtail)
                         continue
 
             # Take Input other than the first Height, Width, Cursor Y, Cursor X
@@ -1944,10 +1953,17 @@ class MouseTerminal:
             if b"" in yxhw_backtails:
                 yxhw_backtails.remove(b"")
 
-                assert ti is None, (ti,)
-                ti = ti2
+                yxhw_terminal_inputs.append(kbytes_ti)
+                continue
 
-        assert ti, (ti,)
+            yxhw_terminal_inputs.append(kbytes_ti)
+
+        assert yxhw_terminal_inputs, (yxhw_terminal_inputs,)
+        ti = yxhw_terminal_inputs.pop(0)
+
+        # Snoop
+
+        self._ti_snoop_(ti)  # todo3: we so often bypass this snoop - and nothing breaks??
 
         # Succeed
 
@@ -1969,7 +1985,7 @@ class MouseTerminal:
 
         kbytes = b""
         while not kbytes:
-            (kbyte, kbytes) = self.read_bytes(timeout=None)
+            (kbyte, kbytes) = self.read_kbyte_kbytes(timeout=None)
 
         if kbytes == b"\033[0n":  # injectable at test via stdio.write("\033[5n")
             return ()
@@ -1993,14 +2009,14 @@ class MouseTerminal:
     def read_terminal_input(self, timeout: float | None) -> TerminalInput | None:
         """Read the next 1 Terminal Input"""
 
-        (kbyte, kbytes) = self.read_bytes(timeout=timeout)
+        (kbyte, kbytes) = self.read_kbyte_kbytes(timeout=timeout)
         if not kbytes:
             return None
 
         ti = TerminalInput(kbytes)
         return ti
 
-    def read_bytes(self, timeout: float | None) -> tuple[bytes, bytes]:
+    def read_kbyte_kbytes(self, timeout: float | None) -> tuple[bytes, bytes]:
         """Read 0 Bytes at Timeout, or 1 Byte into the Pack, and close the Pack or not"""
 
         kbytearray = self.kbytearray
@@ -2010,7 +2026,7 @@ class MouseTerminal:
 
         # Accept the ⌥`` encoded as an Immediate Pair of b"``"
 
-        if not _pack_.closed:  # if closing out taking the ⌥`` encoded as rapid b"``"
+        if not _pack_.closed:  # if closing out taking the ⌥`` encoded as bundled b"``"
             if pack_kbytes == b"``":
                 poke_kbyte = b"`"
                 _pack_.close()
@@ -2031,20 +2047,17 @@ class MouseTerminal:
 
         # Add the next one or two Bytes into the Pack, or don't, and close the Pack, or don't
 
-        self._take_enough_bytes_if_()
+        self._take_enough_bytes_if_()  # todo5: tell me if the .poke_kbyte is returnable
 
         # Pass back just the first Byte taken, if not closed yet
 
         if not _pack_.closed:
             return (poke_kbyte, b"")
 
-        # Read, snoop, & clear the Pack, if closed
+        # Read & clear each closed Pack
 
         kbytes = _pack_.to_bytes()
         assert kbytes, (kbytes, poke_kbyte, poke_kbytes)
-
-        ti = TerminalInput(kbytes)  # todo: redundant with Caller .read_terminal_input
-        self._ti_snoop_(ti)
 
         _pack_.clear_pack()
 
@@ -2086,7 +2099,7 @@ class MouseTerminal:
 
         # Take 2 Bytes into the Pack as Text and leave the Pack open, sometimes
 
-        if self._take_two_bytes_if_():  # like if opening up taking the ⌥`` encoded as rapid b"``"
+        if self._take_two_bytes_if_():  # like if opening up taking the ⌥`` encoded as bundled b"``"
             return
 
         # Take 0 Bytes and close the Pack abruptly, sometimes
@@ -2110,7 +2123,6 @@ class MouseTerminal:
         if _pack_.text or extra:
             _pack_.close()
 
-        # todo4: multi-character & multi-line paste
         # todo2: merge ._take_enough_bytes_if_ into TerminalBytePack
         # todo1: Think more about accepting more than ⎋ as a prefix for whatever
 
@@ -2238,7 +2250,7 @@ class MouseTerminal:
                 self.paste_y = -1
                 self.paste_x = -1
 
-                # todo4: Vertical Paste doesn't, not without more accurate .column_x
+                # todo3: Paste lands vertically only  while .row_y .column_x mirrors accurate
 
     #
     # Read a single Byte from Keyboard, Mouse, and Touch
