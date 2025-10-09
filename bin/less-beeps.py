@@ -27,7 +27,7 @@ import __main__
 import argparse
 import bdb
 import collections
-import collections.abc as abc
+import collections.abc  # .abc is not .collections.abc
 import dataclasses
 import difflib
 import math
@@ -63,7 +63,7 @@ class flags:
 
     apple = sys.platform == "darwin"  # flags.apple
     google = bool(os.environ.get("CLOUD_SHELL", default_eq_None))  # flags.google
-    iterm2 = os.environ.get("TERM_PROGRAM", default_eq_None) == "iTerm.app"  # flags.iterm2
+    terminal = os.environ.get("TERM_PROGRAM", default_eq_None) == "Apple_Terminal"  # flags.terminal
 
     phone = False  # flags.phone
 
@@ -148,6 +148,7 @@ class MainClass:
 
                     ti = mt.read_terminal_input(timeout=None)
                     if ti:
+                        mt._ti_snoop_(ti)
                         ts.terminal_input_exec(ti)
 
     def parse_less_beeps_args(self) -> argparse.Namespace:
@@ -336,7 +337,7 @@ class TicTacTuhGameboard:  # 31 Wide x 23 High
     cells: dict[int, dict[int, str]]  # 3 Rows x 3 Cols
 
     rune_by_tytx: dict[tuple[int, int], str] = dict()  # defines ⌥-Click & Click at each Y X
-    func_by_rune: dict[str, abc.Callable[[str, tuple[int, int]], bool]] = dict()
+    func_by_rune: dict[str, collections.abc.Callable[[str, tuple[int, int]], bool]] = dict()
     tapping: bool = False  # hides Keyboard while taking Input from Tap or Click
 
     colors_screen_back: str = ""
@@ -357,7 +358,7 @@ class TicTacTuhGameboard:  # 31 Wide x 23 High
 
         # Choose one Func per Rune
 
-        d: dict[str, abc.Callable[[str, tuple[int, int]], bool]]
+        d: dict[str, collections.abc.Callable[[str, tuple[int, int]], bool]]
 
         d = {
             "": self.click_away,
@@ -1112,6 +1113,7 @@ class TerminalInputStudio:
             ti = mt.read_terminal_input(timeout=None)
             if ti:
                 break
+        mt._ti_snoop_(ti)
         self.ti_tprint(ti)  # the ⎋[8 T Reply
 
         # Launch a fetch of Terminal Cursor Y X
@@ -1123,6 +1125,7 @@ class TerminalInputStudio:
             ti = mt.read_terminal_input(timeout=None)
             if ti:
                 break
+        mt._ti_snoop_(ti)
         self.ti_tprint(ti)  # the ⎋[ ⇧R reply
 
         # Run till quit
@@ -1150,6 +1153,7 @@ class TerminalInputStudio:
             # Trace the Key Caps, as they come
 
             ti = TerminalInput(kbytes)
+            mt._ti_snoop_(ti)
             self.ti_tprint(ti)  # the ⎋[ ⇧R reply
 
             # Quit on demand
@@ -1400,7 +1404,7 @@ class ArgDocParser:
     text: str  # something like the __main__.__doc__, but dedented and stripped
     closing: str  # the last Graf of the Epilog, minus its Top Line
 
-    add_argument: abc.Callable[..., object]
+    add_argument: collections.abc.Callable[..., object]
 
     def __init__(self, doc: str, add_help: bool) -> None:
 
@@ -1934,6 +1938,8 @@ class MouseTerminal:
             assert kbytes_ti is not None, (kbytes_ti,)
             assert kbytes_ti, (kbytes,)
 
+            self._ti_snoop_(kbytes_ti)
+
             caps = kbytes_ti.caps
             pack = kbytes_ti.pack
 
@@ -1944,8 +1950,6 @@ class MouseTerminal:
                 if backtail and (backtail in yxhw_backtails):
                     ints = kbytes_ti.to_csi_ints_if(backtail, start=b"", default=-1)
                     if ints:
-
-                        self._ti_snoop_(kbytes_ti)
 
                         yxhw_backtails.remove(backtail)
                         continue
@@ -2099,6 +2103,8 @@ class MouseTerminal:
         _pack_ = self._pack_
         pack_kbytes = _pack_.to_bytes()  # maybe not .closed
 
+        paste_y = self.paste_y
+
         # Take 2 Bytes into the Pack as Text and leave the Pack open, sometimes
 
         if self._take_two_bytes_if_():  # like if opening up taking the ⌥`` encoded as bundled b"``"
@@ -2119,7 +2125,8 @@ class MouseTerminal:
         n = int(not extra)
 
         pack_kbytes = _pack_.to_bytes()  # replaces  # maybe .closed, maybe not
-        if (pack_kbytes == b"\033[M") and (len(poke_kbytes) <= 1):  # ⎋[M
+        six_byte_mouse_auth = (paste_y == -1) and (len(poke_kbytes) > 1)
+        if (pack_kbytes == b"\033[M") and not six_byte_mouse_auth:  # ⎋[M
             ok = _pack_.close_if_csi_shift_m()
             assert ok, (ok, _pack_, pack_kbytes)
 
@@ -2246,7 +2253,7 @@ class MouseTerminal:
                 self.paste_y = self.row_y
                 self.paste_x = self.column_x
 
-            if ps == 201:  # todo4: ⎋F4 test of ⎋[201⇧~ with ⌘V of:  printf '\x1b[M' |pbcopy
+            if ps == 201:
 
                 assert -1 not in (self.row_y, self.column_x), (self.row_y, self.column_x)
 
@@ -4139,13 +4146,27 @@ _ = """  # more famous Python Imports to run in place of Code here
     curses — Terminal handling for character-cell displays
     https://docs.python.org/3/library/curses.html for 'import curses'
 
-    tkinter — Python interface to Tcl/Tk¶
+    tkinter — Python interface to Tcl/Tk
     https://docs.python.org/3/library/tkinter.html
 
     turtle — Turtle graphics
     https://docs.python.org/3/library/turtle.html for 'import turtle'
 
 """
+
+
+#
+# Todo's to remember someday
+#
+#   solve ⌃C too much quitting Pdb when Pdb launched by "dt '.../...py'"
+#
+#   write up how wrong macOS > Terminal > Settings > Keyboard is at ⌃ ← ↑ → ↓, ⌃⌥Delete, etc
+#
+#   ./xshverb.py turtling && : surface ⇧Fn ← ↑ → ↓ more strongly
+#
+#   cd ../pelavarre/byoverbs/ && : explain changes in Commit Message, and push
+#
+
 
 #
 # Run from the Shell Command Line, if not imported
