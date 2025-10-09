@@ -285,16 +285,19 @@ class TerminalStudio:
             return
 
         if face == "⎋F2":
+            tprint("⎋F2")
             tbs = TerminalByteStudio()
             tbs.try_single_byte_times()
             sys.exit()  # todo1: stop exiting after ⎋F2
 
         if face == "⎋F3":
+            tprint("⎋F3")
             tps = TerminalPokeStudio()
             tps.try_byte_burst_times()
             sys.exit()  # todo1: stop exiting after ⎋F3
 
         if face == "⎋F4":
+            tprint("⎋F4")
             tis = TerminalInputStudio()
             tis.try_bytes_caps_face()
             sys.exit()  # todo1: stop exiting after ⎋F4
@@ -1138,7 +1141,8 @@ class TerminalInputStudio:
             # Flush and read, but trace each Byte as it comes
 
             (kbyte, kbytes) = mt.read_kbyte_kbytes(timeout=None)
-            self.kbyte_tprint(kbyte)
+            if kbyte:
+                self.kbyte_tprint(kbyte)
 
             if not kbytes:
                 continue
@@ -1920,8 +1924,6 @@ class MouseTerminal:
             # Hang invisibly while Multibyte Sequences arrive slowly  # todo3: Do better
 
             (kbyte, kbytes) = self.read_kbyte_kbytes(timeout=timeout)
-            assert kbyte is not None, (kbyte, timeout)  # because timeout is None
-            assert kbytes is not None, (kbytes, timeout)  # because timeout is None
 
             if not kbytes:
                 continue
@@ -2034,24 +2036,24 @@ class MouseTerminal:
 
         # Fetch one Poke, unless Input Bytes already fetched
 
-        tp = TerminalPoke(hit=0, delays=tuple(), reads=tuple(), extra=b"")
         if not kbytearray:
             tp = self._fill_kbytearray_(timeout=timeout)
             if not kbytearray:
                 return (b"", b"")
 
-            self._take_arrow_burst_if_(tp)
+            self._kbytearray_take_arrow_burst_if_(tp)
 
         poke_kbytes = bytes(kbytearray)
         poke_kbyte = poke_kbytes[:1]  # does peek, doesn't pop
 
         # Add the next one or two Bytes into the Pack, or don't, and close the Pack, or don't
 
-        self._take_enough_bytes_if_()  # todo5: tell me if the .poke_kbyte is returnable
+        n = self._take_enough_bytes_if_()
 
         # Pass back just the first Byte taken, if not closed yet
 
         if not _pack_.closed:
+            assert n, (n, poke_kbyte, poke_kbytes, _pack_)
             return (poke_kbyte, b"")
 
         # Read & clear each closed Pack
@@ -2063,9 +2065,9 @@ class MouseTerminal:
 
         # Return the Bytes of the closed Pack
 
-        return (poke_kbyte, kbytes)
+        return (poke_kbyte if n else b"", kbytes)
 
-    def _take_arrow_burst_if_(self, tp: TerminalPoke) -> None:
+    def _kbytearray_take_arrow_burst_if_(self, tp: TerminalPoke) -> None:
         """Collapse an Arrow Burst down into a Mouse Release, if present"""
 
         kbytearray = self.kbytearray
@@ -2087,7 +2089,7 @@ class MouseTerminal:
                 del kbytearray[: len(arrow_kbytes)]
                 kbytearray[0:0] = mouse_kbytes
 
-    def _take_enough_bytes_if_(self) -> None:
+    def _take_enough_bytes_if_(self) -> int:
         """Add the next one or two Bytes into the Pack, or don't, and close the Pack, or don't"""
 
         kbytearray = self.kbytearray
@@ -2100,18 +2102,21 @@ class MouseTerminal:
         # Take 2 Bytes into the Pack as Text and leave the Pack open, sometimes
 
         if self._take_two_bytes_if_():  # like if opening up taking the ⌥`` encoded as bundled b"``"
-            return
+            return 1  # 2 into the Pack, 1 back to the Caller
 
         # Take 0 Bytes and close the Pack abruptly, sometimes
 
         if self._take_no_bytes_if_():
-            return
+            assert _pack_.closed, (_pack_.closed, _pack_, poke_kbytes)
+            return 0
 
         # Try taking 1 Byte into the Pack
 
         extra = _pack_.take_one_if(poke_kbyte)  # truthy at ⎋ [ ⇧! 9, etc
         if not extra:
             kbytearray.pop(0)
+
+        n = int(not extra)
 
         pack_kbytes = _pack_.to_bytes()  # replaces  # maybe .closed, maybe not
         if (pack_kbytes == b"\033[M") and (len(poke_kbytes) <= 1):  # ⎋[M
@@ -2122,6 +2127,8 @@ class MouseTerminal:
 
         if _pack_.text or extra:
             _pack_.close()
+
+        return n
 
         # todo2: merge ._take_enough_bytes_if_ into TerminalBytePack
         # todo1: Think more about accepting more than ⎋ as a prefix for whatever
@@ -2239,7 +2246,7 @@ class MouseTerminal:
                 self.paste_y = self.row_y
                 self.paste_x = self.column_x
 
-            if ps == 201:
+            if ps == 201:  # todo4: ⎋F4 test of ⎋[201⇧~ with ⌘V of:  printf '\x1b[M' |pbcopy
 
                 assert -1 not in (self.row_y, self.column_x), (self.row_y, self.column_x)
 
