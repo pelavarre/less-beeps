@@ -68,6 +68,16 @@ class flags:
     phone = False  # flags.phone
 
 
+emulating = False
+if emulating:
+
+    flags.apple = False
+    flags.google = True
+    flags.terminal = False
+
+    # flags.phone =   # reinitted early in 'def main' anyhow
+
+
 #
 # Run from the Shell Command Line
 #
@@ -82,7 +92,7 @@ def main() -> None:
 
     phone = False
     try:
-        (x_wide, y_high) = os.get_terminal_size()
+        (x_wide, y_high) = os.get_terminal_size()  # todo3: never call os.get_terminal_size
         if x_wide < 80:
             phone = True
     except Exception:
@@ -713,6 +723,9 @@ class TicTacTuhGameboard:  # 31 Wide x 23 High
         xo_rows = list(_ for _ in xo_text.splitlines() if _)
         xo_wide = max(len(_.lstrip()) for _ in xo_rows)
 
+        assert len(xo_rows) == (2 * 17 - 1), (len(xo_rows),)
+        assert xo_wide == (2 * 24 - 1), (xo_wide,)
+
         y = y0 - len(xo_rows) // 2
         x = x0 - xo_wide // 2
         yx = (y, x)
@@ -816,6 +829,9 @@ class TicTacTuhGameboard:  # 31 Wide x 23 High
         assert -1 not in (y_high, x_width), (y_high, x_width)
 
         y0 = y_high // 2 + y_high % 2
+        if flags.google:
+            y0 = 17 + 2  # todo3: not so magic a number as 17 to mean North-aligned
+
         x0 = x_width // 2 + x_width % 2
 
         return (y0, x0)
@@ -963,8 +979,8 @@ class TicTacTuhGameboard:  # 31 Wide x 23 High
         ...............................................
                      ......aaabbbccc......
                          ....gg.hh....
-                         ..dddeeefff.._______⌃_⌥_⇧_⌘_Fn
-                         ............._______D_←_↑_→_↓_
+                         ..dddeeefff..
+        ⌃_⌥_⇧_D__________.............__________←_↑_→_↓
 
     """
 
