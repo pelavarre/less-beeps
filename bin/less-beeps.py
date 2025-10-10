@@ -230,9 +230,9 @@ class MainClass:
         parser = ArgDocParser(doc, add_help=True)
 
         chord_help = "a Keyboard Chord to take as if pressed, such as 'F2' or 'Esc-F4'"
-        parser.add_argument("chords", metavar="CHORD", nargs="*", help=chord_help)
-
         yolo_help = "do what's popular now"
+
+        parser.add_argument("chords", metavar="CHORD", nargs="*", help=chord_help)
         parser.add_argument("--yolo", action="count", help=yolo_help)
 
         return parser
@@ -246,6 +246,8 @@ class MainClass:
 class TerminalStudio:
     """Run inside 1 Terminal Window Pane, till Quit"""
 
+    easter_eggs: list[str] = list()
+
     def __enter__(self) -> typing.Self:
         return self
 
@@ -257,6 +259,8 @@ class TerminalStudio:
 
         caps = ti.caps
         face = ti.face
+
+        easter_eggs = self.easter_eggs
 
         #
 
@@ -274,18 +278,22 @@ class TerminalStudio:
             tprint("⌃D to quit")
             tprint("F1 - Show this menu")
             tprint("F2 - TicTacTuh")
-            tprint("⎋F1 - Show a menu of tests to run")
             return
 
         if face == "F2":
             tprint("F2")
             board = TicTacTuhGameboard()
             board.try_tic_tac_tuh()
+
             sys.exit()  # todo1: stop exiting after F2
 
         #
 
         if face == "⎋F1":
+            if "⎋F1" not in easter_eggs:
+                easter_eggs.append("⎋F1")
+                tprint("Easter Egg!  Press ⎋ FnF1 to show this menu")
+
             tprint()
             tprint("⌃D to quit")
             tprint("⎋F1 - Show this menu")
@@ -293,38 +301,54 @@ class TerminalStudio:
             tprint("⎋F3 - Trace the Timing of Bursts of Bytes of Input")
             tprint("⎋F4 - Trace the Key Caps of Input")
             tprint("⎋F5 - Loopback the Bytes of Input")
+
             return
 
         if face == "⎋F2":
             tprint("⎋F2")
+
+            tprint()
             tbs = TerminalByteStudio()
             tbs.try_single_byte_times()
+
             sys.exit()  # todo1: stop exiting after ⎋F2
 
         if face == "⎋F3":
             tprint("⎋F3")
             tps = TerminalPokeStudio()
             tps.try_byte_burst_times()
+
             sys.exit()  # todo1: stop exiting after ⎋F3
 
         if face == "⎋F4":
             tprint("⎋F4")
             tis = TerminalInputStudio()
             tis.try_bytes_caps_face()
+
             sys.exit()  # todo1: stop exiting after ⎋F4
 
         if face == "⎋F5":
-            tprint("⎋F5")
+            tprint("Looping back, writing your Keyboard Bytes to your Screen, till ⌃D")
             tss = TerminalScreenStudio()
             tss.try_loopback()
+
             sys.exit()  # todo1: stop exiting after ⎋F5
 
         #
 
         tprint(ti.caps, end=" ")
 
-    # todo3: rewrite screen
-    # todo3: Route .tprint's through last MouseTerminal if it exists
+    # todo6: TerminalStudio: Not so bare the echoes of ⎋F5 etc
+
+    # todo5: Esc-F5: Add a Status Bar in the Southmost Row, to scroll Keystrokes
+    # todo5: Esc-F5: Arrows to drag the Status Bar around the Screen, also ASDF and HJKL
+    # todo5: Esc-F5: Drag the Y of the Status Bar, or its X Start/ X Stop
+    # todo5: Esc-F5: Toggle the Status Bar off and on with a Return or Tap or Click
+    # todo5: Esc-F5: Give the Status Bar an ⌥ Lock toggle for the Tap or Click
+    # todo5: Esc-F5: Bury the Status Bar more deeply for when testing Return Loopback
+
+    # todo3: Add ⌃L to rewrite screen
+    # todo3: Route .tprint's through last MouseTerminal if it exists, no longer to __stderr__
     # todo3: Mirror, but also update the Hardware if it overlaps, like track Y X in projection
     # todo3: Left Arrow wraps inside of a Line wrapped across Multiple Rows (Right Arrow doesn't)
 
@@ -1097,7 +1121,7 @@ class TerminalScreenStudio:
 
 class TerminalInputStudio:
 
-    def try_bytes_caps_face(self) -> None:  # ⎋F4
+    def try_bytes_caps_face(self) -> None:  # ⎋F4  # noqa  # todo3: factor out the noqa
         """Take Input as Touch Tap, as Mouse Click, or as Keyboard Chord, till Quit"""
 
         mt = mouse_terminal()
@@ -1107,13 +1131,13 @@ class TerminalInputStudio:
 
         # As late as now, trace the Writes of MouseTerminal.__enter__
 
-        kcaps_list = list()
+        entry_kcaps_list = list()
         for entry_data in mt.entries:
-            kcaps = kbytes_to_precise_kcaps(entry_data)
-            kcaps_list.append(kcaps)
+            entry_kcaps = kbytes_to_precise_kcaps(entry_data)
+            entry_kcaps_list.append(entry_kcaps)
 
         tprint()
-        tprint("Setup:", " ".join(kcaps_list))
+        tprint("Setup:", " ".join(entry_kcaps_list))
 
         # Launch a wide Ruler
 
@@ -1148,7 +1172,11 @@ class TerminalInputStudio:
 
         tprint()
         mt.row_y = min(mt.y_high, mt.row_y + 1)
+
+        index = -1
+        stealing_return_keystrokes = True
         while True:
+            index += 1
 
             # Prompt
 
@@ -1166,6 +1194,23 @@ class TerminalInputStudio:
             if not kbytes:
                 continue
 
+            # Take Return Keystroke as a Separator between Rows
+
+            if kbytes == b"\r":
+                if stealing_return_keystrokes:
+
+                    if index != 0:
+                        tprint("\r" + "\033[K")
+                    else:
+                        tprint("Easter Egg!  Press Return first, inside of ⎋F4")
+                        stealing_return_keystrokes = False
+
+                    mt.column_x = X1
+                    if mt.row_y < mt.y_high:
+                        mt.row_y += 1
+
+                    continue
+
             # Trace the Key Caps, as they come
 
             ti = TerminalInput(kbytes)
@@ -1176,7 +1221,17 @@ class TerminalInputStudio:
 
             caps = ti.caps
             if caps in ("⌃C", "⌃D", "⌃Z", "⌃\\"):
-                sys.exit()
+                break
+
+        # As early as now, trace the Writes of MouseTerminal.__exit__
+
+        exit_kcaps_list = list()
+        for exit_data in mt.entries:
+            exit_kcaps = kbytes_to_precise_kcaps(exit_data)
+            exit_kcaps_list.append(exit_kcaps)
+
+        tprint()
+        tprint("Teardown:", " ".join(exit_kcaps_list))
 
     def kbyte_tprint(self, kbyte: bytes) -> int:
         """Print each Byte, as they come"""
@@ -1286,10 +1341,22 @@ class TerminalPokeStudio:
         # Run till Quit
 
         tprint()
+        index = -1
+        stealing_return_keystrokes = True
         while True:
+            index += 1
 
             tp = mt.read_terminal_poke(timeout=None)
             reads_plus = (tp.reads + (tp.extra,)) if tp.extra else tp.reads
+
+            if reads_plus == (b"\r",):
+                if index == 0:
+                    tprint("Easter Egg!  Press Return first, inside of ⎋F2")
+                    stealing_return_keystrokes = False
+
+                if stealing_return_keystrokes:
+                    tprint()
+                    continue
 
             breaking = False
             for read in reads_plus:
@@ -1332,35 +1399,22 @@ class TerminalByteStudio:
 
         # As late as now, trace the Writes of MouseTerminal.__enter__
 
-        tprint()
-        tprint("Setup:")
-
-        for entry_data in mt.entries:
-            for b in entry_data:
-                tprint(bytes([b]))
+        tprint("Setup:", b"".join(mt.entries))
 
         # Launch a wide Ruler
 
         tprint()
         tprint(30 * "123456789 ")
 
-        # Launch a fetch of Terminal Width x Height
-
-        for t in "\033[18t":
-            tprint(t.encode())
-        mt.stdio.write("\033[18t")
-
-        # Launch a fetch of Terminal Cursor Y X
-
-        for t in "\033[6n":
-            tprint(t.encode())
-        mt.stdio.write("\033[6n")
-
         # Run till Quit
 
         tprint()
+
+        index = -1
         t0 = time.time()
+        stealing_return_keystrokes = True
         while True:
+            index += 1
 
             mt.stdio.flush()  # before each 'os.read' of .try_single_byte_times
 
@@ -1377,18 +1431,14 @@ class TerminalByteStudio:
             delay_list.append(t1 - t0)
             t0 = t1
 
-            while mt._kbhit_(timeout=0.000_001):
-
-                read = os.read(fd, length)  # trust ._kbhit_ flush'es before 'os.read' here
-                t1 = time.time()
-
-                read_list.append(read)
-                delay_list.append(t1 - t0)
-                t0 = t1
-
             if read_list == [b"\r"]:
-                tprint()
-                continue
+                if index == 0:
+                    tprint("Easter Egg!  Press Return first, inside of ⎋F2")
+                    stealing_return_keystrokes = False
+
+                if stealing_return_keystrokes:
+                    tprint()
+                    continue
 
             for read, delay in zip(read_list, delay_list):
                 tprint(f"{read!r} {sketch(delay, near=1e-3)}")
@@ -1400,6 +1450,11 @@ class TerminalByteStudio:
 
             if breaking:
                 break
+
+        tprint()
+
+        tprint("Teardown:", b"".join(mt.exits))
+        tprint()
 
 
 #
@@ -1671,7 +1726,7 @@ def sketch(f: float, near: float) -> str:
 
 # Name some Magic Numbers
 
-Immediately = 0.000_001
+# Immediately = 0.000_001
 
 Y1 = 1  # indexes Y Rows as Southbound across 1 .. Height
 X1 = 1  # indexes X Columns as Eastbound across 1 .. Width
@@ -1804,16 +1859,19 @@ class MouseTerminal:
             entries.append(b"\033[?1000;1006h")  # doesn't/does need ⌥ Option/ Alt on Taps/ Clicks
             exits.append(b"\033[?1000;1006l")
 
+        exits.reverse()
+
         # Write bits now to promise this Client will serve the Terminal well
 
         stdio.flush()  # before each 'os.write' of MouseTerminal.__enter__
+
+        assert entries[0] == b"\033[?25l", (entries[0],)
+        del entries[0]
 
         fd = fileno
         for entry_data in entries:
             data = entry_data
             os.write(fd, data)
-
-        os.write(fd, b"\033[?25h")  # todo3: stop showing by default for us
 
         # Succeed
 
@@ -2338,7 +2396,6 @@ class MouseTerminal:
 
     #
     # Read one Keyboard Chord, Mouse Arrow Burst, Mouse Click, or Touch Tap
-    # And fabricate the Key Caps and Bytes of a Mouse Release, when encoded as an Arrow Burst
     #
 
     def read_terminal_poke(self, timeout: float | None) -> TerminalPoke:
@@ -2347,7 +2404,6 @@ class MouseTerminal:
         fileno = self.fileno
         stdio = self.stdio
 
-        assert Immediately == 0.000_001
         assert DSR_5 == "\033[" "5n"
         assert DSR_0 == "\033[" "0n"
 
@@ -2370,6 +2426,7 @@ class MouseTerminal:
 
         t = t1
         m = None
+        join = b""
         while not m:
 
             stdio.flush()  # before 'os.read' of .read_terminal_poke
@@ -2378,37 +2435,30 @@ class MouseTerminal:
             length = 1
 
             read = os.read(fd, length)
-            read_plus = read
-
-            while self._kbhit_(timeout=0.000_001):
-                read = os.read(fd, length)  # trust ._kbhit_ flush'es before 'os.read' here
-                read_plus += read
+            join += read
 
             t2 = time.time()
 
             # Exactly once, write the ⎋[5 N Call for the ⎋[0 N Reply to close Input
             # Take quick and slow Inputs till the closing ⎋[0 N Reply does arrive
 
-            read = read_plus
             if not read_list:
-
                 stdio.write("\033[5n")
-
-                # todo: Try calling for different Replies to close Input
-                # todo: Don't call for Reply to close Text, except to close the ` of ⌥``
-
             else:
-
-                m = re.search(rb"\033\[0n", string=read_plus)
-                if m and (m.end() > 0):
-                    extra = read_plus[m.end() :]
-                    read = read_plus[: m.end()]
-
-                    # todo: Stop finding ⎋[0 N Closing Reply out of context
+                m = join.endswith(b"\033[0n")
 
             delay_list.append(t2 - t)
             read_list.append(read)
             t = t2
+
+            # todo: Try calling for different Replies to close Input
+            # todo: Don't call for Reply to close Text, except to close the ` of ⌥``
+            # todo: Stop finding ⎋[0 N Closing Reply out of context
+
+        assert len(read_list) == len(delay_list), (read_list, delay_list)
+        assert b"".join(read_list[-4:]) == b"\033[0n"
+        read_list[::] = read_list[:-4]
+        delay_list[::] = delay_list[:-4]
 
         #
 
