@@ -36,17 +36,14 @@ import difflib
 import math
 import os
 import pdb
-import re
 import select  # for select.select
 import signal
 import sys
 import termios  # for termios.TCSADRAIN
 import textwrap
-import time
 import tty  # for tty.setraw and tty.setcbreak
 import types
 import typing
-import unicodedata
 
 
 _: object  # blocks Mypy from aggressively narrowing the Datatype of '_ =' at first mention
@@ -86,8 +83,8 @@ def main() -> None:
     sys_argv_parse()
 
     with TerminalStudio() as ts:
-        ts.launch_quickly()
-        ts.run_awhile()
+        ts.launch_ts_quickly()
+        ts.run_ts_awhile()
 
 
 def sys_argv_parse() -> None:
@@ -131,49 +128,170 @@ terminal_studios = list()
 class TerminalStudio:
     """Run from the Shell Command Line, and launch the Py Repl vs uncaught Exceptions"""
 
+    stdio: typing.TextIO
+    fileno: int
+    tcgetattr: list[int | list[bytes | int]]  # replaced by .__enter__
+
     mock_screen: MockScreen
     mock_keyboard: MockKeyboard
 
+    #
+    # Init, Enter, Exit
+    #
+
     def __init__(self) -> None:
+
         terminal_studios.append(self)
 
+        assert sys.__stderr__ is not None  # refuses to run headless
+        stdio = sys.__stderr__
+        fileno = stdio.fileno()
+
         ms = MockScreen(self)
+
         mk = MockKeyboard(self, mock_screen=ms)
 
+        self.stdio = stdio
+        self.fileno = fileno
+        self.tcgetattr = list()  # replaced by .__enter__
         self.mock_screen = ms
         self.mock_keyboard = mk
 
-    def __enter__(self) -> "TerminalStudio":
+    def __enter__(self) -> TerminalStudio:
+
+        stdio = self.stdio
+        fileno = self.fileno
+        tcgetattr = self.tcgetattr
+
+        # Enter once
+
+        if tcgetattr:
+            return self
+
+        stdio.flush()  # before each 'tty.setraw' of TerminalStudio.__enter__
+
+        with_tcgetattr = termios.tcgetattr(fileno)
+        assert with_tcgetattr, (with_tcgetattr,)
+
+        self.tcgetattr = with_tcgetattr  # replaces
+
+        # Stop line-buffering Input, stop replacing \n Output with \r\n, etc
+
+        tty.setraw(fileno, when=termios.TCSADRAIN)  # todo: .when defaults to .TCSAFLUSH
+
+        # Succeed
+
         return self
 
-    def __exit__(self, *args: object) -> None:
-        pass
+        # todo: try termios.TCSAFLUSH to discard Input at entry
+        # todo: try tty.setcbreak, especially when debugging hangs
 
-    def launch_quickly(self) -> None:
+    def __exit__(self, *args: object) -> None:
+
+        stdio = self.stdio
+        fileno = self.fileno
+        tcgetattr = self.tcgetattr
+
+        # Exit once
+
+        if not tcgetattr:
+            return
+
+        stdio.flush()  # before each 'termios.tcsetattr' of TerminalStudio.__exit__
+
+        fd = fileno
+        when = termios.TCSADRAIN
+        attributes = tcgetattr
+        termios.tcsetattr(fd, when, attributes)
+
+        self.tcgetattr = list()  # replaces
+
+        return None
+
+        # todo: try termios.TCSAFLUSH to discard Input at exit
+
+    #
+    # Launch, run, quit
+    #
+
+    def launch_ts_quickly(self) -> None:
         """Launch quickly"""
 
-        print("⌃D to quit,  Fn F1 for more help,  or ⌥-Click far from the Cursor")
+        self.sprint("⌃D to quit,  Fn F1 for more help,  or ⌥-Click far from the Cursor")
 
-    def run_awhile(self) -> None:
+    def run_ts_awhile(self) -> None:
         """Run till quit, inside the Terminal"""
 
         while True:
-            kk = self.take_input()
-            self.give_reply(kk)
+            kk = self.take_ts_input()
+            self.give_ts_reply(kk)
             sys.exit()
 
-    def take_input(self) -> KeyboardKhord:
+    #
+    # Read & eval & print
+    #
+
+    def take_ts_input(self) -> KeyboardKhord:
         """Read one Keyboard Chord"""
 
         mk = self.mock_keyboard
-        kk = mk.read_keyboard_khord(timeout=None)
+        kk = mk.read_kk_khord(timeout=None)
 
         return kk
 
-    def give_reply(self, kk: KeyboardKhord) -> None:
+    def give_ts_reply(self, kk: KeyboardKhord) -> None:
         """Reply to one Keyboard Chord"""
 
-        print(kk)
+        self.sprint(kk)
+
+    #
+    # Fetch from Keyboard
+    #
+
+    def read_one_kbyte_if(self, timeout: float | None) -> bytes:
+        """Fetch one Byte from the Keyboard, else zero Bytes at Timeout"""
+
+        fileno = self.fileno
+
+        assert self.tcgetattr, (self.tcgetattr,)
+
+        kbhit = self.kbhit(timeout=timeout)  # includes .flush
+        if not kbhit:
+            return b""
+
+        fd = fileno
+        length = 1
+
+        kbyte = os.read(fd, length)
+        assert kbyte, (kbyte,)  # because .tcgetattr
+        assert len(kbyte) == 1, (kbyte,)  # because .length == 1
+
+        return kbyte
+
+    def kbhit(self, timeout: float | None) -> bool:
+        """Block till next Input Byte, else till Timeout, else till forever"""
+
+        stdio = self.stdio
+        fileno = self.fileno
+
+        assert self.tcgetattr, (self.tcgetattr,)
+
+        stdio.flush()
+
+        (r, w, x) = select.select([fileno], [], [], timeout)
+        hit = fileno in r
+
+        return hit
+
+    #
+    # Write to Screen
+    #
+
+    def sprint(self, *args: object, end: str = "\r\n") -> None:
+        """Write to the Terminal Screen"""
+
+        stdio = self.stdio
+        print(*args, end=end, file=stdio)
 
 
 @dataclasses.dataclass(order=True)  # , frozen=True)
@@ -194,19 +312,67 @@ class MockKeyboard:
     terminal_studio: TerminalStudio
     mock_screen: MockScreen
 
+    kbytesahead: bytearray
+    kbindex: int
+
+    kpack: KeyboardPack
+
     def __init__(self, terminal_studio: TerminalStudio, mock_screen: MockScreen) -> None:
+
         self.terminal_studio = terminal_studio
         self.mock_screen = mock_screen
-        self.mock_keyboard = self
 
-    def read_keyboard_khord(self, timeout: float | None) -> KeyboardKhord:
+        self.kbytesahead = bytearray()
+        self.kbindex = 0
+        self.kpack = KeyboardPack(b"")
+
+    def read_kk_khord(self, timeout: float | None) -> KeyboardKhord:
         """Read one Keyboard Chord"""
 
-        kk = KeyboardKhord(
-            kface="Return", kcaps="⌃M", kpack=KeyboardPack(b"\r"), kintsmark=b"", kints=list()
-        )
+        kbytesahead = self.kbytesahead
+        kbindex = self.kbindex
+        kpack = self.kpack
+
+        # Read nothing after timeout
+
+        empty_kk = KeyboardKhord(b"")
+        if kbindex >= len(kbytesahead):
+            self._fill_kbytesahead_(timeout)
+            if kbindex >= len(kbytesahead):
+                return empty_kk
+
+            # Read the ⌥``` Keyboard Khord Sequence as a single Keyboard Khord
+
+            option_backtick_backtick = KeyboardKhord(b"``")
+            if kbytesahead[kbindex:] == b"``":
+                kbindex += len(b"``")
+                return option_backtick_backtick
+
+        # Peek at one Byte, and close the Pack early if it doesn't fit, else read it in
+
+        kpack = KeyboardPack(kpack.to_kbytes())
+        self.kpack = kpack  # insists better copied than aliased
+
+        kbyte = bytes(kbytesahead[kbindex:][:1])
+        kbeyond = kpack.take_one_kbyte_if(kbyte)
+
+        if not kbeyond:
+            kbindex += 1
+
+        # Succeed
+
+        kbytes = kpack.to_kbytes()
+        kk = KeyboardKhord(kbytes)
 
         return kk
+
+    def _fill_kbytesahead_(self, timeout: float | None) -> None:
+        """Fetch Bytes into Self"""
+
+        ts = self.terminal_studio
+
+        kbyte = ts.read_one_kbyte_if(timeout=timeout)  # fetches one or zero K-Byte's
+        self.kbytesahead.extend(kbyte)
 
 
 #
@@ -465,13 +631,13 @@ def sketch(f: float, near: float, unit: str) -> str:
 
     log10_near = int(math.log10(near))
     if eng == log10_near:
-        rep = f"{neg}{concise}"
+        join = f"{neg}{concise}"
     elif eng <= 0:
-        rep = f"{neg}{concise}e{eng}{unit}"
+        join = f"{neg}{concise}e{eng}{unit}"
     else:
-        rep = f"{neg}{concise}e+{eng}{unit}"
+        join = f"{neg}{concise}e+{eng}{unit}"
 
-    return rep
+    return join
 
 
 #
@@ -540,10 +706,49 @@ class KeyboardKhord:
     kintsmark: bytes  # neck-start + back + tail
     kints: list[int]  # via Csi Neck after Csi Next Start
 
+    def __init__(self, kbytes: bytes) -> None:
+
+        kface = ""
+        kcaps = ""
+        kpack = KeyboardPack(kbytes)
+        kintsmark = b""
+        kints: list[int] = list()
+
+        self.kface = kface
+        self.kcaps = kcaps
+        self.kpack = kpack
+        self.kintsmark = kintsmark
+        self.kints = kints
+
+    def __str__(self) -> str:
+
+        kface = self.kface
+        kcaps = self.kcaps
+        kpack = self.kpack
+        kintsmark = self.kintsmark
+        kints = self.kints
+
+        parts = list()
+
+        if kface:
+            parts.append(kface)
+
+        # todo: parts.append(kcaps)
+        parts.append(str(kpack))
+
+        if not kintsmark:
+            assert not kints, (kints,)
+        else:
+            parts.append(str(kints))  # lets the .kpack show the .kintsmark
+
+        join = " ".join(parts)
+
+        return join
+
 
 @dataclasses.dataclass(order=True)  # , frozen=True)
 class KeyboardPack:
-    """Mirror one whole Os Read from a Terminal Keyboard"""
+    """Mirror one whole Byte Sequence from a Terminal Keyboard, or no Bytes"""
 
     Headbook = (b"\033", b"\033\033", b"\033\033O", b"\033\033[", b"\033O", b"\033[", b"\033]")
 
@@ -557,11 +762,11 @@ class KeyboardPack:
 
     closed: bool = False  # closed because completed, or because continuation undefined
 
-    # except the .text .head .back .back .stash .tail start empty, and may be left empty
+    #
+    # Init, Bool, Repr, Str, and .require_simple
+    #
 
     def __init__(self, kbytes: bytes) -> None:
-
-        # Form an empty Self
 
         self.text = ""
 
@@ -575,8 +780,161 @@ class KeyboardPack:
 
         # Add in the .kbytes
 
-        assert kbytes == b"\r", (kbytes,)
-        self.head.extend(kbytes)
+        for index in range(len(kbytes)):
+            kbyte = kbytes[index:][:1]
+            indexed_kbytes = kbytes[index:]
+
+            kbeyond = self.take_one_kbyte_if(kbyte)
+            if kbeyond:
+
+                raise ValueError(indexed_kbytes, kbytes)  # raises the b'\x80' of b'\xc0\x80'
+
+        # Succeed
+
+        self._require_simple_kpack_()
+
+        # maybe .closed, maybe not
+
+    def __bool__(self) -> bool:
+
+        kbytes = self.to_kbytes()
+        truthy = bool(kbytes or self.closed)
+        return truthy
+
+    def __repr__(self) -> str:
+
+        cname = self.__class__.__name__  # 'KeyboardPack'
+
+        text = self.text
+
+        head_ = bytes(self.head)  # reps bytearray(b'') loosely, as b''
+        neck_ = bytes(self.neck)
+        back_ = bytes(self.back)
+
+        stash_ = bytes(self.stash)
+        tail_ = bytes(self.tail)
+
+        closed = self.closed
+
+        join = f"text={text!r}, "
+        join += f"head={head_!r}, neck={neck_!r}, back={back_!r}, stash={stash_!r}, tail={tail_!r}"
+        join = f"{cname}({join}, {closed=})"
+
+        return join
+
+        # 'TerminalBytePack(head=b'', back=b'', neck=b'', stash=b'', tail=b'', closed=False)'
+
+    def __str__(self) -> str:
+
+        text = self.text
+
+        head_ = bytes(self.head)  # reps bytearray(b'') loosely, as b''
+        neck_ = bytes(self.neck)
+        back_ = bytes(self.back)
+
+        stash_ = bytes(self.stash)
+        tail_ = bytes(self.tail)
+
+        # Solve Text without Stash, and Text with Stash
+
+        if text:
+            if stash_:
+                return repr(text) + " " + str(stash_)  # "'abc' b'\xc0'"
+            return repr(text)  # "'abc'"
+
+        # Solve Headless without Stash, and Headless with Stash
+
+        if not head_:
+            if stash_:
+                return str(stash_)  # "b'\xc0'"
+            return repr(head_)  # "b''"
+
+        # Solve Headed, with or without Neck/ Back/ Stash/ Tail
+
+        join = str(head_)
+        if neck_:  # 'Parameter' Bytes
+            join += " " + str(neck_)
+        if back_ or stash_ or tail_:  # 'Intermediate' Bytes or Final Byte
+            assert (not stash_) or (not tail_), (stash_, tail_)
+            join += " " + str(back_ + stash_ + tail_)
+
+        return join  # consciously doesn't show if .closed
+
+        # "b'\033[' b'6' b' q'"
+
+    def to_kbytes(self) -> bytes:
+        """List the Bytes taken, as yet"""
+
+        text = self.text
+        head_ = bytes(self.head)
+        neck_ = bytes(self.neck)
+        back_ = bytes(self.back)
+        stash_ = bytes(self.stash)
+        tail_ = bytes(self.tail)
+
+        join = text.encode()
+        join += head_ + neck_ + back_ + stash_ + tail_
+
+        return join  # consciously doesn't show if .closed
+
+    def _require_simple_kpack_(self) -> None:
+        """Raise Exception when Self can't be real"""
+
+        text = self.text
+
+        head = self.head
+        neck = self.neck
+        back = self.back
+
+        stash = self.stash
+        tail = self.tail
+
+        closed = self.closed  # only via 'def close' if text or stash or not head
+
+        if (not text) and (not head):
+            assert (not neck) and (not back), (neck, back, self)
+            assert (not tail) and (not closed), (tail, closed, stash, self)
+
+        if text:
+            assert not head, (head, text, self)
+            assert (not neck) and (not back) and (not tail), (neck, back, tail, text, self)
+
+        if head:
+            assert not text, (text, head, self)
+
+        if neck or back or tail:
+            assert head, (head, neck, back, tail, self)
+            if tail:
+                assert closed, (closed, tail, self)
+
+        if stash:
+            assert not tail, (tail, closed, stash, self)
+
+        # todo: doesn't take bytes([0x80 | 0x0B]) as meaning b"\033\x5b" CSI ⎋[
+        # todo: doesn't take bytes([0x80 | 0x0F]) as meaning b"\033\x4f" SS3 ⎋O
+
+    #
+    # Take in one K-Byte and return 0 Bytes, else return the K-Byte that doesn't fit
+    #
+
+    def take_one_kbyte_if(self, kbyte: bytes) -> bytes:
+
+        head = self.head
+
+        kbytes = self.to_kbytes()
+        kbytes_plus = kbytes + kbyte
+
+        if kbytes_plus == b"``":  # accepts ⌥`` as b"``"
+            return b""
+
+        if kbytes:  # generally rejects more than 1 Byte per Pack
+            return kbyte
+
+        head.extend(kbyte)
+
+        self._require_simple_kpack_()
+
+        return b""
 
 
 @dataclasses.dataclass(order=True)  # , frozen=True)
