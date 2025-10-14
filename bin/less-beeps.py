@@ -83,7 +83,7 @@ def main() -> None:
 
     quickly = False
     quickly = True  # todo1: more often try quickly=False
-    KeyboardPack(b"")._try_keyboard_pack_(quickly)
+    KeyPack(b"")._try_key_pack_(quickly)
 
     sys_argv_parse()
     with TerminalStudio() as ts:
@@ -239,13 +239,13 @@ class TerminalStudio:
     # Read & eval & print
     #
 
-    def take_ts_input(self) -> KeyboardKhord:
-        """Read one Keyboard Chord"""
+    def take_ts_input(self) -> KeyKhord:
+        """Read one Key Chord"""
 
         mk = self.mock_keyboard
 
         while True:
-            kk = mk.read_kk_khord(timeout=None)
+            kk = mk.read_khord(timeout=None)
             kpack = kk.kpack
             self.sprint(kpack)
             if kpack.text or kpack.closed:
@@ -253,8 +253,8 @@ class TerminalStudio:
 
         return kk
 
-    def give_ts_reply(self, kk: KeyboardKhord) -> None:
-        """Reply to one Keyboard Chord"""
+    def give_ts_reply(self, kk: KeyKhord) -> None:
+        """Reply to one Key Chord"""
 
         self.sprint("ok")
 
@@ -329,7 +329,7 @@ class MockKeyboard:
     kbytesahead: bytearray
     kbindex: int
 
-    kpack: KeyboardPack
+    kpack: KeyPack
 
     def __init__(self, terminal_studio: TerminalStudio, mock_screen: MockScreen) -> None:
 
@@ -338,10 +338,10 @@ class MockKeyboard:
 
         self.kbytesahead = bytearray()
         self.kbindex = 0
-        self.kpack = KeyboardPack(b"")
+        self.kpack = KeyPack(b"")
 
-    def read_kk_khord(self, timeout: float | None) -> KeyboardKhord:
-        """Read one Keyboard Chord"""
+    def read_khord(self, timeout: float | None) -> KeyKhord:
+        """Read one Key Chord"""
 
         kbytesahead = self.kbytesahead
         kbindex = self.kbindex
@@ -349,22 +349,22 @@ class MockKeyboard:
 
         # Read nothing after timeout
 
-        empty_kk = KeyboardKhord(b"")
+        empty_kk = KeyKhord(b"")
         if kbindex >= len(kbytesahead):
             self._fill_kbytesahead_(timeout)
             if kbindex >= len(kbytesahead):
                 return empty_kk
 
-            # Read the ⌥``` Keyboard Khord Sequence as a single Keyboard Khord
+            # Read the ⌥``` Key Khord Sequence as a single Key Khord
 
-            option_backtick_backtick = KeyboardKhord(b"``")
+            option_backtick_backtick = KeyKhord(b"``")
             if kbytesahead[kbindex:] == b"``":
                 kbindex += len(b"``")
                 return option_backtick_backtick
 
         # Peek at one Byte, and close the Pack early if it doesn't fit, else read it in
 
-        kpack = KeyboardPack(kpack.to_kbytes())
+        kpack = KeyPack(kpack.to_kbytes())
         self.kpack = kpack  # insists better copied than aliased
 
         kbyte = bytes(kbytesahead[kbindex:][:1])
@@ -376,7 +376,7 @@ class MockKeyboard:
         # Succeed
 
         kbytes = kpack.to_kbytes()
-        kk = KeyboardKhord(kbytes)
+        kk = KeyKhord(kbytes)
 
         return kk
 
@@ -713,12 +713,12 @@ def excepthook(  # ) -> ...:
 
 
 @dataclasses.dataclass(order=True)  # , frozen=True)
-class KeyboardKhord:
+class KeyKhord:
     """Bundle one Tap or Click or Keyboard Input"""
 
     kface: str  # 'Return'
     kcaps: str  # '⌃M'
-    kpack: KeyboardPack  # .head .neck .back .stash .tail
+    kpack: KeyPack  # .head .neck .back .stash .tail
     kintsmark: bytes  # neck-start + back + tail
     kints: list[int]  # via Csi Neck after Csi Next Start
 
@@ -726,7 +726,7 @@ class KeyboardKhord:
 
         kface = ""
         kcaps = ""
-        kpack = KeyboardPack(kbytes)
+        kpack = KeyPack(kbytes)
         kintsmark = b""
         kints: list[int] = list()
 
@@ -761,9 +761,11 @@ class KeyboardKhord:
 
         return join
 
+        # todo1: examples of KeyKhord.__str__ results
+
 
 @dataclasses.dataclass(order=True)  # , frozen=True)
-class KeyboardPack:
+class KeyPack:
     """Bundle one whole Byte Sequence from a Terminal Keyboard, or no Bytes"""
 
     Headbook = (b"\033", b"\033\033", b"\033\033O", b"\033\033[", b"\033O", b"\033[", b"\033]")
@@ -810,7 +812,7 @@ class KeyboardPack:
 
     def __repr__(self) -> str:
 
-        cname = self.__class__.__name__  # 'KeyboardPack'
+        cname = self.__class__.__name__  # 'KeyPack'
 
         text = self.text
 
@@ -922,7 +924,7 @@ class KeyboardPack:
     # Run quick and slow Self-Test's
     #
 
-    def _try_keyboard_pack_(self, quickly: bool) -> None:
+    def _try_key_pack_(self, quickly: bool) -> None:
         """Run quick and slow Self-Test's"""
 
         t0 = time.time()
@@ -946,7 +948,7 @@ class KeyboardPack:
     def _try_headbook_(self) -> None:
         """Accept the Bytes of any Head of the Headbook, without closing the Pack"""
 
-        headbook = KeyboardPack.Headbook
+        headbook = KeyPack.Headbook
 
         for head in headbook:
             self._try_open_(head)
@@ -971,7 +973,7 @@ class KeyboardPack:
 
         # Decline Bytes after Closed
 
-        KeyboardPack(b"")._closed_()._try_drop_kbytes_(b"\x41")
+        KeyPack(b"")._closed_()._try_drop_kbytes_(b"\x41")
 
         # Take Bytes into Stash, while could be decodable
 
@@ -988,7 +990,7 @@ class KeyboardPack:
         self._try_close_(b"\033[M" b"\xc2\x80\xff")  # 6 Undecodable Bytes
         self._try_close_(b"\033[M" b"\xf4\x8f\xbf\xbf" b"\xf4\x8f\xbf\xbf" b"\xf4\x8f\xbf\xbf")
 
-        KeyboardPack(b"\033[M" b"\xff\xff")._try_drop_kbytes_(b"\xc2\x80")
+        KeyPack(b"\033[M" b"\xff\xff")._try_drop_kbytes_(b"\xc2\x80")
 
         # Take Bytes into Text
 
@@ -996,8 +998,8 @@ class KeyboardPack:
 
         # Decline 1..4 Unprintable Bytes after Text
 
-        KeyboardPack(b"Text")._try_drop_kbytes_(b"\x7f")
-        KeyboardPack(b"Plain")._try_drop_kbytes_("\uffff".encode())
+        KeyPack(b"Text")._try_drop_kbytes_(b"\x7f")
+        KeyPack(b"Plain")._try_drop_kbytes_("\uffff".encode())
 
     def _try_some_control_(self) -> None:
 
@@ -1021,7 +1023,7 @@ class KeyboardPack:
 
         # Decline 1..4 Undecodable Bytes, when escaped by CSI or Esc CSI or OSC
 
-        pass  # FIXME
+        pass  # todo1
 
         # Take or don't take 1 Decodable Char escaped by CSI or Esc CSI
 
@@ -1033,9 +1035,9 @@ class KeyboardPack:
 
         # Take or don't take 1 Decodable Char escaped by OSC
 
-        pass  # FIXME
+        pass  # todo1
 
-    def _closed_(self) -> KeyboardPack:
+    def _closed_(self) -> KeyPack:
         """Close, if not closed already, and return Self"""
 
         self.close()
@@ -1059,7 +1061,7 @@ class KeyboardPack:
         kpack = self._try_bytes_(*args)
         assert kpack.closed, (kpack,)
 
-    def _try_bytes_(self, *args: str | bytes) -> KeyboardPack:
+    def _try_bytes_(self, *args: str | bytes) -> KeyPack:
         """Require the Eval of the Str of the Pack equals its Bytes"""
 
         kbytes = b""
@@ -1071,7 +1073,7 @@ class KeyboardPack:
 
         join = " ".join(repr(_) for _ in args)
 
-        kpack = KeyboardPack(kbytes)
+        kpack = KeyPack(kbytes)
         kpack_kbytes = kpack.to_kbytes()
         kpack_str = str(kpack)
 
@@ -1295,7 +1297,7 @@ class KeyboardPack:
         # Accept the Bytes of any Head of the Headbook, without closing the Pack
 
         headbook = (b"\033", b"\033\033", b"\033\033O", b"\033\033[", b"\033O", b"\033[", b"\033]")
-        assert KeyboardPack.Headbook == headbook
+        assert KeyPack.Headbook == headbook
 
         head_plus = bytes(head + kbytes)
         if head_plus in headbook:
@@ -1523,7 +1525,7 @@ class KeyboardPack:
 
 
 @dataclasses.dataclass(order=True)  # , frozen=True)
-class KeyboardByte:
+class KeyByte:
     """Mirror one Os Read of one Byte, or zero Bytes, from a Terminal Keyboard"""
 
     t0: int  # time of Call
