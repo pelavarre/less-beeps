@@ -81,6 +81,10 @@ def main() -> None:
 
     sys.excepthook = excepthook
 
+    quickly = False
+    quickly = True  # todo1: more often try quickly=False
+    KeyboardPack(b"")._try_keyboard_pack_(quickly)
+
     sys_argv_parse()
     with TerminalStudio() as ts:
         ts.launch_ts_quickly()
@@ -92,7 +96,11 @@ def sys_argv_parse() -> None:
 
     argv = sys.argv
     parser = main_doc_to_parser()
-    parser.parse_args_if(argv[1:])
+    ns = parser.parse_args_if(argv[1:])
+
+    assert ns.yolo, (ns.yolo, ns)
+    assert ns.yxhw is None, (ns.yxhw, ns)
+    assert not ns.chords, (ns.chords, ns)
 
 
 def main_doc_to_parser() -> ArgDocParser:
@@ -786,18 +794,9 @@ class KeyboardPack:
 
         self.closed = False
 
-        # Add in the .kbytes
-
-        for index in range(len(kbytes)):
-            kbyte = kbytes[index:][:1]
-            kbytes_beyond = kbytes[index:]
-
-            kbyte_beyond = self.take_one_kbyte_if(kbyte)
-            if kbyte_beyond:
-
-                raise ValueError(kbytes_beyond, kbytes)  # raises the b'\x80' of b'\xc0\x80'
-
-        # Succeed
+        kbytes_beyond = self.take_some_kbytes_if(kbytes)
+        if kbytes_beyond:
+            raise ValueError(kbytes_beyond, kbytes)  # raises the b'\x80' of b'\xc0\x80'
 
         self._require_simple_kpack_()
 
@@ -901,7 +900,7 @@ class KeyboardPack:
 
         if (not text) and (not head):
             assert (not neck) and (not back), (neck, back, self)
-            assert (not tail) and (not closed), (tail, closed, stash, self)
+            assert not tail, (tail, stash, self)
 
         if text:
             assert not head, (head, text, self)
@@ -912,6 +911,7 @@ class KeyboardPack:
 
         if neck or back or tail:
             assert head, (head, neck, back, tail, self)
+            assert head in self.Headbook, (head, self.Headbook, self)
             if tail:
                 assert closed, (closed, tail, self)
 
@@ -919,77 +919,183 @@ class KeyboardPack:
             assert not tail, (tail, closed, stash, self)
 
     #
-    # Run Self-Test's
+    # Run quick and slow Self-Test's
     #
 
-    def _try_keyboard_pack_(self) -> None:
-        """Try some Packets open to, or closed against, taking more Bytes"""
+    def _try_keyboard_pack_(self, quickly: bool) -> None:
+        """Run quick and slow Self-Test's"""
 
-        # Try some Text and Stash
-
-        kpack = KeyboardPack(b"Superb")
-        assert str(kpack) == "'Superb'" and not kpack.closed, (kpack,)
-        kbytes_beyond = kpack._take_one_kbyte_if_(b"\xc2")
-        assert not kbytes_beyond and not kpack.closed, (kbytes_beyond, kpack.closed, kpack)
-        assert str(kpack) == r"'Superb' b'\xc2'", (repr(str(kpack)), kpack)
-
-        # Try some Packets left open to taking more Bytes
+        t0 = time.time()
 
         self._try_open_(b"")  # empty
-        self._try_open_(b"\033")  # first Byte of Esc Sequence
-        self._try_open_(b"\033\033")  # first Two Bytes of Esc-Esc Sequence
-        self._try_open_(b"\033O")  # first Two Bytes of Three-Byte SS3 Sequence
-        self._try_open_(b"\033[", b"6", b" ")  # CSI Head with Neck and Back but no Tail
+
+        self._try_headbook_()
+        if not quickly:
+            self._try_tailbook_()  # ~200ms
+
+        self._try_one_more_kbyte_()
+        self._try_some_control_()
+
+        t1 = time.time()
+        t1t0 = t1 - t0
+
+        assert t1t0 < 1.000, (t1t0,)
+        if quickly:
+            assert t1t0 < 0.001, (t1t0,)
+
+    def _try_headbook_(self) -> None:
+        """Accept the Bytes of any Head of the Headbook, without closing the Pack"""
+
+        headbook = KeyboardPack.Headbook
+
+        for head in headbook:
+            self._try_open_(head)
+
+    def _try_tailbook_(self) -> None:
+        """Require each Opener accepted by .any_decodes_startswith via the Tailbook"""
+
+        openers_set = set()
+        for cp in range(0x110000):
+            if 0xD800 <= cp <= 0xDFFF:  # skips surrogates
+                continue
+            kbytes = chr(cp).encode()
+            for index in range(1, len(kbytes) - 1):
+                opener = kbytes[:index]
+                openers_set.add(opener)
+
+        for opener in openers_set:
+            assert self.any_decodes_startswith(opener), (opener,)
+
+    def _try_one_more_kbyte_(self) -> None:
+        """Try some Packets open to, or closed against, taking more Bytes"""
+
+        # Decline Bytes after Closed
+
+        KeyboardPack(b"")._closed_()._try_drop_kbytes_(b"\x41")
+
+        # Take Bytes into Stash, while could be decodable
+
+        self._try_open_("Superb", b"\xc2")
         self._try_open_(b"\xed\x80")  # Head of >= 3 Byte UTF-8 Encoding
         self._try_open_(b"\xf4\x80\x80")  # Head of >= 4 Byte UTF-8 Encoding
-        self._try_open_(b"\033[M#\xff")  # Undecodable Head, incomplete CSI Mouse Report
-        self._try_open_(b"\033[M \xc4\x8a")  # Head only, 6 Byte incomplete CSI Mouse Report
 
-        # Try some Packets closed against taking more Bytes
+        # Take Bytes into 6-Char Mouse Report, while could be 6 Bytes or 6 Decoded Chars
 
-        self._try_closed_(b"\n")  # Head only, of 7-bit Control Byte
-        self._try_closed_(b"\033\033[", b"3;5", b"~")  # CSI Head with Neck and Tail, no Back
-        self._try_closed_(b"\xc0")  # Head only, of 8-bit Control Byte
-        self._try_closed_(b"\xff")  # Head only, of 8-bit Control Byte
-        self._try_closed_(b"\xc2\xad")  # Head only, of 2 Byte UTF-8 of U+00AD Soft-Hyphen Control
-        self._try_closed_(b"\033", b"A")  # Head & Text Tail of a Two-Byte Esc Sequence
-        self._try_closed_(b"\033", b"\t")  # Head & Control Tail of a Two-Byte Esc Sequence
-        self._try_closed_(b"\033O", b"P")  # Head & Text Tail of a Three-Byte SS3 Sequence
-        self._try_closed_(b"\033[", b"3;5", b"H")  # CSI Head with Next and Tail
-        self._try_closed_(b"\033[", b"6", b" q")  # CSI Head with Neck and Back & Tail
+        self._try_open_(b"\033[M" b"\xff\xff")  # 5 Undecodable Bytes
+        self._try_open_(b"\033[M" b".\xc2\xa3")  # 6 Decodable Bytes but < 6 Chars
+        self._try_open_(b"\033[M" b"\xf4\x8f\xbf\xbf" b"\xf4\x8f\xbf\xbf", b"\xf4\x8f\xbf")
 
-        # todo: Test each Control Flow Return? Test each Control Flow Branch?
+        self._try_close_(b"\033[M" b"\xc2\x80\xff")  # 6 Undecodable Bytes
+        self._try_close_(b"\033[M" b"\xf4\x8f\xbf\xbf" b"\xf4\x8f\xbf\xbf" b"\xf4\x8f\xbf\xbf")
 
-    def _try_open_(self, *args: bytes) -> None:
+        KeyboardPack(b"\033[M" b"\xff\xff")._try_drop_kbytes_(b"\xc2\x80")
+
+        # Take Bytes into Text
+
+        self._try_open_("\u20ac", "\ufffd".encode()[:-1])
+
+        # Decline 1..4 Unprintable Bytes after Text
+
+        KeyboardPack(b"Text")._try_drop_kbytes_(b"\x7f")
+        KeyboardPack(b"Plain")._try_drop_kbytes_("\uffff".encode())
+
+    def _try_some_control_(self) -> None:
+
+        # Take & close 1 Unprintable Char or 1..4 Undecodable Bytes as an Alt Head
+
+        self._try_close_(b"\n")  # Head only, of 7-bit Control Byte
+        self._try_close_(b"\xc0")  # Head only, of 8-bit Control Byte
+        self._try_close_(b"\xc2\xad")  # Head only, of 2 Byte UTF-8 of U+00AD Soft-Hyphen Control
+        self._try_close_(b"\xf5")
+        self._try_close_(b"\xff")  # Head only, of 8-bit Control Byte
+        self._try_close_(b"\xf4\x8f\xbf\xc0")
+
+        # Take & close 1 Printable Char escaped by a Head simpler than CSI, Esc CSI, and OSC
+
+        self._try_close_(b"\033", b"A")  # Head & Text Tail of a Two-Byte Esc Sequence
+        self._try_close_(b"\033O", b"P")  # Head & Text Tail of a Three-Byte SS3 Sequence
+
+        # Take & close 1 Unprintable Char or 1..4 Undecodable Bytes escaped by a Simpler Head
+
+        self._try_close_(b"\033", b"\t")  # Head & Control Tail of a Two-Byte Esc Sequence
+
+        # Decline 1..4 Undecodable Bytes, when escaped by CSI or Esc CSI or OSC
+
+        pass  # FIXME
+
+        # Take or don't take 1 Decodable Char escaped by CSI or Esc CSI
+
+        self._try_open_(b"\033[", b"6", b" ")  # CSI Head with Neck and Back but no Tail
+
+        self._try_close_(b"\033\033[", b"3;5", b"~")  # CSI Head with Neck and Tail, no Back
+        self._try_close_(b"\033[", b"3;5", b"H")  # CSI Head with Next and Tail
+        self._try_close_(b"\033[", b"6", b" q")  # CSI Head with Neck and Back & Tail
+
+        # Take or don't take 1 Decodable Char escaped by OSC
+
+        pass  # FIXME
+
+    def _closed_(self) -> KeyboardPack:
+        """Close, if not closed already, and return Self"""
+
+        self.close()
+        return self
+
+    def _try_drop_kbytes_(self, kbytes: bytes) -> None:
+        """Require the Pack to reject these Bytes"""
+
+        kbytes_beyond = self.take_some_kbytes_if(kbytes)
+        assert kbytes_beyond == kbytes, (kbytes_beyond, kbytes)
+
+    def _try_open_(self, *args: str | bytes) -> None:
         """Require the Eval of the Str of the Pack equals its Bytes"""
 
         kpack = self._try_bytes_(*args)
         assert not kpack.closed, (kpack,)
 
-    def _try_closed_(self, *args: bytes) -> None:
+    def _try_close_(self, *args: bytes) -> None:
         """Require the Eval of the Str of the Pack equals its Bytes"""
 
         kpack = self._try_bytes_(*args)
         assert kpack.closed, (kpack,)
 
-    def _try_bytes_(self, *args: bytes) -> KeyboardPack:
+    def _try_bytes_(self, *args: str | bytes) -> KeyboardPack:
         """Require the Eval of the Str of the Pack equals its Bytes"""
 
-        kbytes = b"".join(args)
-        join = " ".join(str(_) for _ in args)
+        kbytes = b""
+        for arg in args:
+            if isinstance(arg, str):
+                kbytes += arg.encode()
+            else:
+                kbytes += arg
+
+        join = " ".join(repr(_) for _ in args)
 
         kpack = KeyboardPack(kbytes)
         kpack_kbytes = kpack.to_kbytes()
         kpack_str = str(kpack)
 
         assert kpack_kbytes == kbytes, (kpack_kbytes, kbytes)
-        assert kpack_str == join, (kbytes, kpack_kbytes, join)
+        assert kpack_str == join, (kpack_str, join)
 
         return kpack
 
     #
     # Take in one K-Byte and return 0 Bytes, else return the K-Byte that doesn't fit
     #
+
+    def take_some_kbytes_if(self, kbytes: bytes) -> bytes:
+        """Take in next N Bytes and return 0 Bytes, else return 1..4 Bytes that don't fit"""
+
+        for index in range(len(kbytes)):
+            kbyte = kbytes[index:][:1]
+
+            kbytes_beyond = self.take_one_kbyte_if(kbyte)
+            if kbytes_beyond:
+                kbytes_beyond_plus = kbytes_beyond + kbytes[index:][1:]
+                return kbytes_beyond_plus
+
+        return b""
 
     def take_one_kbyte_if(self, kbyte: bytes) -> bytes:
         """Take in next 1 Byte and return 0 Bytes, else return 1..4 Bytes that don't fit"""
@@ -1002,8 +1108,12 @@ class KeyboardPack:
     def _take_one_kbyte_if_(self, kbyte: bytes) -> bytes:
         """Take in next 1 Byte and return 0 Bytes, else return 1..4 Bytes that don't fit"""
 
+        assert len(kbyte) == 1, (kbyte,)
+
         text = self.text
         head = self.head
+        neck = self.neck
+        back = self.back
         closed = self.closed
 
         # Decline Bytes after Closed
@@ -1011,7 +1121,14 @@ class KeyboardPack:
         if closed:
             return kbyte  # declines Byte after Closed
 
-        # Take 1 Byte into Stash, if next Bytes could make it Decodable
+        # Take ⎋[⇧M as starts a CSI Mouse Report of 6 Bytes or 6 Chars
+
+        if (head == b"\033[") and (not neck) and (not back):
+            if kbyte == b"M":
+                head.extend(kbyte)
+                return b""  # takes 3rd Byte of CSI Mouse Report
+
+        # Take Bytes into Stash, while could be decodable
 
         (stash_plus_decodes, stash_beyond) = self._take_one_stashable_if(kbyte)
         assert len(stash_plus_decodes) <= 1, (stash_plus_decodes, stash_beyond, kbyte)
@@ -1021,15 +1138,16 @@ class KeyboardPack:
         if stash_plus_decodes:
             assert stash_plus_decodes == stash_beyond.decode(), (stash_plus_decodes, stash_beyond)
 
-        # Take 1 Byte into 6-Char Mouse Report, if next Bytes could close as Mouse Report
+        # Take Bytes into a CSI Mouse Report of 6 Bytes or 6 Chars
 
-        sixem_beyond = self._take_some_sixem_if_(stash_beyond)
-        if not sixem_beyond:
-            return b""  # holds 1..5 Undecodable Bytes, or 1..11 Bytes as 1..5 Chars as Mouse Report
+        if head.startswith(b"\033[M"):
+            sixem_beyond = self._take_some_sixem_if_(stash_beyond)
+            return sixem_beyond
 
-        assert sixem_beyond == stash_beyond, (sixem_beyond, stash_beyond)
+            # holds 4..5 Undecodable Bytes, or 1..11 Bytes as 1..5 Chars of Mouse Report, or
+            # takes 6 Undecodable Bytes or 6..12 Bytes as 6 Chars of Mouse Report
 
-        # Take 1 Char into Text
+        # Take Bytes into Text
 
         if stash_plus_decodes:
             printable = stash_plus_decodes.isprintable()
@@ -1037,12 +1155,14 @@ class KeyboardPack:
                 self.text += stash_plus_decodes
                 return b""  # takes the first Printable Char into Text, or a later
 
+        # Decline 1..4 Unprintable Bytes after Text
+
         if text:
-            return sixem_beyond  # declines 1..4 Unprintable Bytes after Text
+            return stash_beyond
 
         # Take 1 Char into 1 Control Sequence
 
-        control_beyond = self._take_some_control_if_(stash_plus_decodes, kbytes=sixem_beyond)
+        control_beyond = self._take_some_control_if_(stash_plus_decodes, kbytes=stash_beyond)
         return control_beyond
 
     def _take_one_stashable_if(self, kbyte: bytes) -> tuple[str, bytes]:
@@ -1068,9 +1188,9 @@ class KeyboardPack:
         return (decode, stash_plus)  # forwards 1..4 Decodable Bytes
 
     def any_decodes_startswith(self, kbytes: bytes) -> str:
-        """Say if these Bytes start 1 or more UTF-8 Encodings of Chars"""
+        """Say if some Bytes start 1 or more UTF-8 Encodings of Chars"""
 
-        closers = (b"\x80", b"\xbf", b"\x80\x80", b"\xbf\xbf", b"\x80\x80\x80", b"\xbf\xbf\xbf")
+        closers = self.Tailbook
 
         for closer in closers:
             encode = kbytes + closer
@@ -1083,27 +1203,37 @@ class KeyboardPack:
 
         return ""
 
-        # b"\xc2\x80", b"\xe0\xa0\x80", b"\xf0\x90\x80\x80" .. b"\xf4\x8f\xbf\xbf"
-        # todo: Invent UTF-8'ish Encoding beyond 1..4 Bytes for Unicode Codes < 0x110000 ?
+    Tailbook = (b"\xbf", b"\x80\x80", b"\xbf\xbf", b"\x80\x80\x80", b"\xbf\xbf\xbf")
+
+    #
+    # for b"\xc2", b"\xed", b"\xe0", b"\xf4", b"\xf0", & friends
+    # because =>
+    #
+    # "\u0000"  # b"\x00"
+    # "\u007f"  # b"\x7f"
+    #
+    # "\u0080"  # b"\xc2\x80" accepted with b"\xc2\xbf", could be accepted as b"\xc2\x80"
+    # "\u07ff"  # b"\xdf\xbf" ditto
+    #
+    # "\u0800"  # b"\xe0\xa0\x80" accepted with b"\xe0\xbf\xbf"
+    # "\ud7ff"  # b"\xed\x9f\xbf" accepted with b"\xed\x80\x80"
+    # "\ud800".."\udfff"  # rejected as b"\xed\xa0\x80" .. b"\xed\xbf\xbf" surrogates
+    # "\ue000"  # b"\xee\x80\x80" accepted
+    # "\uffff"  # b"\xef\xbf\xbf" accepted
+    #
+    # "\U00010000"  # b"\xf0\x90\x80\x80" accepted with "\xf0\xbf\xbf\xbf"
+    # "\U0010ffff"  # b"\xf4\x8f\xbf\xbf" accepted with "\xf4\x80\x80\x80"
+    #
+
+    # todo: Invent UTF-8'ish Encoding beyond 1..4 Bytes for Unicode Codes > 0x10_FFFF ?
 
     def _take_some_sixem_if_(self, kbytes: bytes) -> bytes:
-        """Take 1 Byte into Mouse Report, if next Bytes could close as Mouse Report"""
+        """Take Bytes into a CSI Mouse Report of 6 Bytes or 6 Chars"""
 
         assert kbytes, (kbytes,)
 
         head = self.head
-        neck = self.neck
-        back = self.back
-
-        # Do take the 3rd Byte of this kind of CSI here, and don't take the first 2 Bytes here
-
-        if (head == b"\033[") and (not neck) and (not back):
-            if kbytes == b"M":
-                head.extend(kbytes)
-                return b""  # takes 3rd Byte of CSI Mouse Report here
-
-        if not head.startswith(b"\033[M"):  # ⎋[M Mouse Report
-            return kbytes  # doesn't take the first 2 Bytes of Mouse Report here
+        assert head.startswith(b"\033[M"), (head,)  # ⎋[M Mouse Report
 
         # Take 3..15 Bytes into a 3..6 Char Mouse Report
 
@@ -1123,7 +1253,7 @@ class KeyboardPack:
         # Take 4..15 Bytes into a 6 Byte Mouse Report
 
         if len(head_plus) > 6:  # 6..15 Bytes
-            return kbytes  # declines 2..4 Bytes into 5 of 6 Chars or into 5 of 6 Bytes
+            return kbytes  # declines 1 Byte into 5 of 6 Chars or into 5 of 6 Bytes
 
         head.extend(kbytes)
         if len(head_plus) == 6:
@@ -1147,22 +1277,22 @@ class KeyboardPack:
         assert not tail, (tail,)
         assert not closed, (closed,)
 
-        # Require Caller to route 6-Char Mouse Reports elsewhere
+        # Require Caller to route elsewhere the CSI Mouse Reports of 6 Bytes or 6 Chars
 
         assert not head.startswith(b"\033[M"), (head,)  # 6-Char Mouse Report
 
-        # Judge as printable or not
+        # Mark as Printable Char or not
 
         printable = False
         if decodes:
             assert len(decodes) == 1, (decodes, kbytes)
-            printable = decodes.isprintable()
+            printable = decodes.isprintable()  # U+0020..U+007E, U+00A1..U+00AC, U+00AE..U+00FF, etc
 
-            # Require Caller to route Printable Chars elsewhere till Head chosen
+            # Require Caller to route elsewhere the Printable Chars till Head chosen
 
             assert head or not printable, (decodes, kbytes, head, printable)
 
-        # Take first 1 or 2 or 3 Bytes into Esc Sequences, without closing
+        # Accept the Bytes of any Head of the Headbook, without closing the Pack
 
         headbook = (b"\033", b"\033\033", b"\033\033O", b"\033\033[", b"\033O", b"\033[", b"\033]")
         assert KeyboardPack.Headbook == headbook
@@ -1172,7 +1302,7 @@ class KeyboardPack:
             head.extend(kbytes)
             return b""  # takes first 1 or 2 or 3 Bytes into Esc Sequences, without closing
 
-        # Take & close 1 Unprintable Char or 1..4 Undecodable Bytes as Head
+        # Take & close 1 Unprintable Char or 1..4 Undecodable Bytes as an Alt Head
 
         if not head:
             if not printable:
@@ -1182,16 +1312,16 @@ class KeyboardPack:
 
             # takes \b \t \n \r \x7f etc
 
-        # Take & close 1 Escaped Printable Decoded Char,
-        # as Tail after Head of  ⎋ Esc  ⎋⎋ Esc Esc  ⎋O SS3  ⎋⎋O Esc SS3
+        # Take & close 1 Printable Char escaped by a Head simpler than CSI, Esc CSI, and OSC
 
-        if bytes(head) in (b"\033", b"\033\033", b"\033\033O", b"\033O"):
+        bytes_head = bytes(head)
+        if bytes_head in (b"\033", b"\033\033", b"\033\033O", b"\033O"):
             if printable:
                 tail.extend(kbytes)
                 self.closed = True
-                return b""  # takes & closes 1 Escaped Printable Decoded Char
+                return b""  # takes & closes 1 Escaped Printable Char
 
-            # Take & close Unprintable Chars or 1..4 Undecodable Bytes, as Escaped Tail
+            # Take & close 1 Unprintable Char or 1..4 Undecodable Bytes escaped by a Simpler Head
 
             tail.extend(kbytes)  # todo: More test of Unprintable/ Undecodable Tails after ⎋O or ⎋⎋O
             self.closed = True
@@ -1202,7 +1332,7 @@ class KeyboardPack:
             # doesn't take bytes([0x80 | 0x0B]) as meaning b"\033\x5b" CSI ⎋[
             # doesn't take bytes([0x80 | 0x0F]) as meaning b"\033\x4f" SS3 ⎋O
 
-        # Decline 1..4 Undecodable Bytes, when escaped by CSI or Esc CSI
+        # Decline 1..4 Undecodable Bytes, when escaped by CSI or Esc CSI or OSC
 
         if not decodes:
             return kbytes  # declines 1..4 Undecodable Bytes
@@ -1211,18 +1341,18 @@ class KeyboardPack:
         assert len(decodes) == 1, (decodes, kbytes)
         assert kbytes == decode.encode(), (kbytes, decodes)
 
-        # Take or don't take 1 Decodable Char into OSC Sequence
+        # Take or don't take 1 Decodable Char escaped by CSI or Esc CSI
 
-        if bytes(head) == b"\033]":
-            osc_beyond = self._take_one_osc_if_(decode)
-            return osc_beyond  # maybe empty
+        if bytes_head in (b"\033[", b"\033\033["):
+            esc_csi_beyond = self._take_one_esc_csi_if_(decode)
+            return esc_csi_beyond  # maybe empty
 
-            # todo: Esc Osc Sequences
+        # Take or don't take 1 Decodable Char escaped by OSC
 
-        # Take or don't take 1 Decodable Char into CSI or Esc CSI Sequence
+        assert bytes_head == b"\033]", (bytes_head,)
 
-        esc_csi_beyond = self._take_one_esc_csi_if_(decode)
-        return esc_csi_beyond  # maybe empty
+        osc_beyond = self._take_one_osc_if_(decode)
+        return osc_beyond  # maybe empty
 
     def _take_one_esc_csi_if_(self, decode: str) -> bytes:
         """Take 1 Char into CSI or Esc CSI Sequence, else return 1..4 Bytes that don't fit"""
@@ -1240,19 +1370,15 @@ class KeyboardPack:
         # Look only at unclosed CSI or Esc CSI Sequence
 
         assert CSI == "\033[", (CSI,)  # ⎋[
-        if not head.startswith(b"\033\033["):  # ⎋⎋[ Esc CSI
-            assert head.startswith(b"\033["), (head,)  # ⎋[ CSI
+        assert bytes(head) in (b"\033[", b"\033\033["), (bytes(head),)
 
         assert not tail, (tail,)
         assert not closed, (closed,)
 
-        byte = chr(code).encode()
-        assert byte == encode, (byte, encode)
-
         # Decline 1..4 Bytes of Unprintable or Multi-Byte Char
 
         if not (0x20 <= code <= 0x7F):
-            return byte  # declines 2..4 Bytes of 1 Unprintable or Multi-Byte Char
+            return encode  # declines 2..4 Bytes of 1 Unprintable or Multi-Byte Char
 
             # todo: More test of Unprintable/ Undecodable Tails after ⎋[ or ⎋⎋[
 
@@ -1264,22 +1390,22 @@ class KeyboardPack:
 
         if not back:
             if 0x30 <= code < 0x40:  # 16 Codes  # 0123456789:;<=>?
-                neck.extend(byte)
+                neck.extend(encode)
                 return b""  # takes 1 of 16 Parameter Byte Codes
 
         if 0x20 <= code < 0x30:  # 16 Codes  # Spacebar !"#$%&\'()*+,-./
-            back.extend(byte)
+            back.extend(encode)
             return b""  # takes 1 of 16 Intermediate Byte Codes
 
         if 0x40 <= code < 0x7F:  # 63 Codes  # @A Z[\\]^_`a z{|}~
             assert not tail, (tail,)
-            tail.extend(byte)
+            tail.extend(encode)
             self.closed = True
             return b""  # takes 1 of 63 Final Byte Codes
 
         # Decline 1 Byte of Unprintable Char
 
-        return byte  # declines 1 Byte <= b"\x7f" of Unprintable Char
+        return encode  # declines 1 Byte <= b"\x7f" of Unprintable Char
 
         # splits '⎋[200~' and '⎋[201~' away from enclosed Bracketed Paste
 
@@ -1444,24 +1570,6 @@ _END_PASTE_ = "\033[" "201~"  # ⎋[201⇧~
 
 SM_DECTCEM = "\033[" "?25h"  # 06/08 Set Mode (SMS) 25 VT220 Show Cursor
 RM_DECTCEM = "\033[" "?25l"  # 06/12 Reset Mode (RM) 25 VT220 Hide Cursor
-
-
-#
-# Run self-tests  # todo1: more often
-#
-
-
-def main_self_test() -> None:
-    """Call Self-Test's and print how slowly they run"""
-
-    t0 = time.time()
-    print(t0)
-
-    kpack = KeyboardPack(b"")
-    kpack._try_keyboard_pack_()  # < 2ms
-
-    t1 = time.time()
-    print(t1 - t0)
 
 
 #
