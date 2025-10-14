@@ -773,10 +773,10 @@ class KeyPack:
     text: str  # 0 or more Chars of Printable Text, mutates as the Pack grows
 
     head: bytearray  # 1 Leading Bytes, starts with Control Byte, from the .Headbook or not
-    neck: bytearray  # CSI Parameter Bytes, in 0x30..0x3F (16 Codes)  # ...... 0123456789:;<=>?
-    back: bytearray  # CSI Intermediate Bytes, in 0x20..0x2F (16 Codes)  # .... !"#$%&'()*+,-./
+    neck: bytearray  # Csi Parameter Bytes, in 0x30..0x3F (16 Codes)  # ...... 0123456789:;<=>?
+    back: bytearray  # Csi Intermediate Bytes, in 0x20..0x2F (16 Codes)  # .... !"#$%&'()*+,-./
     stash: bytearray  # 1..3 Bytes taken for now, in hope of decoding 2..4 Later
-    tail: bytearray  # CSI Final Byte, in 0x40..0x7E (63 Codes)
+    tail: bytearray  # Csi Final Byte, in 0x40..0x7E (63 Codes)
 
     closed: bool = False  # closed because completed, or because continuation undefined
 
@@ -1012,28 +1012,28 @@ class KeyPack:
         self._try_close_(b"\xff")  # Head only, of 8-bit Control Byte
         self._try_close_(b"\xf4\x8f\xbf\xc0")
 
-        # Take & close 1 Printable Char escaped by a Head simpler than CSI, Esc CSI, and OSC
+        # Take & close 1 Printable Char escaped by a Head simpler than Csi, Esc Csi, and Osc
 
         self._try_close_(b"\033", b"A")  # Head & Text Tail of a Two-Byte Esc Sequence
-        self._try_close_(b"\033O", b"P")  # Head & Text Tail of a Three-Byte SS3 Sequence
+        self._try_close_(b"\033O", b"P")  # Head & Text Tail of a Three-Byte Ss3 Sequence
 
         # Take & close 1 Unprintable Char or 1..4 Undecodable Bytes escaped by a Simpler Head
 
         self._try_close_(b"\033", b"\t")  # Head & Control Tail of a Two-Byte Esc Sequence
 
-        # Decline 1..4 Undecodable Bytes, when escaped by CSI or Esc CSI or OSC
+        # Decline 1..4 Undecodable Bytes, when escaped by Csi or Esc Csi or Osc
 
         pass  # todo1
 
-        # Take or don't take 1 Decodable Char escaped by CSI or Esc CSI
+        # Take or don't take 1 Decodable Char escaped by Csi or Esc Csi
 
-        self._try_open_(b"\033[", b"6", b" ")  # CSI Head with Neck and Back but no Tail
+        self._try_open_(b"\033[", b"6", b" ")  # Csi Head with Neck and Back but no Tail
 
-        self._try_close_(b"\033\033[", b"3;5", b"~")  # CSI Head with Neck and Tail, no Back
-        self._try_close_(b"\033[", b"3;5", b"H")  # CSI Head with Next and Tail
-        self._try_close_(b"\033[", b"6", b" q")  # CSI Head with Neck and Back & Tail
+        self._try_close_(b"\033\033[", b"3;5", b"~")  # Esc Csi Head with Neck and Tail, no Back
+        self._try_close_(b"\033[", b"3;5", b"H")  # Csi Head with Neck and Tail, no Back
+        self._try_close_(b"\033[", b"6", b" q")  # Csi Head with Neck and Back & Tail
 
-        # Take or don't take 1 Decodable Char escaped by OSC
+        # Take or don't take 1 Decodable Char escaped by Osc
 
         pass  # todo1
 
@@ -1123,12 +1123,12 @@ class KeyPack:
         if closed:
             return kbyte  # declines Byte after Closed
 
-        # Take ⎋[⇧M as starts a CSI Mouse Report of 6 Bytes or 6 Chars
+        # Take ⎋[⇧M as starts a Csi Mouse Report of 6 Bytes or 6 Chars
 
         if (head == b"\033[") and (not neck) and (not back):
             if kbyte == b"M":
                 head.extend(kbyte)
-                return b""  # takes 3rd Byte of CSI Mouse Report
+                return b""  # takes 3rd Byte of Csi Mouse Report
 
         # Take Bytes into Stash, while could be decodable
 
@@ -1140,7 +1140,7 @@ class KeyPack:
         if stash_plus_decodes:
             assert stash_plus_decodes == stash_beyond.decode(), (stash_plus_decodes, stash_beyond)
 
-        # Take Bytes into a CSI Mouse Report of 6 Bytes or 6 Chars
+        # Take Bytes into a Csi Mouse Report of 6 Bytes or 6 Chars
 
         if head.startswith(b"\033[M"):
             sixem_beyond = self._take_some_sixem_if_(stash_beyond)
@@ -1230,7 +1230,7 @@ class KeyPack:
     # todo: Invent UTF-8'ish Encoding beyond 1..4 Bytes for Unicode Codes > 0x10_FFFF ?
 
     def _take_some_sixem_if_(self, kbytes: bytes) -> bytes:
-        """Take Bytes into a CSI Mouse Report of 6 Bytes or 6 Chars"""
+        """Take Bytes into a Csi Mouse Report of 6 Bytes or 6 Chars"""
 
         assert kbytes, (kbytes,)
 
@@ -1279,7 +1279,7 @@ class KeyPack:
         assert not tail, (tail,)
         assert not closed, (closed,)
 
-        # Require Caller to route elsewhere the CSI Mouse Reports of 6 Bytes or 6 Chars
+        # Require Caller to route elsewhere the Csi Mouse Reports of 6 Bytes or 6 Chars
 
         assert not head.startswith(b"\033[M"), (head,)  # 6-Char Mouse Report
 
@@ -1314,7 +1314,7 @@ class KeyPack:
 
             # takes \b \t \n \r \x7f etc
 
-        # Take & close 1 Printable Char escaped by a Head simpler than CSI, Esc CSI, and OSC
+        # Take & close 1 Printable Char escaped by a Head simpler than Csi, Esc Csi, and Osc
 
         bytes_head = bytes(head)
         if bytes_head in (b"\033", b"\033\033", b"\033\033O", b"\033O"):
@@ -1331,10 +1331,10 @@ class KeyPack:
 
             # does take ⎋\x10 ⎋\b ⎋\t ⎋\n ⎋\r ⎋\x7f etc
 
-            # doesn't take bytes([0x80 | 0x0B]) as meaning b"\033\x5b" CSI ⎋[
-            # doesn't take bytes([0x80 | 0x0F]) as meaning b"\033\x4f" SS3 ⎋O
+            # doesn't take bytes([0x80 | 0x0B]) as meaning b"\033\x5b" Csi ⎋[
+            # doesn't take bytes([0x80 | 0x0F]) as meaning b"\033\x4f" Ss3 ⎋O
 
-        # Decline 1..4 Undecodable Bytes, when escaped by CSI or Esc CSI or OSC
+        # Decline 1..4 Undecodable Bytes, when escaped by Csi or Esc Csi or Osc
 
         if not decodes:
             return kbytes  # declines 1..4 Undecodable Bytes
@@ -1343,13 +1343,13 @@ class KeyPack:
         assert len(decodes) == 1, (decodes, kbytes)
         assert kbytes == decode.encode(), (kbytes, decodes)
 
-        # Take or don't take 1 Decodable Char escaped by CSI or Esc CSI
+        # Take or don't take 1 Decodable Char escaped by Csi or Esc Csi
 
         if bytes_head in (b"\033[", b"\033\033["):
             esc_csi_beyond = self._take_one_esc_csi_if_(decode)
             return esc_csi_beyond  # maybe empty
 
-        # Take or don't take 1 Decodable Char escaped by OSC
+        # Take or don't take 1 Decodable Char escaped by Osc
 
         assert bytes_head == b"\033]", (bytes_head,)
 
@@ -1357,7 +1357,7 @@ class KeyPack:
         return osc_beyond  # maybe empty
 
     def _take_one_esc_csi_if_(self, decode: str) -> bytes:
-        """Take 1 Char into CSI or Esc CSI Sequence, else return 1..4 Bytes that don't fit"""
+        """Take 1 Char into Csi or Esc Csi Sequence, else return 1..4 Bytes that don't fit"""
 
         assert len(decode) == 1, decode
         code = ord(decode)
@@ -1369,7 +1369,7 @@ class KeyPack:
         tail = self.tail
         closed = self.closed
 
-        # Look only at unclosed CSI or Esc CSI Sequence
+        # Look only at unclosed Csi or Esc Csi Sequence
 
         assert CSI == "\033[", (CSI,)  # ⎋[
         assert bytes(head) in (b"\033[", b"\033\033["), (bytes(head),)
@@ -1411,10 +1411,10 @@ class KeyPack:
 
         # splits '⎋[200~' and '⎋[201~' away from enclosed Bracketed Paste
 
-        # todo: Limit the length of a CSI Escape Sequence
+        # todo: Limit the length of a Csi Escape Sequence
 
     def _take_one_osc_if_(self, decode: str) -> bytes:
-        """Take 1 Char into OSC Sequence, else return 1..4 Bytes that don't fit"""
+        """Take 1 Char into Osc Sequence, else return 1..4 Bytes that don't fit"""
 
         assert len(decode) == 1, decode
         code = ord(decode)
@@ -1426,7 +1426,7 @@ class KeyPack:
         tail = self.tail
         closed = self.closed
 
-        # Look only at unclosed OSC Sequence
+        # Look only at unclosed Osc Sequence
 
         assert OSC == "\033]", (OSC,)  # ⎋]
         assert bytes(head) == b"\033]", (head,)  # ⎋]
@@ -1533,28 +1533,28 @@ class KeyByte:
     t1: int  # time of Return
 
 
-BEL = "\a"  # U+0007 Bell (BEL)
-CR = "\r"  # U+000D Carriage Return (CR)
-ESC = "\033"  # U+001B Escape (ESC)
+BEL = "\a"  # U+0007 Bell
+CR = "\r"  # U+000D Carriage Return
+ESC = "\033"  # U+001B Escape
 
-SS3 = "\033O"  # 01/11 04/15 Single Shift Three (SS3)
+SS3 = "\033O"  # 01/11 04/15 Single Shift Three
 CSI = "\033["  # 01/11 05/11 Control Sequence Introducer
 OSC = "\033]"  # 01/11 05/13 Operating System Command
 ST = "\033\134"  # 05/11 05/12 String Terminator
 
-CUP_Y_X = "\033[" "{};{}H"  # CSI 04/08 [Choose] Cursor Position
+CUP_Y_X = "\033[" "{};{}H"  # Csi 04/08 [Choose] Cursor Position
 
-DCH_X = "\033[" "{}" "P"  # CSI 05/00 Delete Character
+DCH_X = "\033[" "{}" "P"  # Csi 05/00 Delete Character
 
 
-DSR_5 = "\033[" "5n"  # CSI 06/14 [Request] Device Status Report  # Ps 5 Request DSR_0
-DSR_0 = "\033[" "0n"  # CSI 06/14 [Response] Device Status Report  # Ps 0 Response Ready
+DSR_5 = "\033[" "5n"  # Csi 06/14 [Request] Device Status Report  # Ps 5 Request DSR_0
+DSR_0 = "\033[" "0n"  # Csi 06/14 [Response] Device Status Report  # Ps 0 Response Ready
 
-DSR_6 = "\033[" "6n"  # CSI 06/14 [Request] Device Status Report  # Ps 6 Request CPR
-CPR_Y_X = "\033[" "{};{}R"  # CSI 05/02 [Response] Active [Cursor] Pos Rep
+DSR_6 = "\033[" "6n"  # Csi 06/14 [Request] Device Status Report  # Ps 6 Request CPR
+CPR_Y_X = "\033[" "{};{}R"  # Csi 05/02 [Response] Active [Cursor] Pos Rep
 
-XTWINOPS_18 = "\033[" "18t"  # CSI 07/04 [Request] XTWINOPS_18
-XTWINOPS_8_H_W = "\033[" "8;{};{}t"  # CSI 07/04 [Response] XTWINOPS_8
+XTWINOPS_18 = "\033[" "18t"  # Csi 07/04 [Request] XTWINOPS_18
+XTWINOPS_8_H_W = "\033[" "8;{};{}t"  # Csi 07/04 [Response] XTWINOPS_8
 
 
 CSI_P_CHARS = """0123456789:;<=>?"""  # Csi Parameter Bytes
