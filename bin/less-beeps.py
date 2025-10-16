@@ -1592,22 +1592,27 @@ class ArgDocParser:
         # Fetch from a Black Terminal of 89 columns, not from the current Terminal Width
         # Fetch from later Python of "options:", not earlier Python of "optional arguments:"
 
-        if "COLUMNS" not in os.environ:
+        with_columns_else = os.environ.get("COLUMNS", default_eq_None)  # checkpoints
+        with_no_color_else = os.environ.get("NO_COLOR", default_eq_None)  # checkpoints
 
-            os.environ["COLUMNS"] = str(89)  # adds
-            try:
-                b_text = parser.format_help()
-            finally:
+        os.environ["COLUMNS"] = str(89)  # adds or replaces
+        os.environ["NO_COLOR"] = "True"  # adds or replaces
+
+        try:
+
+            b_text = parser.format_help()
+
+        finally:
+
+            if with_no_color_else is None:
+                del os.environ["NO_COLOR"]  # removes
+            else:
+                os.environ["NO_COLOR"] = with_no_color_else  # reverts
+
+            if with_columns_else is None:
                 del os.environ["COLUMNS"]  # removes
-
-        else:
-
-            with_columns = os.environ["COLUMNS"]  # backs up
-            os.environ["COLUMNS"] = str(89)  # replaces
-            try:
-                b_text = parser.format_help()
-            finally:
-                os.environ["COLUMNS"] = with_columns  # restores
+            else:
+                os.environ["COLUMNS"] = with_columns_else  # reverts
 
         b = b_text.splitlines()
 
