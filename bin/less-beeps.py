@@ -633,7 +633,7 @@ def sketch(f: float, near: float, unit: str) -> str:
     sci = math.floor(math.log10(abs_f))
     eng = (sci // 3) * 3
     precise = abs_f / (10**eng)
-    assert 1 <= precise <= 1000, (precise, abs_f, eng, f)  # todo: Log if '== 1000' ever happens
+    assert 1 <= precise <= 1000, (precise, abs_f, eng, f)  # todo: log if '== 1000' ever happens
 
     dotted = round(precise, 1)  # 1.0  # 9.9  # 10.0
     assert 1.0 <= dotted <= 1000.0, (dotted, abs_f, eng, f)
@@ -769,6 +769,7 @@ class KeyPack:
     """Bundle one whole Byte Sequence from a Terminal Keyboard, or no Bytes"""
 
     Headbook = (b"\033", b"\033\033", b"\033\033O", b"\033\033[", b"\033O", b"\033[", b"\033]")
+    BasicHeadbook = (b"\033", b"\033\033", b"\033\033O", b"\033O")
 
     text: str  # 0 or more Chars of Printable Text, mutates as the Pack grows
 
@@ -948,10 +949,34 @@ class KeyPack:
     def _try_headbook_(self) -> None:
         """Accept the Bytes of any Head of the Headbook, without closing the Pack"""
 
-        headbook = KeyPack.Headbook
+        headbook = (b"\033", b"\033\033", b"\033\033O", b"\033\033[", b"\033O", b"\033[", b"\033]")
+        basic_headbook = (b"\033", b"\033\033", b"\033\033O", b"\033O")
+
+        assert headbook == KeyPack.Headbook
+        assert basic_headbook == KeyPack.BasicHeadbook
+
+        assert OSC == "\033]", (OSC,)
 
         for head in headbook:
             self._try_open_(head)
+
+            if head == b"\033":
+                self._try_open_(head + b"\033")
+            elif head in basic_headbook:
+                self._try_close_(head, b"\033")
+            elif head == b"\033]":
+                self._try_open_(head, b"\033")
+            else:
+                KeyPack(head)._try_drop_kbytes_(b"\033")
+
+            if head in basic_headbook:
+                self._try_close_(head, b"\t")
+                self._try_close_(head, "\u20ac".encode())
+                self._try_close_(head, b"\xf4\x8f\xbf\xff")
+            else:
+                KeyPack(head)._try_drop_kbytes_(b"\t")
+                KeyPack(head)._try_drop_kbytes_("\u20ac".encode())  # todo: solve Csi/Osc Multibyte
+                KeyPack(head)._try_drop_kbytes_(b"\xf4\x8f\xbf\xff")
 
     def _try_tailbook_(self) -> None:
         """Require each Opener accepted by .any_decodes_startswith via the Tailbook"""
@@ -1021,11 +1046,7 @@ class KeyPack:
 
         self._try_close_(b"\033", b"\t")  # Head & Control Tail of a Two-Byte Esc Sequence
 
-        # Decline 1..4 Undecodable Bytes, when escaped by Csi or Esc Csi or Osc
-
-        pass  # todo1
-
-        # Take or don't take 1 Decodable Char escaped by Csi or Esc Csi
+        # Take or don't take 1 Decodable Char escaped by Osc or Csi or Esc Csi
 
         self._try_open_(b"\033[", b"6", b" ")  # Csi Head with Neck and Back but no Tail
 
@@ -1033,9 +1054,21 @@ class KeyPack:
         self._try_close_(b"\033[", b"3;5", b"H")  # Csi Head with Neck and Tail, no Back
         self._try_close_(b"\033[", b"6", b" q")  # Csi Head with Neck and Back & Tail
 
-        # Take or don't take 1 Decodable Char escaped by Osc
+        self._try_close_(b"\033]", b"\x07")
+        self._try_close_(b"\033]", b"\x1b" b"\\")
 
-        pass  # todo1
+        # Decline 1..4 Undecodable Bytes, when escaped by Csi or Esc Csi or Osc
+        # Decline 1 Bytes of Unprintable or Multi-Byte Char
+        # todo: cleanup/ synch the English in these comments :P
+
+        KeyPack(b"\x1b[")._try_drop_kbytes_(b"\t")
+        KeyPack(b"\x1b]")._try_drop_kbytes_(b"\t")
+
+        KeyPack(b"\x1b[")._try_drop_kbytes_("\u20ac".encode())
+        KeyPack(b"\x1b]")._try_drop_kbytes_("\u20ac".encode())
+
+        KeyPack(b"\x1b[")._try_drop_kbytes_(b"\xf4\x8f\xff")
+        KeyPack(b"\x1b]")._try_drop_kbytes_(b"\xf4\x8f\xff")
 
     def _closed_(self) -> KeyPack:
         """Close, if not closed already, and return Self"""
@@ -1047,7 +1080,7 @@ class KeyPack:
         """Require the Pack to reject these Bytes"""
 
         kbytes_beyond = self.take_some_kbytes_if(kbytes)
-        assert kbytes_beyond == kbytes, (kbytes_beyond, kbytes)
+        assert kbytes_beyond == kbytes, (kbytes_beyond, kbytes, str(self))
 
     def _try_open_(self, *args: str | bytes) -> None:
         """Require the Eval of the Str of the Pack equals its Bytes"""
@@ -1227,7 +1260,7 @@ class KeyPack:
     # "\U0010ffff"  # b"\xf4\x8f\xbf\xbf" accepted with "\xf4\x80\x80\x80"
     #
 
-    # todo: Invent UTF-8'ish Encoding beyond 1..4 Bytes for Unicode Codes > 0x10_FFFF ?
+    # todo: invent UTF-8'ish Encoding beyond 1..4 Bytes for Unicode Codes > 0x10_FFFF ?
 
     def _take_some_sixem_if_(self, kbytes: bytes) -> bytes:
         """Take Bytes into a Csi Mouse Report of 6 Bytes or 6 Chars"""
@@ -1316,8 +1349,11 @@ class KeyPack:
 
         # Take & close 1 Printable Char escaped by a Head simpler than Csi, Esc Csi, and Osc
 
+        basic_headbook = (b"\033", b"\033\033", b"\033\033O", b"\033O")
+        assert basic_headbook == KeyPack.BasicHeadbook
+
         bytes_head = bytes(head)
-        if bytes_head in (b"\033", b"\033\033", b"\033\033O", b"\033O"):
+        if bytes_head in basic_headbook:
             if printable:
                 tail.extend(kbytes)
                 self.closed = True
@@ -1325,7 +1361,7 @@ class KeyPack:
 
             # Take & close 1 Unprintable Char or 1..4 Undecodable Bytes escaped by a Simpler Head
 
-            tail.extend(kbytes)  # todo: More test of Unprintable/ Undecodable Tails after ⎋O or ⎋⎋O
+            tail.extend(kbytes)  # todo: more test of Unprintable/ Undecodable Tails after ⎋O or ⎋⎋O
             self.closed = True
             return b""  # takes & closes Unprintable Chars or 1..4 Undecodable Bytes
 
@@ -1382,7 +1418,8 @@ class KeyPack:
         if not (0x20 <= code <= 0x7F):
             return encode  # declines 2..4 Bytes of 1 Unprintable or Multi-Byte Char
 
-            # todo: More test of Unprintable/ Undecodable Tails after ⎋[ or ⎋⎋[
+            # todo: more test of Unprintable/ Undecodable Tails after ⎋[ or ⎋⎋[
+            # todo: solve Csi Multibyte
 
         # Accept 1 Byte into Back, into Neck, or as Tail
 
@@ -1411,7 +1448,7 @@ class KeyPack:
 
         # splits '⎋[200~' and '⎋[201~' away from enclosed Bracketed Paste
 
-        # todo: Limit the length of a Csi Escape Sequence
+        # todo: limit the length of a Csi Escape Sequence
 
     def _take_one_osc_if_(self, decode: str) -> bytes:
         """Take 1 Char into Osc Sequence, else return 1..4 Bytes that don't fit"""
@@ -1444,6 +1481,8 @@ class KeyPack:
                 neck.extend(byte)
                 return b""
 
+            # todo1: solve Osc Multibyte
+
         # Accept \033 \134 Esc \ String Terminator (ST) into Back and Tail
 
         if not back:
@@ -1468,7 +1507,7 @@ class KeyPack:
 
         return byte  # declines 1 Byte of 1 Unprintable or Multi-Byte Char
 
-        # todo: Limit rate of input so livelocks go less wild, like in Keyboard/ Screen loopback
+        # todo: limit rate of input so livelocks go less wild, like in Keyboard/ Screen loopback
 
     #
     # Close
