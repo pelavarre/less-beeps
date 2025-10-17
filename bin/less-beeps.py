@@ -36,6 +36,7 @@ import difflib
 import math
 import os
 import pdb
+import re
 import select  # for select.select
 import signal
 import sys
@@ -81,9 +82,7 @@ def main() -> None:
 
     sys.excepthook = excepthook
 
-    quickly = False
-    quickly = True  # todo1: more often try quickly=False
-    KeyPack(b"")._try_key_pack_(quickly)
+    KeyPack(b"")._try_key_pack_()
 
     sys_argv_parse()
     with TerminalStudio() as ts:
@@ -246,8 +245,9 @@ class TerminalStudio:
 
         while True:
             kk = mk.read_khord(timeout=None)
+            self.sprint(kk)
+
             kpack = kk.kpack
-            self.sprint(kpack)
             if kpack.text or kpack.closed:
                 break
 
@@ -724,11 +724,10 @@ class KeyKhord:
 
     def __init__(self, kbytes: bytes) -> None:
 
-        kface = ""
-        kcaps = ""
+        kface = KeyKhord.to_k_face_if(kbytes)
+        kcaps = KeyKhord.to_k_caps(kbytes)
         kpack = KeyPack(kbytes)
-        kintsmark = b""
-        kints: list[int] = list()
+        (kintsmark, kints) = KeyKhord.to_csi_ints_if(kbytes)
 
         self.kface = kface
         self.kcaps = kcaps
@@ -739,7 +738,7 @@ class KeyKhord:
     def __str__(self) -> str:
 
         kface = self.kface
-        # kcaps = self.kcaps
+        kcaps = self.kcaps
         kpack = self.kpack
         kintsmark = self.kintsmark
         kints = self.kints
@@ -749,7 +748,9 @@ class KeyKhord:
         if kface:
             parts.append(kface)
 
-        # todo: parts.append(kcaps)
+        if kcaps:
+            parts.append(kcaps)
+
         parts.append(str(kpack))
 
         if not kintsmark:
@@ -761,7 +762,264 @@ class KeyKhord:
 
         return join
 
-        # todo1: examples of KeyKhord.__str__ results
+        # todo2: examples of KeyKhord.__str__ results
+
+    @staticmethod
+    def to_csi_ints_if(kbytes: bytes) -> tuple[bytes, list[int]]:
+        """Pick out the Nonnegative Int Literals of a CSI Escape Sequence"""
+
+        kpack = KeyPack(kbytes)
+
+        head = kpack.head
+        neck = kpack.neck
+        back = kpack.back
+        tail = kpack.tail
+        closed = kpack.closed
+
+        assert CSI == "\033["
+
+        kintsmark = b""
+        kints: list[int] = list()
+
+        if (head != b"\033[") or not closed:
+            return (kintsmark, kints)
+
+        kintsmark = bytes(neck + back + tail)
+        m = re.search(b"[0-9;]+", string=neck)
+        if not m:
+            return (kintsmark, kints)
+
+        kints = list((int(_) if _ else -1) for _ in m.group().split(b";"))
+
+        kprefix = neck[: m.start()]
+        ksuffix = neck[m.end() :]
+        kintsmark = bytes(kprefix + ksuffix + back + tail)
+
+        return (kintsmark, kints)
+
+        # (b"A", [])
+        # (b"H", [-1, 2])
+        # (b"<m", [8, 80, 25])
+
+    @staticmethod
+    def to_k_face_if(kbytes: bytes) -> str:
+        return ""
+
+    KCAP_BY_KTEXT = {"": ""}
+
+    KCAP_SEP = " "  # separates '⇧Tab' from '⇧T a b', '⎋⇧FnX' from '⎋⇧Fn X', etc
+
+    @staticmethod
+    def to_k_caps(kbytes: bytes) -> str:
+        """Choose 1 Keycaps per Character to speak of the Bytes of 1 Keyboard Chord"""
+
+        assert KeyKhord.KCAP_SEP == " "
+
+        if not kbytes:
+            return ""
+
+        try:
+            ktext = kbytes.decode()
+        except UnicodeDecodeError:
+            return ""
+
+        assert ktext, (ktext,)
+
+        if ktext == "\t":
+            return "⌃I"  # not 'Tab', despite .kcap_by_ktext
+        if ktext == "\r":
+            return "⌃M"  # not 'Return', despite .kcap_by_ktext
+        if ktext == "\x7f":
+            return "⌃?"  # not 'Delete', despite .kcap_by_ktext
+
+        kcaps = ""
+        for kt in ktext:  # often 'len(ktext) == 1'
+            kc = KeyKhord._kt_to_kcap_(kt)
+            kcaps += kc
+
+        assert kcaps, (kcaps, kbytes)
+        assert " " not in kcaps, (kcaps, kbytes)
+
+        return kcaps
+
+        # '⎋[25;80R' Cursor-Position-Report (CPR)
+        # '⎋[25;80t' Rows x Column Terminal Size Report
+
+        # '⎋[200~' and '⎋[201~' before/ after Paste to bracket it
+
+    @staticmethod
+    def _kt_to_kcap_(kt: str) -> str:
+        """Form 1 Key Cap to speak of 1 Keyboard Chord"""
+
+        ko = ord(kt)
+
+        option_kt_str = KeyKhord.OPTION_KT_STR  # '∂' for ⌥D
+        option_ktext_by_kt = KeyKhord.OPTION_KTEXT_BY_KT  # 'é' for ⌥EE
+        kcap_by_ktext = KeyKhord.KCAP_BY_KTEXT  # '\x7F' for 'Delete'
+
+        assert KeyKhord.SHIFTED_KEYCAPS == '!"#$%&()*+' ":<>?" "@" "^_" "{|}~"
+
+        # Show more Key Caps than US-Ascii mentions
+
+        if kt in '!"#$%&()*+' ":<>?" "@" "^_" "{|}~":
+            kc = "⇧" + kt
+
+        elif kt in kcap_by_ktext.keys():  # Mac US Key Caps for Spacebar, F12, etc
+            kc = kcap_by_ktext[kt]  # '⌃Spacebar', 'Return', 'Delete', etc
+
+        elif (kt != "`") and (kt in option_ktext_by_kt.keys()):  # Mac US Option Accents
+            kc = option_ktext_by_kt[kt]
+
+        elif kt in option_kt_str:  # Mac US Option Key Caps
+            kc = KeyKhord._option_kt_to_kcap_(kt)
+
+        # Show the Key Caps of US-Ascii, plus the ⌃ ⇧ Control/ Shift Key Caps
+
+        elif (ko < 0x20) or (ko == 0x7F):  # C0 Control Bytes, or \x7F Delete (DEL)
+            if ko == 0x1F:  # Apple ⌃- doesn't come through as  (0x2D ^ 0x40)
+                kc = "⌃-"  # Apple ⌃-  and ⌃⇧_ do come through as (0x5F ^ 0x40)
+            else:
+                kc = "⌃" + chr(ko ^ 0x40)  # '^ 0x40' mixes ⌃ into one of @ A..Z [\]^_ ?, such as ⌃^
+
+            # '^ 0x40' speaks of ⌃@ but not ⌃⇧@ and not ⌃⇧2 and not ⌃Spacebar at b"\x00"
+            # '^ 0x40' speaks of ⌃M but not Return at b"\x0D"
+            # '^ 0x40' speaks of ⌃[ ⌃\ ⌃] ⌃_ but not ⎋ and not ⌃⇧_ and not ⌃⇧{ ⌃⇧| ⌃⇧} ⌃-
+            # '^ 0x40' speaks of ⌃? but not Delete at b"\x7F"
+
+            # ⌃` ⌃2 ⌃6 ⌃⇧~ don't work
+
+        elif "A" <= kt <= "Z":  # printable Upper Case English
+            kc = "⇧" + chr(ko)  # shifted Key Cap '⇧A' from b'A'
+
+        elif "a" <= kt <= "z":  # printable Lower Case English
+            kc = chr(ko ^ 0x20)  # plain Key Cap 'A' from b'a'
+
+        # Test that no Keyboard sends the C1 Control Bytes, nor the Quasi-C1 Bytes
+
+        elif ko in range(0x80, 0xA0):  # C1 Control Bytes
+            kc = repr(bytes([ko]))  # b'\x80'
+        elif ko == 0xA0:  # 'No-Break Space'
+            kc = "⌥Spacebar"
+            assert False, (ko, kt)  # unreached because 'kcap_by_ktext'
+        elif ko == 0xAD:  # 'Soft Hyphen'  # near to a C1 Control Byte
+            kc = repr(bytes([ko]))  # b'\xad'
+
+        # Show the US-Ascii or Unicode Char as if its own Key Cap
+
+        else:
+            assert ko < 0x11_0000, (ko, kt)
+            kc = chr(ko)  # '!', '¡', etc
+
+            # todo: Got Key Caps Str "\u00A1" .. "\u00FF" for Bytes b"\xA1" .. b"\xFF" - Want better?
+
+        # Succeed, but insist that Blank Space is never a Key Cap
+
+        assert kc, (kc, ko, kt)
+        assert kc.isprintable(), (kc, ko, kt)  # has no \x00..\x1f, \x7f, \xa0, \xad, etc
+        assert " " not in kc, (kc, ko, kt)
+
+        return kc
+
+        # '⌃L'  # '⇧Z'
+
+    SHIFTED_KEYCAPS = '!"#$%&()*+' ":<>?" "@" "^_" "{|}~"  # !"#$%&()*+ :<>? @ ^_ {|}~
+
+    OPTION_KTEXT_BY_KT = {
+        "á": "⌥EA",  # E
+        "é": "⌥EE",
+        "í": "⌥EI",
+        # without the "j́" of ⌥EJ here (because its Combining Accent comes after as a 2nd Character)
+        "ó": "⌥EO",
+        "ú": "⌥EU",
+        "´": "⌥⇧E",
+        "é": "⌥EE",
+        "â": "⌥IA",  # I
+        "ê": "⌥IE",
+        "î": "⌥II",
+        "ô": "⌥IO",
+        "û": "⌥IU",
+        "ˆ": "⌥⇧I",
+        "ã": "⌥NA",  # N
+        "ñ": "⌥NN",
+        "õ": "⌥NO",
+        "˜": "⌥⇧N",
+        "ä": "⌥UA",  # U
+        "ë": "⌥UE",
+        "ï": "⌥UI",
+        "ö": "⌥UO",
+        "ü": "⌥UU",
+        "ÿ": "⌥UY",
+        "¨": "⌥⇧U",
+        "à": "⌥`A",  # `
+        "è": "⌥`E",
+        "ì": "⌥`I",
+        "ò": "⌥`O",
+        "ù": "⌥`U",
+        # without the "`" of ⌥⇧` here (because it comes in as a U+0060 Grave Accent ` of a US Keyboard)
+    }
+
+    # hand-sorted by ⌥E ⌥I ⌥N ⌥U ⌥` order
+    # Decode one ⌥ KeyCap per US-Ascii Printable Byte, at an Apple MacBook
+
+    # .  !"#$%&'()*+,-./0123456789:;<=>?
+    # . @ABCD FGHIJK     LMNOPQRSTUVWXYZ[\]^_
+    # .  abcd fgh jklm opqrst vwxyz{|}~
+
+    _DENTED_OPTION_KT_STR_ = """
+
+         ⁄Æ‹›ﬁ‡æ·‚°±≤–≥÷º¡™£¢∞§¶•ªÚ…¯≠˘¿
+        €ÅıÇÎ Ï˝Ó Ô\uf8ffÒÂ Ø∏Œ‰Íˇ ◊„˛Á¸“«‘ﬂ—
+         å∫ç∂ ƒ©˙ ∆˚¬µ øπœ®ß† √∑≈¥Ω”»’
+
+    """
+
+    # ⌥⇧K is Apple Logo Icon  is \uF8FF is in the U+E000..U+F8FF Private Use Area (PUA)
+    # ⌥Y often comes through as \ U+005C Reverse-Solidus aka Backslash  # not ¥ Yen-Sign
+
+    OPTION_KT_STR = " " + textwrap.dedent(_DENTED_OPTION_KT_STR_).strip() + " "
+    OPTION_KT_STR = OPTION_KT_STR.replace("\n", "")
+
+    assert len(OPTION_KT_STR) == (0x7E - 0x20) + 1  # Defs per ⌥ KeyCap of a US-Ascii Printable
+
+    _SPACELESS_OPTION_KT_STR_ = OPTION_KT_STR.replace(" ", "")
+    assert len(_SPACELESS_OPTION_KT_STR_) == len(set(_SPACELESS_OPTION_KT_STR_))
+
+    @staticmethod
+    def _option_kt_to_kcap_(kt: str) -> str:
+        """Convert to Mac US Option Key Caps from any of OPTION_KT_STR"""
+
+        option_kt_str = KeyKhord.OPTION_KT_STR  # '∂' for ⌥D, etc
+        assert len(KeyKhord.OPTION_KT_STR) == (0x7E - 0x20) + 1
+
+        assert KeyKhord.SHIFTED_KEYCAPS == '!"#$%&()*+' ":<>?" "@" "^_" "{|}~"
+
+        index = option_kt_str.index(kt)
+
+        alt_cap = chr(0x20 + index)
+        if "A" <= alt_cap <= "Z":
+            end = "⇧" + alt_cap  # '⇧A'
+        elif "a" <= alt_cap <= "z":
+            end = chr(ord(alt_cap) ^ 0x20)  # 'Z'
+        elif alt_cap in '!"#$%&()*+' ":<>?" "@" "^_" "{|}~":
+            end = "⇧" + alt_cap  # '⇧@'
+        else:
+            end = alt_cap
+
+        kc = "⌥" + end  # '⌥⇧P'
+
+        return kc
+
+    # Define each KText once, never more than once
+
+    _KTEXT_LISTS_ = [
+        list(KCAP_BY_KTEXT.keys()),
+        list(OPTION_KTEXT_BY_KT.keys()),
+        list(_SPACELESS_OPTION_KT_STR_),
+    ]
+
+    _KTEXT_UNROLL_ = list(_KTEXT_ for _KTEXT_LIST_ in _KTEXT_LISTS_ for _KTEXT_ in _KTEXT_LIST_)
+    for _KTEXT_, _COUNT_ in collections.Counter(_KTEXT_UNROLL_).items():
+        assert _COUNT_ == 1, (_COUNT_, _KTEXT_)
 
 
 @dataclasses.dataclass(order=True)  # , frozen=True)
@@ -925,8 +1183,11 @@ class KeyPack:
     # Run quick and slow Self-Test's
     #
 
-    def _try_key_pack_(self, quickly: bool) -> None:
+    def _try_key_pack_(self) -> None:
         """Run quick and slow Self-Test's"""
+
+        quickly = False
+        quickly = True  # todo1: more often try quickly=False
 
         t0 = time.time()
 
