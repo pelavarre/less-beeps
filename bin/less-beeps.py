@@ -1,23 +1,26 @@
 #!/usr/bin/env python3
 
 r"""
-usage: less-beeps.py [-h] [--yolo] [-yxhw Y,X,H,W] [CHORD ...]
+usage: less-beeps.py [--help] [-y Y] [-x X] [-h H] [-w W] [-f] [CHORD ...]
 
 give away nine classic simple terminal games for you to fork
 
 positional arguments:
-  CHORD          taken as if pressed, such as 'F2' or 'Esc' or '^'
+  CHORD        taken as if pressed, such as 'F2' or 'Esc' or '^'
 
 options:
-  -h, --help     show this help message and exit
-  --yolo         do what's popular now
-  -yxhw Y,X,H,W  limit writes to just part of the terminal screen
+  --help       show this help message and exit
+  -y Y         don't write above Row Y
+  -x X         don't write left of Column X
+  -h H         don't write more than H Rows
+  -w W         don't write more than W Columns
+  -f, --force  ask fewer questions
 
 notes:
   distributed as a single .py file, now that a million words isn't many
 
 examples:
-  ./bin/less-beeps.py --yolo
+  ./bin/less-beeps.py --
   bin/@ Fn F1
 """
 
@@ -42,85 +45,104 @@ import signal
 import sys
 import termios  # for termios.TCSADRAIN
 import textwrap
-import time
 import tty  # for tty.setraw and tty.setcbreak
 import types
 import typing
 
 
-_: object  # blocks Mypy from aggressively narrowing the Datatype of '_ =' at first mention
+_: object  # blocks Mypy from narrowing the Datatype of '_ =' at first mention
 
-default_eq_None = None  # shoves back on .dict.get rudely refusing to take a ', default=' Kwarg
+default_eq_None = None  # shoves back on Dict Get refusing the explicit ', default=' syntax
 
 if not __debug__:
-    raise NotImplementedError([__debug__])  # insists 'python3' better than 'python3 -O'
+    raise NotImplementedError([__debug__])  # because 'python3 better than python3 -O'
 
 
 #
-# Fit to the Calling Terminal Shell
+# Describe the enclosing Shell in its Terminal Window Pane
 #
 
 
 @dataclasses.dataclass(order=True)  # , frozen=True)
-class flags:
+class Flags:
 
-    apple = sys.platform == "darwin"  # flags.apple
-    google = bool(os.environ.get("CLOUD_SHELL", default_eq_None))  # flags.google
-    terminal = os.environ.get("TERM_PROGRAM", default_eq_None) == "Apple_Terminal"  # flags.terminal
+    apple: bool = sys.platform == "darwin"  # flags.apple
+    google: bool = bool(os.environ.get("CLOUD_SHELL", default_eq_None))  # flags.google
+    terminal: bool = (
+        os.environ.get("TERM_PROGRAM", default_eq_None) == "Apple_Terminal"
+    )  # flags.terminal
 
-    landscape: bool | None = None  # flags.landscape, for when lots more wide than high
-    barefoot: bool | None = None  # flags.barefoot, for when no rows beneath a Southern Keyboard
+    portrait: bool = False  # flags.portrait, for when lots more high than wide
+    barefoot: bool = False  # flags.barefoot, for when no rows beneath a Southern Keyboard
+
+
+flags = Flags()
 
 
 #
-# Run from the Shell Command Line, but tell the uncaught Exceptions to launch the Py Repl
+# Run from the Shell, but tell uncaught Exceptions to launch the Py Repl
 #
 
 
 def main() -> None:
-    """Run from the Shell Command Line, but tell the uncaught Exceptions to launch the Py Repl"""
+    """Run from the Shell, but tell uncaught Exceptions to launch the Py Repl"""
 
     sys.excepthook = excepthook
 
-    KeyPack(b"")._try_key_pack_()
+    parser = arg_doc_to_parser(__main__.__doc__ or "")
+    shell_args_take_in(args=sys.argv[1:], parser=parser)
 
-    sys_argv_parse()
     with TerminalStudio() as ts:
-        ts.launch_ts_quickly()
-        ts.run_ts_awhile()
+        ts.speak_first()
+        ts.chat_awhile()
 
 
-def sys_argv_parse() -> None:
-    """Take in the Shell Command-Line Args"""
-
-    argv = sys.argv
-    parser = main_doc_to_parser()
-    ns = parser.parse_args_if(argv[1:])
-
-    assert ns.yolo, (ns.yolo, ns)
-    assert ns.yxhw is None, (ns.yxhw, ns)
-    assert not ns.chords, (ns.chords, ns)
-
-
-def main_doc_to_parser() -> ArgDocParser:
+def arg_doc_to_parser(doc: str) -> ArgDocParser:
     """Declare the Options & Positional Arguments"""
 
     assert argparse.ZERO_OR_MORE == "*"
 
-    doc = __main__.__doc__
-    assert doc, (doc,)
-
-    parser = ArgDocParser(doc, add_help=True)
+    parser = ArgDocParser(doc, add_help=False)
 
     chord_help = "taken as if pressed, such as 'F2' or 'Esc' or '^'"
-    yolo_help = "do what's popular now"
-    yxhw_help = "limit writes to just part of the terminal screen"
-
     parser.add_argument("chords", metavar="CHORD", nargs="*", help=chord_help)
-    parser.add_argument("--yolo", action="count", help=yolo_help)
-    parser.add_argument("-yxhw", metavar="Y,X,H,W", help=yxhw_help)
+
+    help_help = "show this help message and exit"
+    y_help = "don't write above Row Y"
+    x_help = "don't write left of Column X"
+    h_help = "don't write more than H Rows"
+    w_help = "don't write more than W Columns"
+    force_help = "ask fewer questions"
+
+    parser.add_argument("--help", action="help", help=help_help)
+    parser.add_argument("-y", metavar="Y", help=y_help)
+    parser.add_argument("-x", metavar="X", help=x_help)
+    parser.add_argument("-h", metavar="H", help=h_help)
+    parser.add_argument("-w", metavar="W", help=w_help)
+    parser.add_argument("-f", "--force", action="count", help=force_help)
 
     return parser
+
+
+def shell_args_take_in(args: list[str], parser: ArgDocParser) -> argparse.Namespace:
+    """Take in the Shell Command-Line Args"""
+
+    ns = parser.parse_args_if(args)
+
+    assert not ns.chords, (ns.chords, ns)
+
+    assert not ns.y, (ns.y, ns)
+    assert not ns.x, (ns.x, ns)
+    assert not ns.h, (ns.h, ns)
+    assert not ns.w, (ns.w, ns)
+
+    if ns.force:
+        KeyPack._try_key_pack_()
+
+    ns_keys = list(vars(ns).keys())
+    assert ns_keys == ["chords", "y", "x", "h", "w", "force"], (ns_keys, ns)
+
+    return ns
 
 
 #
@@ -128,10 +150,6 @@ def main_doc_to_parser() -> ArgDocParser:
 #
 
 
-terminal_studios = list()
-
-
-@dataclasses.dataclass(order=True)  # , frozen=True)
 class TerminalStudio:
     """Run from the Shell Command Line, and launch the Py Repl vs uncaught Exceptions"""
 
@@ -142,13 +160,15 @@ class TerminalStudio:
     mock_screen: MockScreen
     mock_keyboard: MockKeyboard
 
+    selves: list[TerminalStudio] = list()
+
     #
     # Init, Enter, Exit
     #
 
     def __init__(self) -> None:
 
-        terminal_studios.append(self)
+        TerminalStudio.selves.append(self)
 
         assert sys.__stderr__ is not None  # refuses to run headless
         stdio = sys.__stderr__
@@ -221,42 +241,68 @@ class TerminalStudio:
     # Launch, run, quit
     #
 
-    def launch_ts_quickly(self) -> None:
+    def speak_first(self) -> None:
         """Launch quickly"""
 
         self.sprint("⌃D to quit,  Fn F1 for more help,  or ⌥-Click far from the Cursor")
 
-    def run_ts_awhile(self) -> None:
+    def chat_awhile(self) -> None:
         """Run till quit, inside the Terminal"""
 
-        while True:
-            kk = self.take_ts_input()
-            self.give_ts_reply(kk)
-            sys.exit()
+        km = self.take_key_mix()
+        self.answer_key_mix(km)
+
+        # todo1: .chat_awhile not yet a long while
 
     #
     # Read & eval & print
     #
 
-    def take_ts_input(self) -> KeyKhord:
+    def take_key_mix(self) -> KeyMix:
         """Read one Key Chord"""
 
         mk = self.mock_keyboard
 
+        sprinted_kbytes = None
+        sprinted_closed = None
         while True:
-            kk = mk.read_khord(timeout=None)
-            self.sprint(kk)
 
-            kpack = kk.kpack
+            km = mk.read_key_mix(timeout=None)
+            kpack = km.kpack
+            kbytes = kpack.to_kbytes()
+
+            if kbytes == sprinted_kbytes:
+                assert kpack.closed != sprinted_closed, (kpack.closed, sprinted_closed, kpack)
+            else:
+                sprinted_kbytes = kbytes
+                sprinted_closed = kpack.closed
+
+                self.sprint(km)
+
             if kpack.text or kpack.closed:
                 break
 
-        return kk
+        return km
 
-    def give_ts_reply(self, kk: KeyKhord) -> None:
+        # todo2: test ⌥⇧2
+        # todo2: test ⌥3
+        # todo2: test ⌥` `
+        # todo2: test Headbook followed by bursted .kbytes of ⎋[⇧Z ⎋[⇧A ⎋[⇧H etc
+
+    def answer_key_mix(self, km: KeyMix) -> None:
         """Reply to one Key Chord"""
 
+        mk = self.mock_keyboard
+
         self.sprint("ok")
+
+        while self.kbhit(timeout=0.000_001):
+            km = mk.read_key_mix(timeout=None)
+            self.sprint(km)
+
+        kbytes = bytes(mk.kbytesahead[mk.kbindex :])
+        if kbytes:
+            self.sprint(kbytes)
 
     #
     # Fetch from Keyboard
@@ -340,45 +386,55 @@ class MockKeyboard:
         self.kbindex = 0
         self.kpack = KeyPack(b"")
 
-    def read_khord(self, timeout: float | None) -> KeyKhord:
+    def read_key_mix(self, timeout: float | None) -> KeyMix:
         """Read one Key Chord"""
 
         kbytesahead = self.kbytesahead
         kbindex = self.kbindex
         kpack = self.kpack
 
+        # Read no more Bytes into the KeyPack, after Closed or after 1 Text Character
+
+        if kpack.text or kpack.closed:
+            self.kpack = KeyPack(b"")
+            kpack = self.kpack
+
         # Read nothing after timeout
 
-        empty_kk = KeyKhord(b"")
+        empty_kk = KeyMix(b"")
         if kbindex >= len(kbytesahead):
             self._fill_kbytesahead_(timeout)
             if kbindex >= len(kbytesahead):
                 return empty_kk
 
-            # Read the ⌥``` Key Khord Sequence as a single Key Khord
+            # Read the ⌥``` Key Khord Sequence as a single Key Khord  # todo2: broke
 
-            option_backtick_backtick = KeyKhord(b"``")
+            option_backtick_backtick = KeyMix(b"``")
             if kbytesahead[kbindex:] == b"``":
                 kbindex += len(b"``")
                 return option_backtick_backtick
 
         # Peek at one Byte, and close the Pack early if it doesn't fit, else read it in
 
-        kpack = KeyPack(kpack.to_kbytes())
-        self.kpack = kpack  # insists better copied than aliased
+        kpack = KeyPack(kpack.to_kbytes())  # because 'copied better than aliased'
+        self.kpack = kpack
 
         kbyte = bytes(kbytesahead[kbindex:][:1])
-        kbyte_beyond = kpack.take_one_kbyte_if(kbyte)
+        kdrop = kpack.take_one_kbyte_if(kbyte)
+        if kdrop:
+            assert kpack.closed, (kpack.closed, kpack, kdrop)
 
-        if not kbyte_beyond:
+        if not kdrop:
             self.kbindex += 1
 
         # Succeed
 
         kbytes = kpack.to_kbytes()
-        kk = KeyKhord(kbytes)
+        km = KeyMix(kbytes)
+        if kdrop:
+            km.kpack.close()
 
-        return kk
+        return km
 
     def _fill_kbytesahead_(self, timeout: float | None) -> None:
         """Fetch Bytes into Self"""
@@ -454,8 +510,12 @@ class ArgDocParser:
         # because 'ArgumentParser.parse_args()' without Pos Args wrongly rejects it
 
         shargs = args
-        if args == ["--"]:  # ArgParse chokes if Sep present without Pos Args
-            shargs = list()
+        if len(args) == 1:  # because ArgParse chokes if '--' Sep present without Pos Args
+            args_0 = args[0]
+            if args_0.startswith("--") and ("--yolo".startswith(args_0)):
+                shargs = list()
+
+                # steals --y, or --yo, or --yol, or --yolo, as if --, when only Arg
 
         # Print Diffs & exit nonzero, when Arg Doc wrong
 
@@ -713,7 +773,7 @@ def excepthook(  # ) -> ...:
 
 
 @dataclasses.dataclass(order=True)  # , frozen=True)
-class KeyKhord:
+class KeyMix:
     """Bundle one Tap or Click or Keyboard Input"""
 
     kface: str  # 'Return'
@@ -724,10 +784,10 @@ class KeyKhord:
 
     def __init__(self, kbytes: bytes) -> None:
 
-        kface = KeyKhord.to_kface_if(kbytes)
-        kcaps = KeyKhord.to_kcaps_if(kbytes)
+        kface = KeyMix.to_kface_if(kbytes)
+        kcaps = KeyMix.to_kcaps_if(kbytes)
         kpack = KeyPack(kbytes)
-        (kintsmark, kints) = KeyKhord.to_csi_ints_if(kbytes)
+        (kintsmark, kints) = KeyMix.to_csi_ints_if(kbytes)
 
         self.kface = kface
         self.kcaps = kcaps
@@ -762,7 +822,7 @@ class KeyKhord:
 
         return join
 
-        # todo2: examples of KeyKhord.__str__ results
+        # todo2: examples of KeyMix.__str__ results
 
     @staticmethod
     def to_csi_ints_if(kbytes: bytes) -> tuple[bytes, list[int]]:
@@ -809,7 +869,7 @@ class KeyKhord:
     def to_kcaps_if(kbytes: bytes) -> str:
         """Choose 1 Keycap per Character to speak of the Bytes of 1 Keyboard Chord"""
 
-        assert KeyKhord.KCAP_SEP == " "
+        assert KeyMix.KCAP_SEP == " "
 
         if not kbytes:
             return ""
@@ -823,7 +883,10 @@ class KeyKhord:
 
         kcaps = ""
         for kt in ktext:  # often 'len(ktext) == 1'
-            kc = KeyKhord._kt_to_kcap_(kt)
+            if kt == " ":
+                return ""
+
+            kc = KeyMix._kt_to_kcap_(kt)
             kcaps += kc
 
         assert kcaps, (kcaps, kbytes)
@@ -842,10 +905,10 @@ class KeyKhord:
 
         ko = ord(kt)
 
-        option_kt_str = KeyKhord.OPTION_KT_STR  # '∂' for ⌥D
-        option_ktext_by_kt = KeyKhord.OPTION_KTEXT_BY_KT  # 'é' for ⌥EE
+        option_kt_str = KeyMix.OPTION_KT_STR  # '∂' for ⌥D
+        option_ktext_by_kt = KeyMix.OPTION_KTEXT_BY_KT  # 'é' for ⌥EE
 
-        assert KeyKhord.SHIFTED_KEYCAPS == '!"#$%&()*+' ":<>?" "@" "^_" "{|}~"
+        assert KeyMix.SHIFTED_KEYCAPS == '!"#$%&()*+' ":<>?" "@" "^_" "{|}~"
 
         # Show more Key Caps than US-Ascii mentions
 
@@ -856,7 +919,7 @@ class KeyKhord:
             kc = option_ktext_by_kt[kt]
 
         elif kt in option_kt_str:  # Mac US Option Key Caps
-            kc = KeyKhord._option_kt_to_kcap_(kt)
+            kc = KeyMix._option_kt_to_kcap_(kt)
 
         # Show the Key Caps of US-Ascii, plus the ⌃ ⇧ Control/ Shift Key Caps
 
@@ -973,10 +1036,10 @@ class KeyKhord:
     def _option_kt_to_kcap_(kt: str) -> str:
         """Convert to Mac US Option Key Caps from any of OPTION_KT_STR"""
 
-        option_kt_str = KeyKhord.OPTION_KT_STR  # '∂' for ⌥D, etc
-        assert len(KeyKhord.OPTION_KT_STR) == (0x7E - 0x20) + 1
+        option_kt_str = KeyMix.OPTION_KT_STR  # '∂' for ⌥D, etc
+        assert len(KeyMix.OPTION_KT_STR) == (0x7E - 0x20) + 1
 
-        assert KeyKhord.SHIFTED_KEYCAPS == '!"#$%&()*+' ":<>?" "@" "^_" "{|}~"
+        assert KeyMix.SHIFTED_KEYCAPS == '!"#$%&()*+' ":<>?" "@" "^_" "{|}~"
 
         index = option_kt_str.index(kt)
 
@@ -1005,12 +1068,11 @@ class KeyKhord:
         """Choose Keycaps to speak of the Bytes of 1 Keyboard Chord"""
 
         ktext = kbytes.decode()  # todo: .kbytes_to_concise_kcaps_if may raise UnicodeDecodeError
-        kface_by_ktext = KeyKhord.KFACE_BY_KTEXT  # '\e\e[A' for ⎋↑ etc
+        kface_by_ktext = KeyMix.KFACE_BY_KTEXT  # '\e\e[A' for ⎋↑ etc
 
         headbook = (b"\033", b"\033\033", b"\033\033O", b"\033\033[", b"\033O", b"\033[", b"\033]")
         assert KeyPack.Headbook == headbook
-
-        assert KeyKhord.KCAP_SEP == " "
+        assert KeyMix.KCAP_SEP == " "
 
         kface_if = ""
         if ktext in kface_by_ktext.keys():
@@ -1018,16 +1080,23 @@ class KeyKhord:
             kface_if = kface_by_ktext[ktext]
             assert kface_if, (kface_if, kbytes)
 
-        else:
-
+        elif ktext.startswith("\033"):
             esc_ktext = ktext.removeprefix("\033")
-            if esc_ktext.startswith("\033"):
+            if esc_ktext.startswith("\033") or (esc_ktext in "\t\r\x7f"):
+
                 if esc_ktext in kface_by_ktext.keys():
 
                     esc_kface_if = kface_by_ktext[esc_ktext]
                     assert esc_kface_if, (esc_kface_if, kbytes)
-
                     kface_if = "⎋" + esc_kface_if
+
+                elif ktext.startswith("\033\033"):
+                    esc_esc_ktext = ktext.removeprefix("\033\033")
+                    if esc_esc_ktext in kface_by_ktext.keys():
+
+                        esc_kface_if = kface_by_ktext[esc_esc_ktext]
+                        assert esc_kface_if, (esc_kface_if, kbytes)
+                        kface_if = "⎋⎋" + esc_kface_if
 
         assert " " not in kface_if, (kface_if, kbytes)  # accepts empty, but not split by Spaces
 
@@ -1298,9 +1367,9 @@ class KeyPack:
 
         self.closed = False
 
-        kbytes_beyond = self.take_some_kbytes_if(kbytes)
-        if kbytes_beyond:
-            raise ValueError(kbytes_beyond, kbytes)  # raises the b'\x80' of b'\xc0\x80'
+        kdrops = self.take_some_kbytes_if(kbytes)
+        if kdrops:
+            raise ValueError(kdrops, kbytes)  # raises the b'\x80' of b'\xc0\x80'
 
         self._require_simple_kpack_()
 
@@ -1415,7 +1484,7 @@ class KeyPack:
 
         if neck or back or tail:
             assert head, (head, neck, back, tail, self)
-            assert head in self.Headbook, (head, self.Headbook, self)
+            assert head in KeyPack.Headbook, (head, KeyPack.Headbook, self)
             if tail:
                 assert closed, (closed, tail, self)
 
@@ -1426,31 +1495,20 @@ class KeyPack:
     # Run quick and slow Self-Test's
     #
 
-    def _try_key_pack_(self) -> None:
+    @staticmethod
+    def _try_key_pack_() -> None:
         """Run quick and slow Self-Test's"""
 
-        quickly = False
-        quickly = True  # todo1: more often try quickly=False
+        KeyPack._try_open_(b"")  # empty
 
-        t0 = time.time()
+        KeyPack._try_headbook_()
+        KeyPack._try_tailbook_()  # ~200ms
 
-        self._try_open_(b"")  # empty
+        KeyPack._try_one_more_kbyte_()
+        KeyPack._try_some_control_()
 
-        self._try_headbook_()
-        if not quickly:
-            self._try_tailbook_()  # ~200ms
-
-        self._try_one_more_kbyte_()
-        self._try_some_control_()
-
-        t1 = time.time()
-        t1t0 = t1 - t0
-
-        assert t1t0 < 1.000, (t1t0,)
-        if quickly:
-            assert t1t0 < 0.001, (t1t0,)
-
-    def _try_headbook_(self) -> None:
+    @staticmethod
+    def _try_headbook_() -> None:
         """Accept the Bytes of any Head of the Headbook, without closing the Pack"""
 
         headbook = (b"\033", b"\033\033", b"\033\033O", b"\033\033[", b"\033O", b"\033[", b"\033]")
@@ -1462,27 +1520,26 @@ class KeyPack:
         assert OSC == "\033]", (OSC,)
 
         for head in headbook:
-            self._try_open_(head)
+            KeyPack._try_open_(head)
 
             if head == b"\033":
-                self._try_open_(head + b"\033")
-            elif head in basic_headbook:
-                self._try_close_(head, b"\033")
+                KeyPack._try_open_(head + b"\033")
             elif head == b"\033]":
-                self._try_open_(head, b"\033")
+                KeyPack._try_open_(head, b"\033")
             else:
-                KeyPack(head)._try_drop_kbytes_(b"\033")
+                KeyPack._try_drops_(head, kdrops=b"\033")
 
             if head in basic_headbook:
-                self._try_close_(head, b"\t")
-                self._try_close_(head, "\u20ac".encode())
-                self._try_close_(head, b"\xf4\x8f\xbf\xff")
+                KeyPack._try_close_(head, b"\t")
+                KeyPack._try_close_(head, "\u20ac".encode())
+                KeyPack._try_close_(head, b"\xf4\x8f\xbf\xff")
             else:
-                KeyPack(head)._try_drop_kbytes_(b"\t")
-                KeyPack(head)._try_drop_kbytes_("\u20ac".encode())  # todo: solve Csi/Osc Multibyte
-                KeyPack(head)._try_drop_kbytes_(b"\xf4\x8f\xbf\xff")
+                KeyPack._try_drops_(head, kdrops=b"\t")
+                KeyPack._try_drops_(head, kdrops="\u20ac".encode())  # todo: solve Csi/Osc Multibyte
+                KeyPack._try_drops_(head, kdrops=b"\xf4\x8f\xbf\xff")
 
-    def _try_tailbook_(self) -> None:
+    @staticmethod
+    def _try_tailbook_() -> None:
         """Require each Opener accepted by .any_decodes_startswith via the Tailbook"""
 
         openers_set = set()
@@ -1495,110 +1552,116 @@ class KeyPack:
                 openers_set.add(opener)
 
         for opener in openers_set:
-            assert self.any_decodes_startswith(opener), (opener,)
+            assert KeyPack.any_decodes_startswith(opener), (opener,)
 
-    def _try_one_more_kbyte_(self) -> None:
+    @staticmethod
+    def _try_one_more_kbyte_() -> None:
         """Try some Packets open to, or closed against, taking more Bytes"""
 
         # Decline Bytes after Closed
 
-        KeyPack(b"")._closed_()._try_drop_kbytes_(b"\x41")
+        kpack = KeyPack(b"")
+        kpack.close()
+        drops = kpack.take_some_kbytes_if(b"\x41")
+        assert drops == b"\x41", (drops,)
 
         # Take Bytes into Stash, while could be decodable
 
-        self._try_open_("Superb", b"\xc2")
-        self._try_open_(b"\xed\x80")  # Head of >= 3 Byte UTF-8 Encoding
-        self._try_open_(b"\xf4\x80\x80")  # Head of >= 4 Byte UTF-8 Encoding
+        KeyPack._try_open_("Superb", b"\xc2")
+        KeyPack._try_open_(b"\xed\x80")  # Head of >= 3 Byte UTF-8 Encoding
+        KeyPack._try_open_(b"\xf4\x80\x80")  # Head of >= 4 Byte UTF-8 Encoding
 
         # Take Bytes into 6-Char Mouse Report, while could be 6 Bytes or 6 Decoded Chars
 
-        self._try_open_(b"\033[M" b"\xff\xff")  # 5 Undecodable Bytes
-        self._try_open_(b"\033[M" b".\xc2\xa3")  # 6 Decodable Bytes but < 6 Chars
-        self._try_open_(b"\033[M" b"\xf4\x8f\xbf\xbf" b"\xf4\x8f\xbf\xbf", b"\xf4\x8f\xbf")
+        KeyPack._try_open_(b"\033[M" b"\xff\xff")  # 5 Undecodable Bytes
+        KeyPack._try_open_(b"\033[M" b".\xc2\xa3")  # 6 Decodable Bytes but < 6 Chars
+        KeyPack._try_open_(b"\033[M" b"\xf4\x8f\xbf\xbf" b"\xf4\x8f\xbf\xbf", b"\xf4\x8f\xbf")
 
-        self._try_close_(b"\033[M" b"\xc2\x80\xff")  # 6 Undecodable Bytes
-        self._try_close_(b"\033[M" b"\xf4\x8f\xbf\xbf" b"\xf4\x8f\xbf\xbf" b"\xf4\x8f\xbf\xbf")
+        KeyPack._try_close_(b"\033[M" b"\xc2\x80\xff")  # 6 Undecodable Bytes
+        KeyPack._try_close_(b"\033[M" b"\xf4\x8f\xbf\xbf" b"\xf4\x8f\xbf\xbf" b"\xf4\x8f\xbf\xbf")
 
-        KeyPack(b"\033[M" b"\xff\xff")._try_drop_kbytes_(b"\xc2\x80")
+        KeyPack._try_drops_(b"\033[M" b"\xff\xff", kdrops=b"\xc2\x80")
 
         # Take Bytes into Text
 
-        self._try_open_("\u20ac", "\ufffd".encode()[:-1])
+        KeyPack._try_open_("\u20ac", "\ufffd".encode()[:-1])
 
         # Decline 1..4 Unprintable Bytes after Text
 
-        KeyPack(b"Text")._try_drop_kbytes_(b"\x7f")
-        KeyPack(b"Plain")._try_drop_kbytes_("\uffff".encode())
+        KeyPack._try_drops_(b"Text", kdrops=b"\x7f")
+        KeyPack._try_drops_(b"Plain", kdrops="\uffff".encode())
 
-    def _try_some_control_(self) -> None:
+    @staticmethod
+    def _try_some_control_() -> None:
 
         # Take & close 1 Unprintable Char or 1..4 Undecodable Bytes as an Alt Head
 
-        self._try_close_(b"\n")  # Head only, of 7-bit Control Byte
-        self._try_close_(b"\xc0")  # Head only, of 8-bit Control Byte
-        self._try_close_(b"\xc2\xad")  # Head only, of 2 Byte UTF-8 of U+00AD Soft-Hyphen Control
-        self._try_close_(b"\xf5")
-        self._try_close_(b"\xff")  # Head only, of 8-bit Control Byte
-        self._try_close_(b"\xf4\x8f\xbf\xc0")
+        KeyPack._try_close_(b"\n")  # Head only, of 7-bit Control Byte
+        KeyPack._try_close_(b"\xc0")  # Head only, of 8-bit Control Byte
+        KeyPack._try_close_(b"\xc2\xad")  # Head only, of 2 Byte UTF-8 of U+00AD Soft-Hyphen Control
+        KeyPack._try_close_(b"\xf5")
+        KeyPack._try_close_(b"\xff")  # Head only, of 8-bit Control Byte
+        KeyPack._try_close_(b"\xf4\x8f\xbf\xc0")
 
         # Take & close 1 Printable Char escaped by a Head simpler than Csi, Esc Csi, and Osc
 
-        self._try_close_(b"\033", b"A")  # Head & Text Tail of a Two-Byte Esc Sequence
-        self._try_close_(b"\033O", b"P")  # Head & Text Tail of a Three-Byte Ss3 Sequence
+        KeyPack._try_close_(b"\033", b"A")  # Head & Text Tail of a Two-Byte Esc Sequence
+        KeyPack._try_close_(b"\033O", b"P")  # Head & Text Tail of a Three-Byte Ss3 Sequence
 
         # Take & close 1 Unprintable Char or 1..4 Undecodable Bytes escaped by a Simpler Head
 
-        self._try_close_(b"\033", b"\t")  # Head & Control Tail of a Two-Byte Esc Sequence
+        KeyPack._try_close_(b"\033", b"\t")  # Head & Control Tail of a Two-Byte Esc Sequence
 
         # Take or don't take 1 Decodable Char escaped by Osc or Csi or Esc Csi
 
-        self._try_open_(b"\033[", b"6", b" ")  # Csi Head with Neck and Back but no Tail
+        KeyPack._try_open_(b"\033[", b"6", b" ")  # Csi Head with Neck and Back but no Tail
 
-        self._try_close_(b"\033\033[", b"3;5", b"~")  # Esc Csi Head with Neck and Tail, no Back
-        self._try_close_(b"\033[", b"3;5", b"H")  # Csi Head with Neck and Tail, no Back
-        self._try_close_(b"\033[", b"6", b" q")  # Csi Head with Neck and Back & Tail
+        KeyPack._try_close_(b"\033\033[", b"3;5", b"~")  # Esc Csi Head with Neck and Tail, no Back
+        KeyPack._try_close_(b"\033[", b"3;5", b"H")  # Csi Head with Neck and Tail, no Back
+        KeyPack._try_close_(b"\033[", b"6", b" q")  # Csi Head with Neck and Back & Tail
 
-        self._try_close_(b"\033]", b"\x07")
-        self._try_close_(b"\033]", b"\x1b" b"\\")
+        KeyPack._try_close_(b"\033]", b"\x07")
+        KeyPack._try_close_(b"\033]", b"\x1b" b"\\")
 
         # Decline 1..4 Undecodable Bytes, when escaped by Csi or Esc Csi or Osc
         # Decline 1 Bytes of Unprintable or Multi-Byte Char
         # todo: cleanup/ synch the English in these comments :P
 
-        KeyPack(b"\x1b[")._try_drop_kbytes_(b"\t")
-        KeyPack(b"\x1b]")._try_drop_kbytes_(b"\t")
+        KeyPack._try_drops_(b"\x1b[", kdrops=b"\t")
+        KeyPack._try_drops_(b"\x1b]", kdrops=b"\t")
 
-        KeyPack(b"\x1b[")._try_drop_kbytes_("\u20ac".encode())
-        KeyPack(b"\x1b]")._try_drop_kbytes_("\u20ac".encode())
+        KeyPack._try_drops_(b"\x1b[", kdrops="\u20ac".encode())
+        KeyPack._try_drops_(b"\x1b]", kdrops="\u20ac".encode())
 
-        KeyPack(b"\x1b[")._try_drop_kbytes_(b"\xf4\x8f\xff")
-        KeyPack(b"\x1b]")._try_drop_kbytes_(b"\xf4\x8f\xff")
+        KeyPack._try_drops_(b"\x1b[", kdrops=b"\xf4\x8f\xff")
+        KeyPack._try_drops_(b"\x1b]", kdrops=b"\xf4\x8f\xff")
 
-    def _closed_(self) -> KeyPack:
-        """Close, if not closed already, and return Self"""
+    @staticmethod
+    def _try_drops_(kbytes: bytes, kdrops: bytes) -> None:
+        """Require the Pack to reject these Bytes, after closing itself if need be"""
 
-        self.close()
-        return self
+        kpack = KeyPack(kbytes)
+        actual_kdrops = kpack.take_some_kbytes_if(kdrops)
+        assert actual_kdrops == kdrops, (actual_kdrops, kdrops, str(kpack))
 
-    def _try_drop_kbytes_(self, kbytes: bytes) -> None:
-        """Require the Pack to reject these Bytes"""
-
-        kbytes_beyond = self.take_some_kbytes_if(kbytes)
-        assert kbytes_beyond == kbytes, (kbytes_beyond, kbytes, str(self))
-
-    def _try_open_(self, *args: str | bytes) -> None:
-        """Require the Eval of the Str of the Pack equals its Bytes"""
-
-        kpack = self._try_bytes_(*args)
-        assert not kpack.closed, (kpack,)
-
-    def _try_close_(self, *args: bytes) -> None:
-        """Require the Eval of the Str of the Pack equals its Bytes"""
-
-        kpack = self._try_bytes_(*args)
         assert kpack.closed, (kpack,)
 
-    def _try_bytes_(self, *args: str | bytes) -> KeyPack:
+    @staticmethod
+    def _try_open_(*args: str | bytes) -> None:
+        """Require the Eval of the Str of the Pack equals its Bytes"""
+
+        kpack = KeyPack._try_bytes_(*args)
+        assert not kpack.closed, (kpack,)
+
+    @staticmethod
+    def _try_close_(*args: bytes) -> None:
+        """Require the Eval of the Str of the Pack equals its Bytes"""
+
+        kpack = KeyPack._try_bytes_(*args)
+        assert kpack.closed, (kpack,)
+
+    @staticmethod
+    def _try_bytes_(*args: str | bytes) -> KeyPack:
         """Require the Eval of the Str of the Pack equals its Bytes"""
 
         kbytes = b""
@@ -1629,20 +1692,23 @@ class KeyPack:
         for index in range(len(kbytes)):
             kbyte = kbytes[index:][:1]
 
-            kbytes_beyond = self.take_one_kbyte_if(kbyte)
-            if kbytes_beyond:
-                kbytes_beyond_plus = kbytes_beyond + kbytes[index:][1:]
-                return kbytes_beyond_plus
+            some_kdrops = self.take_one_kbyte_if(kbyte)
+            if some_kdrops:
+                many_kdrops = some_kdrops + kbytes[index:][1:]
+                return many_kdrops
 
         return b""
 
     def take_one_kbyte_if(self, kbyte: bytes) -> bytes:
         """Take in next 1 Byte and return 0 Bytes, else return 1..4 Bytes that don't fit"""
 
-        kbyte_beyond = self._take_one_kbyte_if_(kbyte)
+        kdrop = self._take_one_kbyte_if_(kbyte)
+        if kdrop:
+            self.close()
+
         self._require_simple_kpack_()
 
-        return kbyte_beyond
+        return kdrop
 
     def _take_one_kbyte_if_(self, kbyte: bytes) -> bytes:
         """Take in next 1 Byte and return 0 Bytes, else return 1..4 Bytes that don't fit"""
@@ -1713,7 +1779,7 @@ class KeyPack:
         try:
             decode = stash_plus.decode()
         except UnicodeDecodeError:
-            decodes = self.any_decodes_startswith(stash_plus)
+            decodes = KeyPack.any_decodes_startswith(stash_plus)
             if decodes:
                 stash.extend(kbyte)
                 return ("", b"")  # holds 1..3 possibly Decodable Bytes in Stash
@@ -1726,10 +1792,11 @@ class KeyPack:
 
         return (decode, stash_plus)  # forwards 1..4 Decodable Bytes
 
-    def any_decodes_startswith(self, kbytes: bytes) -> str:
+    @staticmethod
+    def any_decodes_startswith(kbytes: bytes) -> str:
         """Say if some Bytes start 1 or more UTF-8 Encodings of Chars"""
 
-        closers = self.Tailbook
+        closers = KeyPack.Tailbook  # Tails of Encodes of Chars, not Tails of KeyPack's
 
         for closer in closers:
             encode = kbytes + closer
@@ -1862,6 +1929,10 @@ class KeyPack:
                 tail.extend(kbytes)
                 self.closed = True
                 return b""  # takes & closes 1 Escaped Printable Char
+
+            if kbytes == b"\x1b":
+                assert decodes == "\x1b", (decodes, kbytes)
+                return kbytes  # declines leading Esc Byte after any basic Head
 
             # Take & close 1 Unprintable Char or 1..4 Undecodable Bytes escaped by a Simpler Head
 

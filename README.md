@@ -139,6 +139,6 @@ when you find max whimsy with least noise
 ## Links
 
 + [GitHub Repository](https://github.com/pelavarre/less-beeps/blob/main/README.md)
-+ [Questions/Feedback](https://twitter.com/intent/tweet?text=/@PELaVarre+Less-Beeps)
++ [Questions/Feedback](https://twitter.com/intent/tweet?text=/@PELaVarre%20%23LessBeeps)
 
 <!-- git clone git@github.com:pelavarre/less-beeps.git -->
