@@ -724,8 +724,8 @@ class KeyKhord:
 
     def __init__(self, kbytes: bytes) -> None:
 
-        kface = KeyKhord.to_k_face_if(kbytes)
-        kcaps = KeyKhord.to_k_caps(kbytes)
+        kface = KeyKhord.to_kface_if(kbytes)
+        kcaps = KeyKhord.to_kcaps_if(kbytes)
         kpack = KeyPack(kbytes)
         (kintsmark, kints) = KeyKhord.to_csi_ints_if(kbytes)
 
@@ -802,15 +802,15 @@ class KeyKhord:
         # (b"<m", [8, 80, 25])
 
     @staticmethod
-    def to_k_face_if(kbytes: bytes) -> str:
+    def to_kface_if(kbytes: bytes) -> str:
         return ""
 
-    KCAP_BY_KTEXT = {"": ""}
+    KFACE_BY_KTEXT = {"": ""}
 
     KCAP_SEP = " "  # separates '⇧Tab' from '⇧T a b', '⎋⇧FnX' from '⎋⇧Fn X', etc
 
     @staticmethod
-    def to_k_caps(kbytes: bytes) -> str:
+    def to_kcaps_if(kbytes: bytes) -> str:
         """Choose 1 Keycaps per Character to speak of the Bytes of 1 Keyboard Chord"""
 
         assert KeyKhord.KCAP_SEP == " "
@@ -824,13 +824,6 @@ class KeyKhord:
             return ""
 
         assert ktext, (ktext,)
-
-        if ktext == "\t":
-            return "⌃I"  # not 'Tab', despite .kcap_by_ktext
-        if ktext == "\r":
-            return "⌃M"  # not 'Return', despite .kcap_by_ktext
-        if ktext == "\x7f":
-            return "⌃?"  # not 'Delete', despite .kcap_by_ktext
 
         kcaps = ""
         for kt in ktext:  # often 'len(ktext) == 1'
@@ -855,7 +848,6 @@ class KeyKhord:
 
         option_kt_str = KeyKhord.OPTION_KT_STR  # '∂' for ⌥D
         option_ktext_by_kt = KeyKhord.OPTION_KTEXT_BY_KT  # 'é' for ⌥EE
-        kcap_by_ktext = KeyKhord.KCAP_BY_KTEXT  # '\x7F' for 'Delete'
 
         assert KeyKhord.SHIFTED_KEYCAPS == '!"#$%&()*+' ":<>?" "@" "^_" "{|}~"
 
@@ -863,9 +855,6 @@ class KeyKhord:
 
         if kt in '!"#$%&()*+' ":<>?" "@" "^_" "{|}~":
             kc = "⇧" + kt
-
-        elif kt in kcap_by_ktext.keys():  # Mac US Key Caps for Spacebar, F12, etc
-            kc = kcap_by_ktext[kt]  # '⌃Spacebar', 'Return', 'Delete', etc
 
         elif (kt != "`") and (kt in option_ktext_by_kt.keys()):  # Mac US Option Accents
             kc = option_ktext_by_kt[kt]
@@ -899,8 +888,8 @@ class KeyKhord:
         elif ko in range(0x80, 0xA0):  # C1 Control Bytes
             kc = repr(bytes([ko]))  # b'\x80'
         elif ko == 0xA0:  # 'No-Break Space'
-            kc = "⌥Spacebar"
-            assert False, (ko, kt)  # unreached because 'kcap_by_ktext'
+            assert ((0xA0 & 0x7F) ^ 0x40) == 0x60 == ord("`")
+            kc = "⌃`"  # macOS ⌥Spacebar
         elif ko == 0xAD:  # 'Soft Hyphen'  # near to a C1 Control Byte
             kc = repr(bytes([ko]))  # b'\xad'
 
@@ -1012,7 +1001,7 @@ class KeyKhord:
     # Define each KText once, never more than once
 
     _KTEXT_LISTS_ = [
-        list(KCAP_BY_KTEXT.keys()),
+        list(KFACE_BY_KTEXT.keys()),
         list(OPTION_KTEXT_BY_KT.keys()),
         list(_SPACELESS_OPTION_KT_STR_),
     ]
