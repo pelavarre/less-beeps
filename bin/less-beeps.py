@@ -801,17 +801,13 @@ class KeyKhord:
         # (b"H", [-1, 2])
         # (b"<m", [8, 80, 25])
 
-    @staticmethod
-    def to_kface_if(kbytes: bytes) -> str:
-        return ""
-
-    KFACE_BY_KTEXT = {"": ""}
-
-    KCAP_SEP = " "  # separates '⇧Tab' from '⇧T a b', '⎋⇧FnX' from '⎋⇧Fn X', etc
+    #
+    # Choose 1 Keycap per Character to speak of the Bytes of 1 Keyboard Chord
+    #
 
     @staticmethod
     def to_kcaps_if(kbytes: bytes) -> str:
-        """Choose 1 Keycaps per Character to speak of the Bytes of 1 Keyboard Chord"""
+        """Choose 1 Keycap per Character to speak of the Bytes of 1 Keyboard Chord"""
 
         assert KeyKhord.KCAP_SEP == " "
 
@@ -997,6 +993,264 @@ class KeyKhord:
         kc = "⌥" + end  # '⌥⇧P'
 
         return kc
+
+    #
+    # Define Key Cap Names with no " " Space's in them, for many multibyte Control Byte Sequences
+    #
+
+    KCAP_SEP = " "  # separates '⇧Tab' from '⇧T a b', '⎋⇧FnX' from '⎋⇧Fn X', etc
+
+    @staticmethod
+    def to_kface_if(kbytes: bytes) -> str:
+        """Choose Keycaps to speak of the Bytes of 1 Keyboard Chord"""
+
+        ktext = kbytes.decode()  # todo: .kbytes_to_concise_kcaps_if may raise UnicodeDecodeError
+        kface_by_ktext = KeyKhord.KFACE_BY_KTEXT  # '\e\e[A' for ⎋↑ etc
+
+        headbook = (b"\033", b"\033\033", b"\033\033O", b"\033\033[", b"\033O", b"\033[", b"\033]")
+        assert KeyPack.Headbook == headbook
+
+        assert KeyKhord.KCAP_SEP == " "
+
+        kface_if = ""
+        if ktext in kface_by_ktext.keys():
+
+            kface_if = kface_by_ktext[ktext]
+            assert kface_if, (kface_if, kbytes)
+
+        else:
+
+            esc_ktext = ktext.removeprefix("\033")
+            if esc_ktext.startswith("\033"):
+                if esc_ktext in kface_by_ktext.keys():
+
+                    esc_kface_if = kface_by_ktext[esc_ktext]
+                    assert esc_kface_if, (esc_kface_if, kbytes)
+
+                    kface_if = "⎋" + esc_kface_if
+
+        assert " " not in kface_if, (kface_if, kbytes)  # accepts empty, but not split by Spaces
+
+        return kface_if
+
+        # ⌥Y often comes through as \ U+005C Reverse-Solidus aka Backslash  # not ¥ Yen-Sign
+
+        # 'A'
+        # '⌃L'
+        # '⇧Z'
+        # '⎋9' from ⌥9 while Apple Keyboard > Option as Meta Key
+
+    KFACE_BY_KTEXT = {  # r"←|↑|→|↓" and so on  # ⌃ ⌥ ⇧ ⌃⌥ ⌃⇧ ⌥⇧ ⌃⌥⇧ and so on
+        "\x00": "⌃Spacebar",  # ⌃@  # ⌃⇧2
+        # "\x03": "Interrupt",  # ⌃C also found at FnReturn in iTerm2 Apple
+        # "\x08": "Backspace",  # ⌃H also found at ⌃⇧Delete and ⌃⌥⇧Delete in iTerm2 Apple
+        "\x09": "Tab",  # '\t' ⇥
+        "\x0d": "Return",  # '\r' ⏎
+        "\033": "⎋",  # Esc  # Meta  # includes ⎋Spacebar ⎋Tab ⎋Return ⎋Delete without ⌥
+        "\033" "\x01": "⌥⇧Fn←",  # ⎋⇧Fn←   # coded with ⌃A
+        "\033" "\x03": "⎋FnReturn",  # coded with ⌃C  # not ⌥FnReturn
+        "\033" "\x04": "⌥⇧Fn→",  # ⎋⇧Fn→   # coded with ⌃D
+        "\033" "\x08": "⎋⌃Delete",  # ⎋⌃Delete  # coded with ⌃H  # aka \b
+        "\033" "\x0b": "⌥⇧Fn↑",  # ⎋⇧Fn↑   # coded with ⌃K
+        "\033" "\x0c": "⌥⇧Fn↓",  # ⎋⇧Fn↓  # coded with ⌃L  # aka \f
+        "\033" "\x10": "⎋⇧Fn",  # ⎋ Meta ⇧ Shift of FnF1..FnF12  # not ⌥⇧Fn  # coded with ⌃P
+        "\033" "\033": "⎋⎋",  # Meta Esc  # not ⌥⎋
+        "\033" "\033O" "A": "⌃⌥↑",  # ESC SS3 ⇧A  # Google
+        "\033" "\033O" "B": "⌃⌥↓",  # ESC SS3 ⇧B  # Google
+        "\033" "\033O" "C": "⌃⌥→",  # ESC SS3 ⇧C  # Google
+        "\033" "\033O" "D": "⌃⌥←",  # ESC SS3 ⇧D  # Google
+        "\033" "\033[" "3;5~": "⌥⌃FnDelete",  # ⎋⌃FnDelete  # Apple
+        "\033" "\033[" "A": "⌥↑",  # CSI 04/01 Cursor Up (CUU)  # Option-as-Meta  # Google
+        "\033" "\033[" "B": "⌥↓",  # CSI 04/02 Cursor Down (CUD)  # Option-as-Meta  # Google
+        "\033" "\033[" "C": "⌥→",  # CSI 04/03 Cursor [Forward] Right (CUF_X)  # Google
+        "\033" "\033[" "D": "⌥←",  # CSI 04/04 Cursor [Back] Left (CUB_X)  # Google
+        "\033" "\033[" "Z": "⎋⇧Tab",  # ⇤  # CSI 05/10 CBT  # not ⌥⇧Tab
+        "\033" "\x28": "⎋FnDelete",  # not ⌥FnDelete
+        #
+        "\033O" "P": "F1",  # SS3 ⇧P  # but Apple takes ⇧F1 ⇧F2 ⇧F3 ⇧F4 from Terminal
+        "\033O" "Q": "F2",  # SS3 ⇧Q
+        "\033O" "R": "F3",  # SS3 ⇧R
+        "\033O" "S": "F4",  # SS3 ⇧S
+        #
+        "\033[" "15;2~": "⇧F5",  # iTerm2 Apple
+        "\033[" "15;3~": "⌥F5",  # iTerm2 Apple
+        "\033[" "15;4~": "⌥⇧F5",  # ⌥⇧F6  # iTerm2 Apple
+        "\033[" "15;5~": "⌃F5",  # iTerm2 Apple
+        "\033[" "15;6~": "⌃⇧F5",  # iTerm2 Apple
+        "\033[" "15;7~": "⌃⌥F5",  # iTerm2 Apple
+        "\033[" "15;8~": "⌃⌥⇧F5",  # iTerm2 Apple
+        "\033[" "15~": "F5",  # Esc 07/14 is LS1R, but CSI 07/14 is unnamed
+        "\033[" "17;2~": "⇧F6",  # iTerm2 Apple
+        "\033[" "17;3~": "⌥F6",  # iTerm2 Apple
+        "\033[" "17;4~": "⌥⇧F7",  # iTerm2 Apple
+        "\033[" "17;5~": "⌃F6",  # iTerm2 Apple
+        "\033[" "17;6~": "⌃⇧F6",  # iTerm2 Apple
+        "\033[" "17;7~": "⌃⌥F6",  # iTerm2 Apple
+        "\033[" "17;8~": "⌃⌥⇧F6",  # iTerm2 Apple
+        "\033[" "17~": "F6",  # ⌥F1  # ⎋F1
+        "\033[" "18;2~": "⇧F7",  # iTerm2 Apple
+        "\033[" "18;3~": "⌥F7",  # iTerm2 Apple
+        "\033[" "18;4~": "⌥⇧F8",  # iTerm2 Apple
+        "\033[" "18;5~": "⌃F7",  # iTerm2 Apple
+        "\033[" "18;6~": "⌃⇧F7",  # iTerm2 Apple
+        "\033[" "18;7~": "⌃⌥F7",  # iTerm2 Apple
+        "\033[" "18;8~": "⌃⌥⇧F7",  # iTerm2 Apple
+        "\033[" "18~": "F7",  # ⌥F2  # ⎋F2
+        "\033[" "19;2~": "⇧F8",  # iTerm2 Apple
+        "\033[" "19;3~": "⌥F8",  # iTerm2 Apple
+        "\033[" "19;4~": "⌥⇧F9",  # iTerm2 Apple
+        "\033[" "19;5~": "⌃F8",  # iTerm2 Apple  # Apple takes ⌃F8
+        "\033[" "19;6~": "⌃⇧F8",  # iTerm2 Apple
+        "\033[" "19;7~": "⌃⌥F8",  # iTerm2 Apple
+        "\033[" "19;8~": "⌃⌥⇧F8",  # iTerm2 Apple
+        "\033[" "19~": "F8",  # ⌥F3  # ⎋F3
+        #
+        "\033[" "1;2A": "⇧↑",  # iTerm2 Apple
+        "\033[" "1;2B": "⇧↓",  # iTerm2 Apple
+        "\033[" "1;2C": "⇧→",  # CSI 04/03 Cursor [Forward] Right (CUF_YX) Y=1 X=2  # Apple
+        "\033[" "1;2D": "⇧←",  # CSI 04/04 Cursor [Back] Left (CUB_YX) Y=1 X=2  # Apple
+        "\033[" "1;2F": "⇧Fn→",  # iTerm2 Apple
+        "\033[" "1;2H": "⇧Fn←",  # iTerm2 Apple
+        "\033[" "1;2P": "⇧F1",  # iTerm2 Apple
+        "\033[" "1;2Q": "⇧F2",  # iTerm2 Apple
+        "\033[" "1;2R": "⇧F3",  # iTerm2 Apple
+        "\033[" "1;2S": "⇧F4",  # iTerm2 Apple
+        #
+        "\033[" "1;3A": "⌥↑",  # iTerm2 Apple
+        "\033[" "1;3B": "⌥↓",  # iTerm2 Apple
+        "\033[" "1;3C": "⌥→",  # iTerm2 Apple
+        "\033[" "1;3D": "⌥←",  # iTerm2 Apple
+        "\033[" "1;3F": "⌥Fn→",  # iTerm2 Apple
+        "\033[" "1;3H": "⌥Fn←",  # iTerm2 Apple
+        "\033[" "1;3P": "⌥F1",  # iTerm2 Apple
+        "\033[" "1;3Q": "⌥F2",  # iTerm2 Apple
+        "\033[" "1;3R": "⌥F3",  # iTerm2 Apple
+        "\033[" "1;3S": "⌥F4",  # iTerm2 Apple
+        #
+        "\033[" "1;4A": "⌥⇧↑",  # iTerm2 Apple
+        "\033[" "1;4B": "⌥⇧↓",  # iTerm2 Apple
+        "\033[" "1;4C": "⌥⇧→",  # iTerm2 Apple
+        "\033[" "1;4D": "⌥⇧←",  # iTerm2 Apple
+        "\033[" "1;4F": "⌥⇧Fn→",  # iTerm2 Apple
+        "\033[" "1;4H": "⌥⇧Fn←",  # iTerm2 Apple
+        "\033[" "1;4P": "⌥⇧F1",  # iTerm2 Apple
+        "\033[" "1;4Q": "⌥⇧F2",  # iTerm2 Apple
+        "\033[" "1;4R": "⌥⇧F3",  # iTerm2 Apple
+        "\033[" "1;4S": "⌥⇧F4",  # iTerm2 Apple
+        #
+        "\033[" "1;5P": "⌃F1",  # iTerm2 Apple  # Apple takes ⌃F1
+        "\033[" "1;5Q": "⌃F2",  # iTerm2 Apple
+        "\033[" "1;5R": "⌃F3",  # iTerm2 Apple  # Apple takes ⌃F3
+        "\033[" "1;5S": "⌃F4",  # iTerm2 Apple
+        #
+        "\033[" "1;6A": "⌃⇧↑",  # iTerm2 Apple
+        "\033[" "1;6B": "⌃⇧↓",  # iTerm2 Apple
+        "\033[" "1;6C": "⌃⇧→",  # iTerm2 Apple
+        "\033[" "1;6D": "⌃⇧←",  # iTerm2 Apple
+        "\033[" "1;6P": "⌃⇧F1",  # iTerm2 Apple
+        "\033[" "1;6Q": "⌃⇧F2",  # iTerm2 Apple
+        "\033[" "1;6R": "⌃⇧F3",  # iTerm2 Apple
+        "\033[" "1;6S": "⌃⇧F4",  # iTerm2 Apple
+        #
+        "\033[" "1;7A": "⌃⌥↑",  # iTerm2 Apple
+        "\033[" "1;7B": "⌃⌥↓",  # iTerm2 Apple
+        "\033[" "1;7C": "⌃⌥→",  # iTerm2 Apple
+        "\033[" "1;7D": "⌃⌥←",  # iTerm2 Apple
+        "\033[" "1;7F": "⌃⌥Fn←",  # iTerm2 Apple
+        "\033[" "1;7H": "⌃⌥Fn→",  # iTerm2 Apple
+        "\033[" "1;7P": "⌃⌥F1",  # iTerm2 Apple
+        "\033[" "1;7Q": "⌃⌥F2",  # iTerm2 Apple
+        "\033[" "1;7R": "⌃⌥F3",  # iTerm2 Apple
+        "\033[" "1;7S": "⌃⌥F4",  # iTerm2 Apple
+        #
+        "\033[" "1;8A": "⌃⌥⇧↑",  # iTerm2 Apple
+        "\033[" "1;8B": "⌃⌥⇧↓",  # iTerm2 Apple
+        "\033[" "1;8C": "⌃⌥⇧→",  # iTerm2 Apple
+        "\033[" "1;8D": "⌃⌥⇧←",  # iTerm2 Apple
+        "\033[" "1;8P": "⌃⌥⇧F1",  # iTerm2 Apple
+        "\033[" "1;8Q": "⌃⌥⇧F2",  # iTerm2 Apple
+        "\033[" "1;8R": "⌃⌥⇧F3",  # iTerm2 Apple
+        "\033[" "1;8S": "⌃⌥⇧F4",  # iTerm2 Apple
+        #
+        "\033[" "20;2~": "⇧F9",  # iTerm2 Apple
+        "\033[" "20;3~": "⌥F9",  # iTerm2 Apple
+        "\033[" "20;4~": "⌥⇧F10",  # iTerm2 Apple
+        "\033[" "20;5~": "⌃F9",  # iTerm2 Apple
+        "\033[" "20;6~": "⌃⇧F9",  # iTerm2 Apple
+        "\033[" "20;7~": "⌃⌥F9",  # iTerm2 Apple
+        "\033[" "20;8~": "⌃⌥⇧F9",  # iTerm2 Apple
+        "\033[" "20~": "F9",  # ⌥F4  # ⎋F4
+        "\033[" "21;2~": "⇧F10",  # iTerm2 Apple
+        "\033[" "21;3~": "⌥F10",  # iTerm2 Apple
+        "\033[" "21;4~": "⌥⇧F11",  # iTerm2 Apple
+        "\033[" "21;5~": "⌃F10",  # iTerm2 Apple
+        "\033[" "21;6~": "⌃⇧F10",  # iTerm2 Apple
+        "\033[" "21;7~": "⌃⌥F10",  # iTerm2 Apple
+        "\033[" "21;8~": "⌃⌥⇧F10",  # iTerm2 Apple
+        "\033[" "21~": "F10",  # ⌥F5  # ⎋F5
+        "\033[" "22;4~": "⌥⇧F12",  # iTerm2 Apple
+        "\033[" "23;2~": "⇧F11",  # iTerm2 Apple
+        "\033[" "23;3~": "⌥F11",  # iTerm2 Apple
+        "\033[" "23;5~": "⌃F11",  # iTerm2 Apple
+        "\033[" "23;6~": "⌃⇧F11",  # iTerm2 Apple
+        "\033[" "23;7~": "⌃⌥F11",  # iTerm2 Apple
+        "\033[" "23;8~": "⌃⌥⇧F11",  # iTerm2 Apple
+        "\033[" "23~": "F11",  # ⌥F6  # ⎋F6  # Apple takes F11
+        "\033[" "24;2~": "⇧F12",  # iTerm2 Apple
+        "\033[" "24;3~": "⌥F12",  # iTerm2 Apple
+        "\033[" "24;5~": "⌃F12",  # iTerm2 Apple
+        "\033[" "24;6~": "⌃⇧F12",  # iTerm2 Apple
+        "\033[" "24;7~": "⌃⌥F12",  # iTerm2 Apple
+        "\033[" "24;8~": "⌃⌥⇧F12",  # iTerm2 Apple
+        "\033[" "24~": "F12",  # ⌥F7  # ⎋F7
+        "\033[" "25~": "⇧F5",  # ⌥F8  # ⎋F8
+        "\033[" "26~": "⇧F6",  # ⌥F9  # ⎋F9
+        "\033[" "28~": "⇧F7",  # ⌥F10  # ⎋F10
+        "\033[" "29~": "⇧F8",  # ⌥F11  # ⎋F11
+        #
+        "\033[" "31~": "⇧F9",  # ⌥F12  # ⎋F12
+        "\033[" "32~": "⇧F10",
+        "\033[" "33~": "⇧F11",
+        "\033[" "34~": "⇧F12",
+        "\033[" "3;2~": "⇧FnDelete",
+        "\033[" "3;3~": "⌥FnDelete",  # iTerm2 Apple
+        "\033[" "3;4~": "⌥⇧FnDelete",  # iTerm2 Apple
+        "\033[" "3;5~": "⌃FnDelete",  # Apple
+        "\033[" "3;6~": "⌃⇧FnDelete",  # iTerm2 Apple
+        "\033[" "3;7~": "⌃⌥Delete",  # iTerm2 Apple
+        "\033[" "3;8~": "⌃⌥⇧FnDelete",  # iTerm2 Apple
+        "\033[" "3~": "FnDelete",
+        #
+        "\033[" "5;3~": "⌥Fn↑",  # iTerm2 Apple
+        "\033[" "5;4~": "⌥⇧Fn↑",  # iTerm2 Apple
+        "\033[" "5;7~": "⌃⌥Fn↑",  # iTerm2 Apple
+        "\033[" "5~": "⇧Fn↑",  # Apple
+        #
+        "\033[" "6;3~": "⌥Fn↓",  # iTerm2 Apple
+        "\033[" "6;4~": "⌥⇧Fn↓",  # iTerm2 Apple
+        "\033[" "6;7~": "⌃⌥Fn↓",  # iTerm2 Apple
+        "\033[" "6~": "⇧Fn↓",  # Apple
+        #
+        "\033[" "A": "↑",  # CSI 04/01 Cursor Up (CUU)  # also ⌥↑ Apple
+        "\033[" "B": "↓",  # CSI 04/02 Cursor Down (CUD)  # also ⌥↓ Apple
+        "\033[" "C": "→",  # CSI 04/03 Cursor Right [Forward] (CUF)  # also ⌥→ Apple
+        "\033[" "D": "←",  # CSI 04/04 Cursor [Back] Left (CUB)  # also ⌥← Apple
+        "\033[" "F": "⇧Fn→",  # Apple  # CSI 04/06 Cursor Preceding Line (CPL)
+        "\033[" "H": "⇧Fn←",  # Apple  # CSI 04/08 Cursor Position (CUP)
+        "\033[" "Z": "⇧Tab",  # ⇤  # CSI 05/10 Cursor Backward Tabulation (CBT)
+        "\033" "b": "⌥←",  # ⎋B  # ⎋←  # Emacs M-b Backword-Word  # Apple
+        "\033" "f": "⌥→",  # ⎋F  # ⎋→  # Emacs M-f Forward-Word  # Apple
+        "\x20": "Spacebar",  # ' '  # ␠  # ␣  # ␢
+        "``": "⌥``",  # sometimes arrives as "`" "`" split across hundreds of milliseconds
+        "\x7f": "Delete",  # ␡  # ⌫  # ⌦
+        "\xa0": "⌥Spacebar",  # '\N{No-Break Space}'
+    }
+
+    assert list(KFACE_BY_KTEXT.keys()) == sorted(KFACE_BY_KTEXT.keys())
+
+    assert KCAP_SEP == " "
+    for _KCAP in KFACE_BY_KTEXT.values():
+        assert " " not in _KCAP, (_KCAP,)
 
     # Define each KText once, never more than once
 
