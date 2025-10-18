@@ -1,11 +1,12 @@
-# Easter-Eggs | Less-Beeps
+# Four Easter-Eggs | Less-Beeps
 
-There may be more than nine games, or less than one
+1 ) There may be more than nine games, or less than one
 
-You can spell '--' as '--y' or '--yo' or '--yol' or '--yolo', when it is the only Shell Arg
+2 ) You can spell '--' as '--y' or '--yo' or '--yol' or '--yolo', when it is the only Shell Arg
 
-Calling for '--force' runs our slowest Self-Test's
+3 ) Calling for '--force' runs our slowest Self-Test's
 
+4 ) You can press any of of the classic ⌃C ⌃D ⌃Z ⌃\ to quit, you don't have to choose
 
 ## Links
 
