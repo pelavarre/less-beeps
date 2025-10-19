@@ -786,7 +786,10 @@ class KeyMix:
         kface = KeyMix.to_kface_if(kbytes)
         kcaps = KeyMix.to_kcaps_if(kbytes)
         kpack = KeyPack(kbytes)
+
         (kintsmark, kints) = KeyMix.to_csi_ints_if(kbytes)
+        if (not kintsmark) and (not kints):
+            (kintsmark, kints) = KeyMix.to_csi_m_ints_if(kbytes)
 
         self.kface = kface
         self.kcaps = kcaps
@@ -847,16 +850,22 @@ class KeyMix:
 
         assert CSI == "\033["
 
+        # Fail if not a CSI Escape Sequence closed by its Tail
+
         kintsmark = b""
         kints: list[int] = list()
 
         if (head != b"\033[") or not closed:
             return (kintsmark, kints)
 
-        kintsmark = bytes(neck + back + tail)
+        # Fail if no ';' Semicolon Marks and no Decimal Digits
+
+        kintsmark = bytes(back + tail)
         m = re.search(b"[0-9;]+", string=neck)
         if not m:
             return (kintsmark, kints)
+
+        # Pass back the Ints
 
         kints = list((int(_) if _ else -1) for _ in m.group().split(b";"))
 
@@ -869,6 +878,47 @@ class KeyMix:
         # (b"A", [])
         # (b"H", [-1, 2])
         # (b"<m", [8, 80, 25])
+
+    @staticmethod
+    def to_csi_m_ints_if(kbytes: bytes) -> tuple[bytes, list[int]]:
+        """Pick out the Nonnegative Int Literals of a CSI Mouse Report"""
+
+        kpack = KeyPack(kbytes)
+
+        head = kpack.head
+        neck = kpack.neck
+        back = kpack.back
+        tail = kpack.tail
+        closed = kpack.closed
+
+        assert CSI == "\033["
+
+        # Fail if not a Csi ⇧M Escape Sequence, closed when full
+
+        kintsmark = b""
+        kints: list[int] = list()
+
+        if (head != b"\033[M") or not closed:
+            return (kintsmark, kints)
+
+        assert (not neck) and (not tail), (neck, tail, kbytes)
+
+        # Pass back the Ord's of 3 Bytes, no matter if Decodable as Characters
+
+        kintsmark = b"M"
+        if len(back) == 3:
+            kints = list(back)
+            return (kintsmark, kints)
+
+        # Pass back the Ord's of 3 Characters
+
+        try:
+            decode = back.decode()
+        except UnicodeDecodeError:
+            assert False, (back, kbytes)
+
+        kints = list(ord(_) for _ in decode)
+        return (kintsmark, kints)
 
     #
     # Choose 1 Keycap per Character to speak of the Bytes of 1 Keyboard Chord
@@ -1614,12 +1664,12 @@ class KeyPack:
 
         # Take Bytes into 6-Char Mouse Report, while could be 6 Bytes or 6 Decoded Chars
 
-        KeyPack._try_open_(b"\033[M" b"\xff\xff")  # 5 Undecodable Bytes
-        KeyPack._try_open_(b"\033[M" b".\xc2\xa3")  # 6 Decodable Bytes but < 6 Chars
-        KeyPack._try_open_(b"\033[M" b"\xf4\x8f\xbf\xbf" b"\xf4\x8f\xbf\xbf", b"\xf4\x8f\xbf")
+        KeyPack._try_open_(b"\033[M", b"\xff\xff")  # 5 Undecodable Bytes
+        KeyPack._try_open_(b"\033[M", b".\xc2\xa3")  # 6 Decodable Bytes but < 6 Chars
+        KeyPack._try_open_(b"\033[M", b"\xf4\x8f\xbf\xbf" b"\xf4\x8f\xbf\xbf" b"\xf4\x8f\xbf")
 
-        KeyPack._try_close_(b"\033[M" b"\xc2\x80\xff")  # 6 Undecodable Bytes
-        KeyPack._try_close_(b"\033[M" b"\xf4\x8f\xbf\xbf" b"\xf4\x8f\xbf\xbf" b"\xf4\x8f\xbf\xbf")
+        KeyPack._try_close_(b"\033[M", b"\xc2\x80\xff")  # 6 Undecodable Bytes
+        KeyPack._try_close_(b"\033[M", b"\xf4\x8f\xbf\xbf" b"\xf4\x8f\xbf\xbf" b"\xf4\x8f\xbf\xbf")
 
         KeyPack._try_extra_(b"\033[M" b"\xff\xff", extra=b"\xc2\x80")
 
@@ -1940,46 +1990,43 @@ class KeyPack:
         """Take Bytes into a Csi Mouse Report of 6 Bytes or 6 Characters"""
 
         head = self.head
+        back = self.back
 
-        assert head.startswith(b"\033[M")  # ⎋[M Mouse Report
+        assert head == b"\033[M", (head,)  # ⎋[M Mouse Report
         assert len(decode) <= 1, (decode, encode)
 
         # Look into taking as Decodable Characters or as Undecodable Bytes
 
-        head_plus = head + encode
-
+        back_plus = back + encode
         try:
-            head_plus_decode = head_plus.decode()
+            back_plus_decode = back_plus.decode()
         except UnicodeDecodeError:
-            head_plus_decode = ""
+            back_plus_decode = ""
 
-        assert len(head_plus_decode) <= 6, (head_plus_decode, encode, self)
+        assert len(back_plus_decode) <= 3, (back_plus_decode, encode, self)
 
         # Take 3..15 Bytes into a 6 Character Mouse Report
 
-        if head_plus_decode:
-            head.extend(encode)
-            if len(head_plus_decode) == 6:
+        if back_plus_decode:
+            back.extend(encode)
+            if len(back_plus_decode) == 3:
                 self.closed = True
             return b""
 
         # Decline 2..4 Bytes past 3..5 Bytes of 6 Byte Csi Mouse Report
 
-        if len(head_plus) > 6:  # 6..15 Bytes
+        if len(back_plus) > 3:  # 6..15 Bytes
             self.closed = True
             return encode
 
         # Take 1..3 Bytes into a 6 Byte Csi Mouse Report
 
-        head.extend(encode)
-        if len(head_plus) == 6:
+        back.extend(encode)
+        if len(back_plus) == 3:
             self.closed = True
         return b""
 
         # may take b"\033" into a 6 Byte Csi Mouse Report
-
-        # todo3: grow the payload of ⎋[⇧M in the .back, not in the .head
-        # todo3: teach the .kints to pull from ⎋[⇧M .back as list of 0..3 Ints = Cb, Cx, Cy
 
     def _take_after_csi_if_(self, encode: bytes, decode: str) -> bytes:
         """Take 1..4 Bytes that fit with a CSI Head, else close & reject as a Peek"""
