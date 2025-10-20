@@ -76,8 +76,12 @@ class Flags:
     portrait: bool = False  # flags.portrait, for when lots more high than wide
     barefoot: bool = False  # flags.barefoot, for when no rows beneath a Southern Keyboard
 
+    keyboard_interrupt_repl: bool = False  # flags.keyboard_interrupt_repl
+
 
 flags = Flags()
+
+# flags.keyboard_interrupt_repl = True
 
 
 #
@@ -100,7 +104,7 @@ def main() -> None:
 
 
 def arg_doc_to_parser(doc: str) -> ArgDocParser:
-    """Declare the Options & Positional Arguments"""
+    """Declare the Positional Arguments & Options"""
 
     assert argparse.ZERO_OR_MORE == "*"
 
@@ -206,7 +210,10 @@ class TerminalStudio:
 
         # Stop line-buffering Input, stop replacing \n Output with \r\n, etc
 
-        tty.setraw(fileno, when=termios.TCSADRAIN)  # todo: .when defaults to .TCSAFLUSH
+        if not flags.keyboard_interrupt_repl:
+            tty.setraw(fileno, when=termios.TCSADRAIN)  # todo: .when defaults to .TCSAFLUSH
+        else:
+            tty.setcbreak(fileno, when=termios.TCSADRAIN)  # todo: .when defaults to .TCSAFLUSH
 
         # Succeed
 
@@ -238,60 +245,6 @@ class TerminalStudio:
         return None
 
         # todo: try termios.TCSAFLUSH to discard Input at exit
-
-    #
-    # Launch, run, quit
-    #
-
-    def speak_first(self) -> None:
-        """Launch quickly"""
-
-        self.sprint("⌃D to quit,  Fn F1 for more help,  or ⌥-Click far from the Cursor")
-
-    #
-    # Read & eval & print
-    #
-
-    def chat_awhile(self) -> None:
-        r"""Loop and don't quit till one of ⌃C ⌃D ⌃Z ⌃\ """
-
-        mk = self.mock_keyboard
-
-        self.sprint()
-        while True:
-
-            (km, kpeek) = mk.read_key_mix(timeout=None)
-            if not kpeek:
-                self.sprint(km)
-
-            if km.kpack.closed:
-                self.sprint()
-
-                if km.kcaps in ("⌃C", "⌃D", "⌃Z", "⌃\\"):
-                    break
-
-        # todo2: have the layer above send ⎋[5n after fetch ⎋ til fetching ⎋[0n outside ⎋] Osc
-
-        # todo1: livelocks less wild in Keyboard/ Screen loopback
-
-    def stop_chatting(self) -> None:
-        """Flush the Buffered Input just before Quitting"""
-
-        mk = self.mock_keyboard
-
-        while self.kbhit(timeout=0.100):
-            (km, kpeek) = mk.read_key_mix(timeout=None)
-            if not kpeek:
-                self.sprint(km)
-            if km.kpack.closed:
-                self.sprint()
-
-        kbytes = bytes(mk.kbytesahead[mk.kbindex :])
-        if kbytes:
-            self.sprint(kbytes)
-            self.sprint()
-
-        self.sprint("bye")
 
     #
     # Fetch from Keyboard
@@ -342,16 +295,88 @@ class TerminalStudio:
         stdio = self.stdio
         print(*args, end=end, file=stdio)
 
+    def swrite(self, text: str) -> None:
+        """Write to the Terminal Screen"""
+
+        stdio = self.stdio
+        stdio.write(text)
+
+    #
+    # Launch, run, quit - read & eval & print
+    #
+    #
+
+    def speak_first(self) -> None:
+        """Launch quickly"""
+
+        self.sprint("⌃D to quit,  Fn F1 for more help,  or ⌥-Click far from the Cursor")
+
+    def chat_awhile(self) -> None:
+        r"""Loop and don't quit till one of ⌃C ⌃D ⌃Z ⌃\ """
+
+        mk = self.mock_keyboard
+        ms = self.mock_screen
+
+        self.sprint()
+        while True:
+
+            (km, kpeek) = mk.read_key_mix(timeout=None)
+            # ms.sprint("SQUIRREL 2", km, kpeek)
+            if not kpeek:
+                self.sprint(km)
+
+            if km.kpack.closed:
+                self.sprint()
+
+                if km.kcaps in ("⌃C", "⌃D", "⌃Z", "⌃\\"):
+                    break
+
+        _ = ms
+
+        # todo1: livelocks less wild in Keyboard/ Screen loopback
+
+    def stop_chatting(self) -> None:
+        """Flush the Buffered Input just before Quitting"""
+
+        mk = self.mock_keyboard
+
+        while self.kbhit(timeout=0.100):
+            (km, kpeek) = mk.read_key_mix(timeout=None)
+            if not kpeek:
+                self.sprint(km)
+            if km.kpack.closed:
+                self.sprint()
+
+        kbytes = bytes(mk.kbytesahead[mk.kbindex :])
+        if kbytes:
+            self.sprint(kbytes)
+            self.sprint()
+
+        self.sprint("bye")
+
 
 @dataclasses.dataclass(order=True)  # , frozen=True)
 class MockScreen:
     """Mirror the Writes to a Terminal Screen"""
 
     terminal_studio: TerminalStudio
-    mock_keyboard: MockKeyboard
+    queries: list[str]  # awaiting replies for which of ⎋[5n, ⎋[6n, ⎋[18t, etc
 
     def __init__(self, terminal_studio: TerminalStudio) -> None:
         self.terminal_studio = terminal_studio
+        self.queries = list()
+
+    def sprint(self, *args: object) -> None:
+        """Write to the Terminal Screen"""
+
+        ts = self.terminal_studio
+        ts.sprint(*args)
+
+    def swrite(self, text: str) -> None:
+        """Write to the Terminal Screen"""
+
+        ts = self.terminal_studio
+        ts.swrite(text)
 
 
 @dataclasses.dataclass(order=True)  # , frozen=True)
@@ -378,15 +403,47 @@ class MockKeyboard:
     def read_key_mix(self, timeout: float | None) -> tuple[KeyMix, bytes]:
         """Read one Key Chord"""
 
+        ms = self.mock_screen
+
         kbytesahead = self.kbytesahead
         kbindex = self.kbindex
         kpack = self.kpack
 
-        # Read no more Bytes into the KeyPack, after Closed or after 1 Text Character
+        option_kt_str = KeyMix.OPTION_KT_STR  # '∂' for ⌥D
+        option_ktext_by_kt = KeyMix.OPTION_KTEXT_BY_KT  # 'é' for ⌥EE
+
+        # Restart the KeyPack after returning it closed
+        # Restart the KeyPack after each ` Grave Accent, to duck away from b'``' Encode of ⌥``
+        # Restart the KeyPack after each complete ⌥ Option/Alt Key Cap
+
+        kbytes_before = kpack.to_kbytes()
 
         if kpack.closed:
             self.kpack = KeyPack(b"")
+            kpack = self.kpack  # todo3: make this line less critical
+
+        if kbytes_before == b"`":
+            self.kpack = KeyPack(b"")
             kpack = self.kpack
+
+        kt = ""
+        try:
+            kt = kbytes_before.decode()[-1:]
+        except UnicodeDecodeError:
+            pass
+
+        if kt and (kt != " "):
+            if (kt != "`") and (kt in option_ktext_by_kt.keys()):  # Mac US Option Accents
+                self.kpack = KeyPack(b"")
+                kpack = self.kpack
+            elif kt in option_kt_str:  # Mac US Option Key Caps
+                self.kpack = KeyPack(b"")
+                kpack = self.kpack
+
+        # Clone the KeyPack
+
+        kpack = KeyPack(kpack.to_kbytes())  # because 'copied better than aliased'
+        self.kpack = kpack
 
         # Read nothing after timeout
 
@@ -395,22 +452,41 @@ class MockKeyboard:
 
         if kbindex >= len(kbytesahead):
             self._fill_kbytesahead_(timeout)
+            # ms.sprint("SQUIRREL 1", kbytesahead[kbindex:])
             if kbindex >= len(kbytesahead):
                 return (empty_km, empty_kpeek)
 
-            # Read the ⌥``` Key Khord Sequence as a single Key Khord  # todo2: broke
+            # Read the ⌥``` Key Khord Sequence as a single Key Khord
 
             double_km = KeyMix(b"``")
             if kbytesahead[kbindex:] == b"``":
+                kpack = self.kpack = KeyPack(b"``")
+                kpack.close()
+
                 self.kbindex += len(b"``")
                 return (double_km, empty_kpeek)
 
-        # Peek at one Byte, and close the Pack early if it doesn't fit, else read it in
+                # skips bracketed paste of a `` pair because that comes inside ⎋[200~ ⎋[201~
 
-        kpack = KeyPack(kpack.to_kbytes())  # because 'copied better than aliased'
-        self.kpack = kpack
+                # todo2: default to run with bracketed paste on, but offer toggle off/on
+
+        # Peek at one Byte
 
         kbyte = bytes(kbytesahead[kbindex:][:1])
+
+        # Restart the KeyPack when Text not followed by plain US-Ascii Text
+
+        if kpack.text:
+            if 0x20 <= ord(kbyte) <= 0x7E:
+                pass
+            else:
+                self.kpack = KeyPack(b"")
+                kpack = self.kpack
+
+            # for when the next Bytes can be an encode of ⌥ Option/Alt
+
+        # Close the Pack early if the new Byte doesn't fit, else read it in
+
         extra = kpack.take_one_kbyte_if(kbyte)  # todo2: wrong for ⎋[⇧Z etc closing ⎋[⇧M Csi Mouse
         if extra:
             assert kpack.closed, (kpack.closed, kpack, extra)
@@ -418,12 +494,17 @@ class MockKeyboard:
         if not extra:
             self.kbindex += 1
 
-        # Succeed
+        # Snoop
 
-        kbytes = kpack.to_kbytes()
-        km = KeyMix(kbytes)
+        kbytes_after = kpack.to_kbytes()
+
+        km = KeyMix(kbytes_after)
         if extra:
             km.kpack.close()
+
+        # Succeed
+
+        _ = ms
 
         return (km, extra)
 
@@ -432,14 +513,41 @@ class MockKeyboard:
     def _fill_kbytesahead_(self, timeout: float | None) -> None:
         """Fetch Bytes into Self"""
 
+        kbytesahead = self.kbytesahead
         ts = self.terminal_studio
 
-        kbyte = ts.read_one_kbyte_if(timeout=timeout)  # fetches one or zero K-Byte's
-        self.kbytesahead.extend(kbyte)
+        ms = self.mock_screen
+        queries = ms.queries
 
-        # todo2: add ⎋[5n to close it with ⎋[0n
-        # todo2: have the layer above send ⎋[5n after fetch ⎋ til fetching ⎋[0n outside ⎋] Osc
+        kbyte = ts.read_one_kbyte_if(timeout=timeout)  # fetches one or zero K-Byte's
+        kbytesahead.extend(kbyte)
+
+        query = "\033[5n"
+        reply = "\033[0n"
+
+        # if kbyte in (b"\033", b"`"):  # ⎋ `  # todo3: surface ⎋ alone vs in burst
+        if kbyte in (b"`",):  # `
+
+            if query not in queries:
+                queries.append(query)
+
+                ms.swrite(query)
+
+        while queries:
+
+            kbyte = ts.read_one_kbyte_if(timeout=timeout)  # fetches one or zero K-Byte's
+            kbytesahead.extend(kbyte)
+
+            n = len(reply.encode())
+            if kbytesahead.endswith(reply.encode()):
+                del kbytesahead[-n:]
+
+                queries.remove(query)
+
+        # todo3: add ⎋[0n mark to KeyPack's fetched that way
+
         # todo2: test ⌥` ` with ⎋[5n and ⎋[0n
+        # todo2: test lots of ⌥ Key Chords with ⎋[5n and ⎋[0n, vs .text sits open
 
 
 #
@@ -489,9 +597,9 @@ class ArgDocParser:
 
         self.add_argument = parser.add_argument
 
-        # callers who need Options & Positional Arguments have to add them
-
         # 'add_help=False' for needs like 'cal -h', 'df -h', 'du -h', 'ls -h', etc
+
+        # callers who need Options & Positional Arguments have to add them
 
     #
     # Take in the Shell Args, else print Help and exit zero or nonzero
@@ -744,9 +852,10 @@ def excepthook(  # ) -> ...:
 
     # Quit now for visible cause, if KeyboardInterrupt
 
-    if exc_type is KeyboardInterrupt:
-        with_stderr.write("KeyboardInterrupt\n")
-        sys.exit(130)  # 0x80 + signal.SIGINT
+    if not flags.keyboard_interrupt_repl:
+        if exc_type is KeyboardInterrupt:
+            with_stderr.write("KeyboardInterrupt\n")
+            sys.exit(130)  # 0x80 + signal.SIGINT
 
     if exc_type is bdb.BdbQuit:
         with_stderr.write("BdbQuit\n")
