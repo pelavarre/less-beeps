@@ -96,6 +96,7 @@ def main() -> None:
     with TerminalStudio() as ts:
         ts.speak_first()
         ts.chat_awhile()
+        ts.stop_chatting()
 
 
 def arg_doc_to_parser(doc: str) -> ArgDocParser:
@@ -247,47 +248,41 @@ class TerminalStudio:
 
         self.sprint("⌃D to quit,  Fn F1 for more help,  or ⌥-Click far from the Cursor")
 
-    def chat_awhile(self) -> None:
-        """Run till quit, inside the Terminal"""
-
-        km = self.take_key_mix()
-        self.answer_key_mix(km)
-
-        # todo1: .chat_awhile not yet a long while
-
-        # todo1: livelocks less wild in Keyboard/ Screen loopback
-
     #
     # Read & eval & print
     #
 
-    def take_key_mix(self) -> KeyMix:
-        """Read one Key Chord"""
+    def chat_awhile(self) -> None:
+        r"""Loop and don't quit till one of ⌃C ⌃D ⌃Z ⌃\ """
 
         mk = self.mock_keyboard
 
         self.sprint()
         while True:
 
-            km = mk.read_key_mix(timeout=None)
+            (km, kpeek) = mk.read_key_mix(timeout=None)
+            if not kpeek:
+                self.sprint(km)
 
-            self.sprint(km)
             if km.kpack.closed:
                 self.sprint()
 
                 if km.kcaps in ("⌃C", "⌃D", "⌃Z", "⌃\\"):
                     break
 
-        return km
+        # todo2: have the layer above send ⎋[5n after fetch ⎋ til fetching ⎋[0n outside ⎋] Osc
 
-    def answer_key_mix(self, km: KeyMix) -> None:
-        """Reply to one Key Chord"""
+        # todo1: livelocks less wild in Keyboard/ Screen loopback
+
+    def stop_chatting(self) -> None:
+        """Flush the Buffered Input just before Quitting"""
 
         mk = self.mock_keyboard
 
         while self.kbhit(timeout=0.100):
-            km = mk.read_key_mix(timeout=None)
-            self.sprint(km)
+            (km, kpeek) = mk.read_key_mix(timeout=None)
+            if not kpeek:
+                self.sprint(km)
             if km.kpack.closed:
                 self.sprint()
 
@@ -380,7 +375,7 @@ class MockKeyboard:
         self.kbindex = 0
         self.kpack = KeyPack(b"")
 
-    def read_key_mix(self, timeout: float | None) -> KeyMix:
+    def read_key_mix(self, timeout: float | None) -> tuple[KeyMix, bytes]:
         """Read one Key Chord"""
 
         kbytesahead = self.kbytesahead
@@ -396,17 +391,19 @@ class MockKeyboard:
         # Read nothing after timeout
 
         empty_km = KeyMix(b"")
+        empty_kpeek = b""
+
         if kbindex >= len(kbytesahead):
             self._fill_kbytesahead_(timeout)
             if kbindex >= len(kbytesahead):
-                return empty_km
+                return (empty_km, empty_kpeek)
 
             # Read the ⌥``` Key Khord Sequence as a single Key Khord  # todo2: broke
 
             double_km = KeyMix(b"``")
             if kbytesahead[kbindex:] == b"``":
                 self.kbindex += len(b"``")
-                return double_km
+                return (double_km, empty_kpeek)
 
         # Peek at one Byte, and close the Pack early if it doesn't fit, else read it in
 
@@ -428,7 +425,7 @@ class MockKeyboard:
         if extra:
             km.kpack.close()
 
-        return km
+        return (km, extra)
 
         # todo2: test ⎋[⇧M Csi Mouse Report then ⎋[⇧Z etc with ⎋[5n and ⎋[0n
 
@@ -441,6 +438,7 @@ class MockKeyboard:
         self.kbytesahead.extend(kbyte)
 
         # todo2: add ⎋[5n to close it with ⎋[0n
+        # todo2: have the layer above send ⎋[5n after fetch ⎋ til fetching ⎋[0n outside ⎋] Osc
         # todo2: test ⌥` ` with ⎋[5n and ⎋[0n
 
 
@@ -738,8 +736,10 @@ def excepthook(  # ) -> ...:
 ) -> None:
     """Run at Process Exit"""
 
+    sys.excepthook = with_excepthook
+
     if exc_type is SystemExit:  # todo: doc how raise SystemExit calls .excepthook in python3 -i
-        with_excepthook(exc_type, exc_value, exc_traceback)
+        # with_excepthook(exc_type, exc_value, exc_traceback)
         return
 
     # Quit now for visible cause, if KeyboardInterrupt
@@ -838,7 +838,7 @@ class KeyMix:
 
     @staticmethod
     def to_csi_ints_if(kbytes: bytes) -> tuple[bytes, list[int]]:
-        """Pick out the Nonnegative Int Literals of a CSI Escape Sequence"""
+        """Pick out the Nonnegative Int Literals of a Csi Escape Sequence"""
 
         kpack = KeyPack(kbytes)
 
@@ -850,7 +850,7 @@ class KeyMix:
 
         assert CSI == "\033["
 
-        # Fail if not a CSI Escape Sequence closed by its Tail
+        # Fail if not a Csi Escape Sequence closed by its Tail
 
         kintsmark = b""
         kints: list[int] = list()
@@ -881,7 +881,7 @@ class KeyMix:
 
     @staticmethod
     def to_csi_m_ints_if(kbytes: bytes) -> tuple[bytes, list[int]]:
-        """Pick out the Nonnegative Int Literals of a CSI Mouse Report"""
+        """Pick out the Nonnegative Int Literals of a Csi Mouse Report"""
 
         kpack = KeyPack(kbytes)
 
@@ -1203,22 +1203,22 @@ class KeyMix:
         "\033" "\x0c": "⌥⇧Fn↓",  # ⎋⇧Fn↓  # coded with ⌃L  # aka \f
         "\033" "\x10": "⎋⇧Fn",  # ⎋ Meta ⇧ Shift of FnF1..FnF12  # not ⌥⇧Fn  # coded with ⌃P
         "\033" "\033": "⎋⎋",  # Meta Esc  # not ⌥⎋
-        "\033" "\033O" "A": "⌃⌥↑",  # ESC SS3 ⇧A  # Google
-        "\033" "\033O" "B": "⌃⌥↓",  # ESC SS3 ⇧B  # Google
-        "\033" "\033O" "C": "⌃⌥→",  # ESC SS3 ⇧C  # Google
-        "\033" "\033O" "D": "⌃⌥←",  # ESC SS3 ⇧D  # Google
+        "\033" "\033O" "A": "⌃⌥↑",  # Esc Ss3 ⇧A  # Google
+        "\033" "\033O" "B": "⌃⌥↓",  # Esc Ss3 ⇧B  # Google
+        "\033" "\033O" "C": "⌃⌥→",  # Esc Ss3 ⇧C  # Google
+        "\033" "\033O" "D": "⌃⌥←",  # Esc Ss3 ⇧D  # Google
         "\033" "\033[" "3;5~": "⌥⌃FnDelete",  # ⎋⌃FnDelete  # Apple
-        "\033" "\033[" "A": "⌥↑",  # CSI 04/01 Cursor Up (CUU)  # Option-as-Meta  # Google
-        "\033" "\033[" "B": "⌥↓",  # CSI 04/02 Cursor Down (CUD)  # Option-as-Meta  # Google
-        "\033" "\033[" "C": "⌥→",  # CSI 04/03 Cursor [Forward] Right (CUF_X)  # Google
-        "\033" "\033[" "D": "⌥←",  # CSI 04/04 Cursor [Back] Left (CUB_X)  # Google
-        "\033" "\033[" "Z": "⎋⇧Tab",  # ⇤  # CSI 05/10 CBT  # not ⌥⇧Tab
+        "\033" "\033[" "A": "⌥↑",  # Csi 04/01 Cursor Up (CUU)  # Option-as-Meta  # Google
+        "\033" "\033[" "B": "⌥↓",  # Csi 04/02 Cursor Down (CUD)  # Option-as-Meta  # Google
+        "\033" "\033[" "C": "⌥→",  # Csi 04/03 Cursor [Forward] Right (CUF_X)  # Google
+        "\033" "\033[" "D": "⌥←",  # Csi 04/04 Cursor [Back] Left (CUB_X)  # Google
+        "\033" "\033[" "Z": "⎋⇧Tab",  # ⇤  # Csi 05/10 CBT  # not ⌥⇧Tab
         "\033" "\x28": "⎋FnDelete",  # not ⌥FnDelete
         #
-        "\033O" "P": "F1",  # SS3 ⇧P  # but Apple takes ⇧F1 ⇧F2 ⇧F3 ⇧F4 from Terminal
-        "\033O" "Q": "F2",  # SS3 ⇧Q
-        "\033O" "R": "F3",  # SS3 ⇧R
-        "\033O" "S": "F4",  # SS3 ⇧S
+        "\033O" "P": "F1",  # Ss3 ⇧P  # but Apple takes ⇧F1 ⇧F2 ⇧F3 ⇧F4 from Terminal
+        "\033O" "Q": "F2",  # Ss3 ⇧Q
+        "\033O" "R": "F3",  # Ss3 ⇧R
+        "\033O" "S": "F4",  # Ss3 ⇧S
         #
         "\033[" "15;2~": "⇧F5",  # iTerm2 Apple
         "\033[" "15;3~": "⌥F5",  # iTerm2 Apple
@@ -1227,7 +1227,7 @@ class KeyMix:
         "\033[" "15;6~": "⌃⇧F5",  # iTerm2 Apple
         "\033[" "15;7~": "⌃⌥F5",  # iTerm2 Apple
         "\033[" "15;8~": "⌃⌥⇧F5",  # iTerm2 Apple
-        "\033[" "15~": "F5",  # Esc 07/14 is LS1R, but CSI 07/14 is unnamed
+        "\033[" "15~": "F5",  # Esc 07/14 is LS1R, but Csi 07/14 is unnamed
         "\033[" "17;2~": "⇧F6",  # iTerm2 Apple
         "\033[" "17;3~": "⌥F6",  # iTerm2 Apple
         "\033[" "17;4~": "⌥⇧F7",  # iTerm2 Apple
@@ -1255,8 +1255,8 @@ class KeyMix:
         #
         "\033[" "1;2A": "⇧↑",  # iTerm2 Apple
         "\033[" "1;2B": "⇧↓",  # iTerm2 Apple
-        "\033[" "1;2C": "⇧→",  # CSI 04/03 Cursor [Forward] Right (CUF_YX) Y=1 X=2  # Apple
-        "\033[" "1;2D": "⇧←",  # CSI 04/04 Cursor [Back] Left (CUB_YX) Y=1 X=2  # Apple
+        "\033[" "1;2C": "⇧→",  # Csi 04/03 Cursor [Forward] Right (CUF_YX) Y=1 X=2  # Apple
+        "\033[" "1;2D": "⇧←",  # Csi 04/04 Cursor [Back] Left (CUB_YX) Y=1 X=2  # Apple
         "\033[" "1;2F": "⇧Fn→",  # iTerm2 Apple
         "\033[" "1;2H": "⇧Fn←",  # iTerm2 Apple
         "\033[" "1;2P": "⇧F1",  # iTerm2 Apple
@@ -1379,13 +1379,13 @@ class KeyMix:
         "\033[" "6;7~": "⌃⌥Fn↓",  # iTerm2 Apple
         "\033[" "6~": "⇧Fn↓",  # Apple
         #
-        "\033[" "A": "↑",  # CSI 04/01 Cursor Up (CUU)  # also ⌥↑ Apple
-        "\033[" "B": "↓",  # CSI 04/02 Cursor Down (CUD)  # also ⌥↓ Apple
-        "\033[" "C": "→",  # CSI 04/03 Cursor Right [Forward] (CUF)  # also ⌥→ Apple
-        "\033[" "D": "←",  # CSI 04/04 Cursor [Back] Left (CUB)  # also ⌥← Apple
-        "\033[" "F": "⇧Fn→",  # Apple  # CSI 04/06 Cursor Preceding Line (CPL)
-        "\033[" "H": "⇧Fn←",  # Apple  # CSI 04/08 Cursor Position (CUP)
-        "\033[" "Z": "⇧Tab",  # ⇤  # CSI 05/10 Cursor Backward Tabulation (CBT)
+        "\033[" "A": "↑",  # Csi 04/01 Cursor Up (CUU)  # also ⌥↑ Apple
+        "\033[" "B": "↓",  # Csi 04/02 Cursor Down (CUD)  # also ⌥↓ Apple
+        "\033[" "C": "→",  # Csi 04/03 Cursor Right [Forward] (CUF)  # also ⌥→ Apple
+        "\033[" "D": "←",  # Csi 04/04 Cursor [Back] Left (CUB)  # also ⌥← Apple
+        "\033[" "F": "⇧Fn→",  # Apple  # Csi 04/06 Cursor Preceding Line (CPL)
+        "\033[" "H": "⇧Fn←",  # Apple  # Csi 04/08 Cursor Position (CUP)
+        "\033[" "Z": "⇧Tab",  # ⇤  # Csi 05/10 Cursor Backward Tabulation (CBT)
         "\033" "b": "⌥←",  # ⎋B  # ⎋←  # Emacs M-b Backword-Word  # Apple
         "\033" "f": "⌥→",  # ⎋F  # ⎋→  # Emacs M-f Forward-Word  # Apple
         "\x20": "Spacebar",  # ' '  # ␠  # ␣  # ␢
@@ -1625,6 +1625,7 @@ class KeyPack:
                 KeyPack._try_extra_(head, extra=b"\xf4\x8f\xbf\xff")
             elif head == b"\033]":
                 KeyPack._try_open_(head, b"\033")
+                KeyPack._try_extra_(head, extra=head)
                 KeyPack._try_extra_(head, extra=b"\t")
                 KeyPack._try_open_(head, "\u20ac".encode())
                 KeyPack._try_extra_(head, extra=b"\xf4\x8f\xbf\xff")
@@ -2029,7 +2030,7 @@ class KeyPack:
         # may take b"\033" into a 6 Byte Csi Mouse Report
 
     def _take_after_csi_if_(self, encode: bytes, decode: str) -> bytes:
-        """Take 1..4 Bytes that fit with a CSI Head, else close & reject as a Peek"""
+        """Take 1..4 Bytes that fit with a Csi Head, else close & reject as a Peek"""
 
         head = self.head
         neck = self.neck
@@ -2084,7 +2085,7 @@ class KeyPack:
         self.closed = True
         return encode
 
-        # todo: accepts unbounded Bytes into a CSI Escape Sequence
+        # todo: accepts unbounded Bytes into a Csi Escape Sequence
 
     def _take_after_osc_if_(self, encode: bytes, decode: str) -> bytes:
         """Take 1 Char into Osc Sequence, else return 1..4 Bytes that don't fit"""
@@ -2094,12 +2095,11 @@ class KeyPack:
         back = self.back
         tail = self.tail
 
-        assert OSC == "\033]", (OSC,)  # ⎋]
-        assert head.endswith(b"\033]"), (head,)
-
         # Look only at unclosed Osc Sequence
 
         assert OSC == "\033]", (OSC,)  # ⎋]
+        assert head.endswith(b"\033]"), (head,)
+
         assert bytes(head) == b"\033]", (head,)  # ⎋]
 
         # Accept \007 BEL into Tail
@@ -2123,6 +2123,14 @@ class KeyPack:
                 self.closed = True
                 return b""
 
+        # Decline \033 \135 Esc ] Osc late, as its ] arrives
+
+        if back == b"\033":
+            if encode == b"\135" == b"\x5d" == b"]":
+                back.clear()
+                self.closed = True
+                return b"\033]"
+
         # Declines 1..4 Bytes of 1 Unprintable Character
 
         if (not decode) or (not decode.isprintable()):
@@ -2143,6 +2151,7 @@ class KeyPack:
         """Close, if not closed already"""
 
         head = self.head
+        back = self.back
         stash = self.stash
         closed = self.closed
 
@@ -2155,22 +2164,17 @@ class KeyPack:
 
         # Close a 6-Byte Mouse-Report, if held open in hope of 6 Characters
 
-        head_plus = head + stash  # if closing a 6-Character Mouse-Report
-        if head_plus.startswith(b"\033[M"):
-            try:
-                decode = head_plus.decode()
-                if len(decode) < 6:  # if less than 6 Characters
-                    if len(head_plus) == 6:  # if exactly 6 Bytes
+        if head == b"\033[M":
+            back_plus = back + stash
+            if len(back_plus) == 3:  # if exactly 6 Bytes total
+                back.extend(stash)
+                stash.clear()
 
-                        head.extend(stash)
-                        stash.clear()
+            # doesn't call .close_if_csi_shift_m
 
-            except UnicodeDecodeError:
-                pass
+        # Require
 
         self._require_simple_kpack_()
-
-        # doesn't call .close_if_csi_shift_m
 
     def close_if_csi_shift_m(self) -> bool:
         """Convert to Csi ⎋[⇧M cut short, if now standing open as 3 of 6 Char Mouse Report"""
