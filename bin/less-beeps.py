@@ -305,17 +305,12 @@ class TerminalStudio:
         sw.sprint()
         while True:
 
-            (km, kpeek) = kr.read_key_mix(timeout=None)
-            if not kpeek:
-                sw.sprint(km)
+            km = kr.read_key_mix(timeout=None)
+            assert km, (km,)  # because timeout=None
+            sw.sprint(km)
 
-            if km.kpack.closed:
-                sw.sprint()
-
-                if km.kcaps in ("⌃C", "⌃D", "⌃Z", "⌃\\"):
-                    break
-
-        _ = sw
+            if km.kcaps in ("⌃C", "⌃D", "⌃Z", "⌃\\"):
+                break
 
         # todo1: livelocks less wild in Keyboard/ Screen loopback
 
@@ -326,11 +321,9 @@ class TerminalStudio:
         sw = self.screen_writer
 
         while self.kbhit(timeout=0.100):
-            (km, kpeek) = kr.read_key_mix(timeout=None)
-            if not kpeek:
-                sw.sprint(km)
-            if km.kpack.closed:
-                sw.sprint()
+            km = kr.read_key_mix(timeout=None)
+            assert km, (km,)  # because timeout=None
+            sw.sprint(km)
 
         kbytes = bytes(kr.kbytesahead[kr.kbindex :])
         if kbytes:
@@ -371,10 +364,11 @@ class KeyboardReader:
     terminal_studio: TerminalStudio
     screen_writer: ScreenWriter
 
+    kpacks: list[KeyPack]
+    kpindex: int
+
     kbytesahead: bytearray
     kbindex: int
-
-    kpack: KeyPack
 
     def __init__(self, terminal_studio: TerminalStudio, screen_writer: ScreenWriter) -> None:
 
@@ -383,120 +377,112 @@ class KeyboardReader:
 
         self.kbytesahead = bytearray()
         self.kbindex = 0
-        self.kpack = KeyPack(b"")
 
-    def read_key_mix(self, timeout: float | None) -> tuple[KeyMix, bytes]:  # noqa C901  # todo3:
-        """Read one Key Chord"""
+        self.kpacks = list()
+        self.kpindex = 0
+
+    def read_key_mix(self, timeout: float | None) -> KeyMix:
+        """Read one Key Mix"""
+
+        kpacks = self.kpacks
+        kpindex = self.kpindex
+
+        # Fetch >= 1 Key Mixes before Timeout, else return an empty Key Mix now
+
+        if kpindex >= len(kpacks):
+            self._fill_kpacks_(timeout=timeout)
+            if kpindex >= len(kpacks):
+                empty_kmix = KeyMix(b"")
+                return empty_kmix
+
+        # Read one Key Mix
+
+        kpack = kpacks[kpindex]
+        self.kpindex += 1
+
+        kbytes = kpack.to_kbytes()
+        kmix = KeyMix(kbytes)
+
+        return kmix
+
+    def _fill_kpacks_(self, timeout: float | None) -> None:
+        """Read enough KeyBytes to close the next Key Pack"""
 
         sw = self.screen_writer
 
         kbytesahead = self.kbytesahead
         kbindex = self.kbindex
-        kpack = self.kpack
+        kpacks = self.kpacks
+        kpindex = self.kpindex
 
-        option_kt_str = KeyMix.OPTION_KT_STR  # '∂' for ⌥D
-        option_ktext_by_kt = KeyMix.OPTION_KTEXT_BY_KT  # 'é' for ⌥EE
+        option_kt_join = KeyMix.OPTION_KT_JOIN  # '∂' for ⌥D
+        option_accent_encodes = KeyMix.OPTION_ACCENT_ENCODES
 
-        # _option_kt_encode_start_set_ = KeyMix._OPTION_KT_ENCODE_START_SET_
+        # Read more Key Packs only when needed
 
-        # Restart the KeyPack after returning it closed
-        # Restart the KeyPack after each ` Grave Accent, to duck away from b'``' Encode of ⌥``
-        # Restart the KeyPack after each complete ⌥ Option/Alt Key Cap
+        assert kpindex == len(kpacks), (kpindex, kpacks[kpindex:])
 
-        kbytes_before = kpack.to_kbytes()
+        # Fill the Bytes
 
-        if kpack.closed:
-            self.kpack = KeyPack(b"")
-            kpack = self.kpack  # todo3: make this line less critical
-
-        # if kbytes_before in _option_kt_encode_start_set_:
-        if kbytes_before == b"`":
-            self.kpack = KeyPack(b"")
-            kpack = self.kpack
-
-        kt = ""
-        try:
-            kt = kbytes_before.decode()[-1:]
-        except UnicodeDecodeError:
-            pass
-
-        if kt and (kt != " "):
-            if (kt != "`") and (kt in option_ktext_by_kt.keys()):  # Mac US Option Accents
-                self.kpack = KeyPack(b"")
-                kpack = self.kpack
-            elif kt in option_kt_str:  # Mac US Option Key Caps
-                self.kpack = KeyPack(b"")
-                kpack = self.kpack
-
-        # Clone the KeyPack
-
-        kpack = KeyPack(kpack.to_kbytes())  # because 'copied better than aliased'
-        self.kpack = kpack
-
-        # Read nothing after timeout
-
-        empty_km = KeyMix(b"")
-        empty_kpeek = b""
-
+        replies = list()
         if kbindex >= len(kbytesahead):
             replies = self._fill_kbytesahead_(timeout)
-            _ = replies  # todo3:
             if kbindex >= len(kbytesahead):
-                return (empty_km, empty_kpeek)
+                return
 
-            # Read the ⌥``` Key Khord Sequence as a single Key Khord
+        reply = ""
+        if replies:
+            reply = replies[-1]
+            assert reply == "\033[0n", (reply,)
 
-            double_km = KeyMix(b"``")
-            if kbytesahead[kbindex:] == b"``":
-                kpack = self.kpack = KeyPack(b"``")
-                kpack.close()
+        # Drain the Bytes
 
-                self.kbindex += len(b"``")
-                return (double_km, empty_kpeek)
+        kpack = KeyPack(b"")
+        while kbindex < len(kbytesahead):
+            kbyte = bytes(kbytesahead[kbindex:][:1])
 
-                # skips bracketed paste of a `` pair because that comes inside ⎋[200~ ⎋[201~
+            # Append Bytes till Key Pack closes  # todo2: wrong for ⎋[⇧Z etc closing ⎋[⇧M Csi Mouse
 
-                # todo2: default to run with bracketed paste on, but offer toggle off/on
+            extra = kpack.take_one_kbyte_if(kbyte)
+            if not extra:
+                self.kbindex += 1
+                kbindex = self.kbindex  # replaces
 
-        # Peek at one Byte
+            if kpack.closed:
+                kpacks.append(kpack)
+                kpack = KeyPack(b"")
+                continue
 
-        kbyte = bytes(kbytesahead[kbindex:][:1])
+            assert not extra, (extra, kpack, kbyte)
 
-        # Restart the KeyPack when Text not followed by plain US-Ascii Text
+            # Take the Key Pack early, if Text is an ⌥ Option/Alt Key Pack
 
-        if kpack.text:
-            if 0x20 <= ord(kbyte) <= 0x7E:
-                pass
-            else:
-                self.kpack = KeyPack(b"")
-                kpack = self.kpack
+            text = kpack.text
+            if len(kpacks) == kpindex:
+                if text and (text in option_kt_join):  # '∂' for ⌥D
+                    kpacks.append(kpack)
+                    kpack = KeyPack(b"")
+                    continue
 
-            # for when the next Bytes can be an encode of ⌥ Option/Alt
+            # Retake the Key Mix late, when Text was Option Accent closed by a Not-Accentable
 
-        # Close the Pack early if the new Byte doesn't fit, else read it in
+            if len(kpacks) == (kpindex + 1):
+                old_kpack = kpacks[-1]
+                old_kbytes = old_kpack.to_kbytes()
+                if old_kbytes in option_accent_encodes:
+                    sw.sprint("todo4: Retake the Key Mix late")
+                    continue
 
-        extra = kpack.take_one_kbyte_if(kbyte)  # todo2: wrong for ⎋[⇧Z etc closing ⎋[⇧M Csi Mouse
-        if extra:
-            assert kpack.closed, (kpack.closed, kpack, extra)
+            # todo2: default to run with bracketed paste on, but offer toggle off/on
 
-        if not extra:
-            self.kbindex += 1
+        # Take the last of the Bytes arriving all at once as a Key Pack
 
-        # Snoop
-
-        kbytes_after = kpack.to_kbytes()
-
-        km = KeyMix(kbytes_after)
-        if extra:
-            km.kpack.close()
-
-        # Succeed
-
-        _ = sw
-
-        return (km, extra)
+        if kpack:
+            kpacks.append(kpack)
 
         # todo2: test ⎋[⇧M Csi Mouse Report then ⎋[⇧Z etc with ⎋[5n and ⎋[0n
+
+        # todo3: .read_key_mix of ⌥I⌥⇧P etc with the ⌥ Key Mix as a slow shift of the tail
 
     def _fill_kbytesahead_(self, timeout: float | None) -> list[str]:
         """Fetch Bytes into Self"""
@@ -506,7 +492,10 @@ class KeyboardReader:
 
         sw = self.screen_writer
 
-        _option_kt_encode_start_set_ = KeyMix._OPTION_KT_ENCODE_START_SET_
+        option_kt_encode_start_set = KeyMix.OPTION_KT_ENCODE_START_SET
+
+        encode_start_set = set(option_kt_encode_start_set)
+        encode_start_set.add(b"\033")  # ⎋
 
         # Fetch 1 K-Byte to start with
 
@@ -521,7 +510,7 @@ class KeyboardReader:
         query = "\033[5n"
         reply = "\033[0n"
 
-        if kbyte in _option_kt_encode_start_set_:  # todo2: also b"\033" ⎋ ?
+        if kbyte in encode_start_set:
 
             if query not in queries:
                 queries.append(query)
@@ -882,17 +871,18 @@ def excepthook(  # ) -> ...:
 class KeyMix:
     """Bundle one Tap or Click or Keyboard Input"""
 
-    kface: str  # 'Return'
-    kcaps: str  # '⌃M'
+    kface: str  # 'Return'  # '<>'
+    kcaps: str  # '⌃M'  # '⌃[[A'
     kpack: KeyPack  # .head .neck .back .stash .tail
     kintsmark: bytes  # neck-start + back + tail
     kints: list[int]  # via Csi Neck after Csi Next Start
+    # todo4:  # kqa: list[tuple[str, str]]  # questions asked, answers given
 
     def __init__(self, kbytes: bytes) -> None:
 
         kface = KeyMix.to_kface_if(kbytes)
         kcaps = KeyMix.to_kcaps_if(kbytes)
-        kpack = KeyPack(kbytes)
+        kpack = KeyPack(kbytes)  # maybe .closed, maybe not
 
         (kintsmark, kints) = KeyMix.to_csi_ints_if(kbytes)
         if (not kintsmark) and (not kints):
@@ -904,6 +894,11 @@ class KeyMix:
         self.kintsmark = kintsmark
         self.kints = kints
 
+    def __bool__(self) -> bool:
+        kpack = self.kpack
+        truthy = bool(kpack)
+        return truthy
+
     def __str__(self) -> str:
 
         kface = self.kface
@@ -914,8 +909,7 @@ class KeyMix:
 
         parts = list()
 
-        if kface:
-            parts.append(kface)
+        parts.append(kface if kface else "<>")
 
         if kcaps:
             parts.append(kcaps)
@@ -1083,9 +1077,11 @@ class KeyMix:
 
         elif (kt != "`") and (kt in option_ktext_by_kt.keys()):  # Mac US Option Accents
             kc = option_ktext_by_kt[kt]
+            assert " " not in kc, (kc, ko, kt)  # todo4: stop pretending 1 Key Cap not 2 Key Caps
 
         elif kt in option_kt_str:  # Mac US Option Key Caps
             kc = KeyMix._option_kt_to_kcap_(kt)
+            assert " " not in kc, (kc, ko, kt)
 
         # Show the Key Caps of US-Ascii, plus the ⌃ ⇧ Control/ Shift Key Caps
 
@@ -1138,41 +1134,63 @@ class KeyMix:
 
     SHIFTED_KEYCAPS = '!"#$%&()*+' ":<>?" "@" "^_" "{|}~"  # !"#$%&()*+ :<>? @ ^_ {|}~
 
+    #
+    # Decode Keys shifted by ⌥ Option/Alt, as at MacBook
+    #
+
     OPTION_KTEXT_BY_KT = {
-        "á": "⌥EA",  # E
-        "é": "⌥EE",
-        "í": "⌥EI",
-        # without the "j́" of ⌥EJ here (because its Combining Accent comes after as a 2nd Character)
-        "ó": "⌥EO",
-        "ú": "⌥EU",
+        # ⌥E
+        "á": "⌥E A",
+        "é": "⌥E E",
+        "í": "⌥E I",
+        # "j́": "⌥E J",  # without the (len("j́") == 2) of ⌥EJ here  # todo3: test
+        "ó": "⌥E O",
+        "ú": "⌥E U",
         "´": "⌥⇧E",
-        "é": "⌥EE",
-        "â": "⌥IA",  # I
-        "ê": "⌥IE",
-        "î": "⌥II",
-        "ô": "⌥IO",
-        "û": "⌥IU",
+        "é": "⌥E E",
+        # ⌥I
+        "â": "⌥I A",
+        "ê": "⌥I E",
+        "î": "⌥I I",
+        "ô": "⌥I O",
+        "û": "⌥I U",
         "ˆ": "⌥⇧I",
-        "ã": "⌥NA",  # N
-        "ñ": "⌥NN",
-        "õ": "⌥NO",
+        # ⌥N
+        "ã": "⌥N A",
+        "ñ": "⌥N N",
+        "õ": "⌥N O",
         "˜": "⌥⇧N",
-        "ä": "⌥UA",  # U
-        "ë": "⌥UE",
-        "ï": "⌥UI",
-        "ö": "⌥UO",
-        "ü": "⌥UU",
-        "ÿ": "⌥UY",
+        # ⌥U
+        "ä": "⌥U A",
+        "ë": "⌥U E",
+        "ï": "⌥U I",
+        "ö": "⌥U O",
+        "ü": "⌥U U",
+        "ÿ": "⌥U Y",
         "¨": "⌥⇧U",
-        "à": "⌥`A",  # `
-        "è": "⌥`E",
-        "ì": "⌥`I",
-        "ò": "⌥`O",
-        "ù": "⌥`U",
-        # without the "`" of ⌥⇧` here (because it comes in as a U+0060 Grave Accent ` of a US Keyboard)
+        # ⌥`
+        "à": "⌥` A",
+        "è": "⌥` E",
+        "ì": "⌥` I",
+        "ò": "⌥` O",
+        "ù": "⌥` U",
+        # "``": "⌥`",  # without the (len("``") == 2) of ⌥`` here  # todo3: test
     }
 
+    for _KT_ in OPTION_KTEXT_BY_KT.keys():
+        assert len(_KT_) == 1, (_KT_,)
+
+    assert all(len(_) == 1 for _ in OPTION_KTEXT_BY_KT.keys())
+
     # hand-sorted by ⌥E ⌥I ⌥N ⌥U ⌥` order
+
+    _OPTION_ACCENT_KTEXTS_ = list(_ for _ in OPTION_KTEXT_BY_KT.values() if "⇧" in _)
+    _OPTION_ACCENT_KTEXTS_.append("⌥`")  # for Encode b"``"
+    assert _OPTION_ACCENT_KTEXTS_ == ["⌥⇧E", "⌥⇧I", "⌥⇧N", "⌥⇧U", "⌥`"], (_OPTION_ACCENT_KTEXTS_,)
+
+    OPTION_ACCENT_ENCODES = list(k.encode() for (k, v) in OPTION_KTEXT_BY_KT.items() if "⇧" in v)
+    OPTION_ACCENT_ENCODES.append(1 * b"`")  # for Decode "⌥`""
+
     # Decode one ⌥ KeyCap per US-Ascii Printable Byte, at an Apple MacBook
 
     # .  !"#$%&'()*+,-./0123456789:;<=>?
@@ -1197,6 +1215,16 @@ class KeyMix:
 
     _SPACELESS_OPTION_KT_STR_ = OPTION_KT_STR.replace(" ", "")
     assert len(_SPACELESS_OPTION_KT_STR_) == len(set(_SPACELESS_OPTION_KT_STR_))
+
+    # List the Unicode Characters involved in finding ⌥ Option/Alt Key Caps at macOS
+
+    _OPTION_KT_LIST_ = list(OPTION_KTEXT_BY_KT.keys()) + list(_SPACELESS_OPTION_KT_STR_)
+    _OPTION_KT_LIST_.sort()
+
+    OPTION_KT_JOIN = "".join(_OPTION_KT_LIST_)
+
+    OPTION_KT_ENCODE_START_SET = set(_.encode()[:1] for _ in OPTION_KT_JOIN)
+    OPTION_KT_ENCODE_START_SET.add(b"``"[:1])  # the two bytes b'``' encode the KeyMix ⌥``
 
     @staticmethod
     def _option_kt_to_kcap_(kt: str) -> str:
@@ -1293,7 +1321,7 @@ class KeyMix:
         # 'A'
         # '⌃L'
         # '⇧Z'
-        # '⎋9' from ⌥9 while Apple Keyboard > Option as Meta Key
+        # '⎋9' from ⌥9 while Apple Keyboard > Option as Meta Key  # todo3:
 
     KFACE_BY_KTEXT = {  # r"←|↑|→|↓" and so on  # ⌃ ⌥ ⇧ ⌃⌥ ⌃⇧ ⌥⇧ ⌃⌥⇧ and so on
         "\x00": "⌃Spacebar",  # ⌃@  # ⌃⇧2
@@ -1496,7 +1524,7 @@ class KeyMix:
         "\033" "b": "⌥←",  # ⎋B  # ⎋←  # Emacs M-b Backword-Word  # Apple
         "\033" "f": "⌥→",  # ⎋F  # ⎋→  # Emacs M-f Forward-Word  # Apple
         "\x20": "Spacebar",  # ' '  # ␠  # ␣  # ␢
-        "``": "⌥``",  # sometimes arrives as "`" "`" split across hundreds of milliseconds
+        # "``": "⌥` `",  # without the "``" Key Text here, because it comes as 2 Key Faces
         "\x7f": "Delete",  # ␡  # ⌫  # ⌦
         "\xa0": "⌥Spacebar",  # '\N{No-Break Space}'
     }
@@ -1506,16 +1534,6 @@ class KeyMix:
     assert KCAP_SEP == " "
     for _KCAP in KFACE_BY_KTEXT.values():
         assert " " not in _KCAP, (_KCAP,)
-
-    # List the Unicode Characters involved in finding ⌥ Option/Alt Key Caps at macOS
-
-    _OPTION_KT_LIST_ = list(OPTION_KTEXT_BY_KT.keys()) + list(_SPACELESS_OPTION_KT_STR_)
-    _OPTION_KT_LIST_.sort()
-
-    _OPTION_KT_JOIN_ = "".join(_OPTION_KT_LIST_)
-
-    _OPTION_KT_ENCODE_START_SET_ = set(_.encode()[:1] for _ in _OPTION_KT_JOIN_)
-    _OPTION_KT_ENCODE_START_SET_.add(b"``"[:1])  # the two bytes b'``' encode the KeyMix ⌥``
 
     # Define each KText once, never more than once
 
@@ -1638,7 +1656,7 @@ class KeyPack:
     def to_kbytes(self) -> bytes:
         """List the Bytes taken"""
 
-        text = self.text
+        text_ = self.text.encode()
 
         head_ = bytes(self.head)
         neck_ = bytes(self.neck)
@@ -1646,8 +1664,7 @@ class KeyPack:
         stash_ = bytes(self.stash)
         tail_ = bytes(self.tail)
 
-        join = text.encode()
-        join += head_ + neck_ + back_ + stash_ + tail_
+        join = text_ + head_ + neck_ + back_ + stash_ + tail_
 
         return join  # doesn't show if .closed or not
 
@@ -1805,12 +1822,12 @@ class KeyPack:
 
         # Take & close 1 Unprintable Char or 1..4 Undecodable Bytes as an Alt Head
 
-        KeyPack._try_close_(b"\n")  # Head only, of 7-bit Control Byte
-        KeyPack._try_close_(b"\xc0")  # Head only, of 8-bit Control Byte
-        KeyPack._try_close_(b"\xc2\xad")  # Head only, of 2 Byte UTF-8 of U+00AD Soft-Hyphen Control
-        KeyPack._try_close_(b"\xf5")
-        KeyPack._try_close_(b"\xff")  # Head only, of 8-bit Control Byte
-        KeyPack._try_close_(b"\xf4\x8f\xbf\xc0")
+        KeyPack._try_close_(b"\n")  # 7-bit Control Byte as Head alone
+        KeyPack._try_close_(b"\xc0")  # 8-bit Control Byte as Head alone
+        KeyPack._try_close_(b"\xc2\xad")  # 2 Byte UTF-8 of U+00AD Soft-Hyphen Control as Head alone
+        KeyPack._try_close_(b"\xf5")  # 1 Byte Undecodable as Head alone
+        KeyPack._try_close_(b"\xff")  # 1 Byte Undecodable as Head alone
+        KeyPack._try_close_(b"\xf4\x8f\xbf\xc0")  # 4 Bytes Undecodable as Head alone
 
         # Take & close 1 Printable Char escaped by a Head simpler than Csi, Esc Csi, and Osc
 
@@ -1829,8 +1846,8 @@ class KeyPack:
         KeyPack._try_close_(b"\033[", b"3;5", b"H")  # Csi Head with Neck and Tail, no Back
         KeyPack._try_close_(b"\033[", b"6", b" q")  # Csi Head with Neck and Back & Tail
 
-        KeyPack._try_close_(b"\033]", b"\x07")
-        KeyPack._try_close_(b"\033]", b"\x1b" b"\\")
+        KeyPack._try_close_(b"\033]", b"\x07")  # Osc with 007 Bel as Tail
+        KeyPack._try_close_(b"\033]", b"\x1b" b"\\")  # Osc with ⎋\ String Terminator (ST) as Tail
 
         # Decline 1..4 Undecodable Bytes, when escaped by Csi or Esc Csi or Osc
         # Decline 1 Bytes of Unprintable or Multi-Byte Char
@@ -1894,6 +1911,13 @@ class KeyPack:
     #
     # Take in 1 Byte and return 0 Bytes, else return the 1..4 Bytes that don't fit
     #
+
+    def take_some_kbytes(self, kbytes: bytes) -> None:
+        """Take in N Bytes and return 0 Bytes, else raise ValueError"""
+
+        extras = self.take_some_kbytes_if(kbytes)
+        if extras:
+            raise ValueError(extras, kbytes)
 
     def take_some_kbytes_if(self, kbytes: bytes) -> bytes:
         """Take in N Bytes and return 0 Bytes, else return the 1..(N+3) Bytes that don't fit"""
