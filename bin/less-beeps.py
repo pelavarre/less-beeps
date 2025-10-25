@@ -286,22 +286,6 @@ class TerminalStudio:
         return hit
 
     #
-    # Write to Screen
-    #
-
-    def sprint(self, *args: object, end: str = "\r\n") -> None:
-        """Write to the Terminal Screen"""
-
-        stdio = self.stdio
-        print(*args, end=end, file=stdio)
-
-    def swrite(self, text: str) -> None:
-        """Write to the Terminal Screen"""
-
-        stdio = self.stdio
-        stdio.write(text)
-
-    #
     # Launch, run, quit - read & eval & print
     #
     #
@@ -309,7 +293,8 @@ class TerminalStudio:
     def speak_first(self) -> None:
         """Launch quickly"""
 
-        self.sprint("⌃D to quit,  Fn F1 for more help,  or ⌥-Click far from the Cursor")
+        sw = self.screen_writer
+        sw.sprint("⌃D to quit,  Fn F1 for more help,  or ⌥-Click far from the Cursor")
 
     def chat_awhile(self) -> None:
         r"""Loop and don't quit till one of ⌃C ⌃D ⌃Z ⌃\ """
@@ -317,15 +302,15 @@ class TerminalStudio:
         kr = self.keyboard_reader
         sw = self.screen_writer
 
-        self.sprint()
+        sw.sprint()
         while True:
 
             (km, kpeek) = kr.read_key_mix(timeout=None)
             if not kpeek:
-                self.sprint(km)
+                sw.sprint(km)
 
             if km.kpack.closed:
-                self.sprint()
+                sw.sprint()
 
                 if km.kcaps in ("⌃C", "⌃D", "⌃Z", "⌃\\"):
                     break
@@ -338,20 +323,21 @@ class TerminalStudio:
         """Flush the Buffered Input just before Quitting"""
 
         kr = self.keyboard_reader
+        sw = self.screen_writer
 
         while self.kbhit(timeout=0.100):
             (km, kpeek) = kr.read_key_mix(timeout=None)
             if not kpeek:
-                self.sprint(km)
+                sw.sprint(km)
             if km.kpack.closed:
-                self.sprint()
+                sw.sprint()
 
         kbytes = bytes(kr.kbytesahead[kr.kbindex :])
         if kbytes:
-            self.sprint(kbytes)
-            self.sprint()
+            sw.sprint(kbytes)
+            sw.sprint()
 
-        self.sprint("bye")
+        sw.sprint("bye")
 
 
 @dataclasses.dataclass(order=True)  # , frozen=True)
@@ -363,17 +349,19 @@ class ScreenWriter:
     def __init__(self, terminal_studio: TerminalStudio) -> None:
         self.terminal_studio = terminal_studio
 
-    def sprint(self, *args: object) -> None:
+    def sprint(self, *args: object, end: str = "\r\n") -> None:
         """Write to the Terminal Screen"""
 
         ts = self.terminal_studio
-        ts.sprint(*args)
+        stdio = ts.stdio
+        print(*args, end=end, file=stdio)
 
     def swrite(self, text: str) -> None:
         """Write to the Terminal Screen"""
 
         ts = self.terminal_studio
-        ts.swrite(text)
+        stdio = ts.stdio
+        stdio.write(text)
 
 
 @dataclasses.dataclass(order=True)  # , frozen=True)
