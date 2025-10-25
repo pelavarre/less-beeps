@@ -164,7 +164,7 @@ class TerminalStudio:
     tcgetattr: list[int | list[bytes | int]]  # replaced by .__enter__
 
     mock_screen: MockScreen
-    mock_keyboard: MockKeyboard
+    keyboard_reader: KeyboardReader
 
     selves: list[TerminalStudio] = list()
 
@@ -182,13 +182,13 @@ class TerminalStudio:
 
         ms = MockScreen(self)
 
-        mk = MockKeyboard(self, mock_screen=ms)
+        kr = KeyboardReader(self, mock_screen=ms)
 
         self.stdio = stdio
         self.fileno = fileno
         self.tcgetattr = list()  # replaced by .__enter__
         self.mock_screen = ms
-        self.mock_keyboard = mk
+        self.keyboard_reader = kr
 
     def __enter__(self) -> TerminalStudio:
 
@@ -314,13 +314,13 @@ class TerminalStudio:
     def chat_awhile(self) -> None:
         r"""Loop and don't quit till one of ⌃C ⌃D ⌃Z ⌃\ """
 
-        mk = self.mock_keyboard
+        kr = self.keyboard_reader
         ms = self.mock_screen
 
         self.sprint()
         while True:
 
-            (km, kpeek) = mk.read_key_mix(timeout=None)
+            (km, kpeek) = kr.read_key_mix(timeout=None)
             if not kpeek:
                 self.sprint(km)
 
@@ -337,16 +337,16 @@ class TerminalStudio:
     def stop_chatting(self) -> None:
         """Flush the Buffered Input just before Quitting"""
 
-        mk = self.mock_keyboard
+        kr = self.keyboard_reader
 
         while self.kbhit(timeout=0.100):
-            (km, kpeek) = mk.read_key_mix(timeout=None)
+            (km, kpeek) = kr.read_key_mix(timeout=None)
             if not kpeek:
                 self.sprint(km)
             if km.kpack.closed:
                 self.sprint()
 
-        kbytes = bytes(mk.kbytesahead[mk.kbindex :])
+        kbytes = bytes(kr.kbytesahead[kr.kbindex :])
         if kbytes:
             self.sprint(kbytes)
             self.sprint()
@@ -377,7 +377,7 @@ class MockScreen:
 
 
 @dataclasses.dataclass(order=True)  # , frozen=True)
-class MockKeyboard:
+class KeyboardReader:
     """Mirror the Reads from a Terminal Keyboard"""
 
     terminal_studio: TerminalStudio
