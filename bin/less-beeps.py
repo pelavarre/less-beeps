@@ -163,7 +163,7 @@ class TerminalStudio:
     fileno: int
     tcgetattr: list[int | list[bytes | int]]  # replaced by .__enter__
 
-    mock_screen: MockScreen
+    screen_writer: ScreenWriter
     keyboard_reader: KeyboardReader
 
     selves: list[TerminalStudio] = list()
@@ -180,14 +180,14 @@ class TerminalStudio:
         stdio = sys.__stderr__
         fileno = stdio.fileno()
 
-        ms = MockScreen(self)
+        sw = ScreenWriter(self)
 
-        kr = KeyboardReader(self, mock_screen=ms)
+        kr = KeyboardReader(self, screen_writer=sw)
 
         self.stdio = stdio
         self.fileno = fileno
         self.tcgetattr = list()  # replaced by .__enter__
-        self.mock_screen = ms
+        self.screen_writer = sw
         self.keyboard_reader = kr
 
     def __enter__(self) -> TerminalStudio:
@@ -315,7 +315,7 @@ class TerminalStudio:
         r"""Loop and don't quit till one of ⌃C ⌃D ⌃Z ⌃\ """
 
         kr = self.keyboard_reader
-        ms = self.mock_screen
+        sw = self.screen_writer
 
         self.sprint()
         while True:
@@ -330,7 +330,7 @@ class TerminalStudio:
                 if km.kcaps in ("⌃C", "⌃D", "⌃Z", "⌃\\"):
                     break
 
-        _ = ms
+        _ = sw
 
         # todo1: livelocks less wild in Keyboard/ Screen loopback
 
@@ -355,7 +355,7 @@ class TerminalStudio:
 
 
 @dataclasses.dataclass(order=True)  # , frozen=True)
-class MockScreen:
+class ScreenWriter:
     """Mirror the Writes to a Terminal Screen"""
 
     terminal_studio: TerminalStudio
@@ -381,17 +381,17 @@ class KeyboardReader:
     """Mirror the Reads from a Terminal Keyboard"""
 
     terminal_studio: TerminalStudio
-    mock_screen: MockScreen
+    screen_writer: ScreenWriter
 
     kbytesahead: bytearray
     kbindex: int
 
     kpack: KeyPack
 
-    def __init__(self, terminal_studio: TerminalStudio, mock_screen: MockScreen) -> None:
+    def __init__(self, terminal_studio: TerminalStudio, screen_writer: ScreenWriter) -> None:
 
         self.terminal_studio = terminal_studio
-        self.mock_screen = mock_screen
+        self.screen_writer = screen_writer
 
         self.kbytesahead = bytearray()
         self.kbindex = 0
@@ -400,7 +400,7 @@ class KeyboardReader:
     def read_key_mix(self, timeout: float | None) -> tuple[KeyMix, bytes]:  # noqa C901  # todo3:
         """Read one Key Chord"""
 
-        ms = self.mock_screen
+        sw = self.screen_writer
 
         kbytesahead = self.kbytesahead
         kbindex = self.kbindex
@@ -504,7 +504,7 @@ class KeyboardReader:
 
         # Succeed
 
-        _ = ms
+        _ = sw
 
         return (km, extra)
 
@@ -516,7 +516,7 @@ class KeyboardReader:
         kbytesahead = self.kbytesahead
         ts = self.terminal_studio
 
-        ms = self.mock_screen
+        sw = self.screen_writer
 
         _option_kt_encode_start_set_ = KeyMix._OPTION_KT_ENCODE_START_SET_
 
@@ -538,7 +538,7 @@ class KeyboardReader:
             if query not in queries:
                 queries.append(query)
 
-                ms.swrite(query)
+                sw.swrite(query)
 
         while queries:
 
