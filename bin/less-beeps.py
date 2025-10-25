@@ -321,7 +321,6 @@ class TerminalStudio:
         while True:
 
             (km, kpeek) = mk.read_key_mix(timeout=None)
-            # ms.sprint("SQUIRREL 2", km, kpeek)
             if not kpeek:
                 self.sprint(km)
 
@@ -360,11 +359,9 @@ class MockScreen:
     """Mirror the Writes to a Terminal Screen"""
 
     terminal_studio: TerminalStudio
-    queries: list[str]  # awaiting replies for which of ⎋[5n, ⎋[6n, ⎋[18t, etc
 
     def __init__(self, terminal_studio: TerminalStudio) -> None:
         self.terminal_studio = terminal_studio
-        self.queries = list()
 
     def sprint(self, *args: object) -> None:
         """Write to the Terminal Screen"""
@@ -400,7 +397,7 @@ class MockKeyboard:
         self.kbindex = 0
         self.kpack = KeyPack(b"")
 
-    def read_key_mix(self, timeout: float | None) -> tuple[KeyMix, bytes]:
+    def read_key_mix(self, timeout: float | None) -> tuple[KeyMix, bytes]:  # noqa C901  # todo3:
         """Read one Key Chord"""
 
         ms = self.mock_screen
@@ -412,6 +409,8 @@ class MockKeyboard:
         option_kt_str = KeyMix.OPTION_KT_STR  # '∂' for ⌥D
         option_ktext_by_kt = KeyMix.OPTION_KTEXT_BY_KT  # 'é' for ⌥EE
 
+        # _option_kt_encode_start_set_ = KeyMix._OPTION_KT_ENCODE_START_SET_
+
         # Restart the KeyPack after returning it closed
         # Restart the KeyPack after each ` Grave Accent, to duck away from b'``' Encode of ⌥``
         # Restart the KeyPack after each complete ⌥ Option/Alt Key Cap
@@ -422,6 +421,7 @@ class MockKeyboard:
             self.kpack = KeyPack(b"")
             kpack = self.kpack  # todo3: make this line less critical
 
+        # if kbytes_before in _option_kt_encode_start_set_:
         if kbytes_before == b"`":
             self.kpack = KeyPack(b"")
             kpack = self.kpack
@@ -451,8 +451,8 @@ class MockKeyboard:
         empty_kpeek = b""
 
         if kbindex >= len(kbytesahead):
-            self._fill_kbytesahead_(timeout)
-            # ms.sprint("SQUIRREL 1", kbytesahead[kbindex:])
+            replies = self._fill_kbytesahead_(timeout)
+            _ = replies  # todo3:
             if kbindex >= len(kbytesahead):
                 return (empty_km, empty_kpeek)
 
@@ -510,23 +510,30 @@ class MockKeyboard:
 
         # todo2: test ⎋[⇧M Csi Mouse Report then ⎋[⇧Z etc with ⎋[5n and ⎋[0n
 
-    def _fill_kbytesahead_(self, timeout: float | None) -> None:
+    def _fill_kbytesahead_(self, timeout: float | None) -> list[str]:
         """Fetch Bytes into Self"""
 
         kbytesahead = self.kbytesahead
         ts = self.terminal_studio
 
         ms = self.mock_screen
-        queries = ms.queries
+
+        _option_kt_encode_start_set_ = KeyMix._OPTION_KT_ENCODE_START_SET_
+
+        # Fetch 1 K-Byte to start with
 
         kbyte = ts.read_one_kbyte_if(timeout=timeout)  # fetches one or zero K-Byte's
         kbytesahead.extend(kbyte)
 
+        # Fetch >= 1 KeyPack's till next ⎋[0N, if the KeyPack's might be multibyte KeyPack's
+
+        queries = list()
+        replies = list()
+
         query = "\033[5n"
         reply = "\033[0n"
 
-        # if kbyte in (b"\033", b"`"):  # ⎋ `  # todo3: surface ⎋ alone vs in burst
-        if kbyte in (b"`",):  # `
+        if kbyte in _option_kt_encode_start_set_:  # todo2: also b"\033" ⎋ ?
 
             if query not in queries:
                 queries.append(query)
@@ -542,7 +549,10 @@ class MockKeyboard:
             if kbytesahead.endswith(reply.encode()):
                 del kbytesahead[-n:]
 
+                replies.append(reply)
                 queries.remove(query)
+
+        return replies
 
         # todo3: add ⎋[0n mark to KeyPack's fetched that way
 
@@ -1508,6 +1518,16 @@ class KeyMix:
     assert KCAP_SEP == " "
     for _KCAP in KFACE_BY_KTEXT.values():
         assert " " not in _KCAP, (_KCAP,)
+
+    # List the Unicode Characters involved in finding ⌥ Option/Alt Key Caps at macOS
+
+    _OPTION_KT_LIST_ = list(OPTION_KTEXT_BY_KT.keys()) + list(_SPACELESS_OPTION_KT_STR_)
+    _OPTION_KT_LIST_.sort()
+
+    _OPTION_KT_JOIN_ = "".join(_OPTION_KT_LIST_)
+
+    _OPTION_KT_ENCODE_START_SET_ = set(_.encode()[:1] for _ in _OPTION_KT_JOIN_)
+    _OPTION_KT_ENCODE_START_SET_.add(b"``"[:1])  # the two bytes b'``' encode the KeyMix ⌥``
 
     # Define each KText once, never more than once
 
