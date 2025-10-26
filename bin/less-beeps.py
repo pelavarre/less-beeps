@@ -315,22 +315,29 @@ class TerminalStudio:
         # todo1: livelocks less wild in Keyboard/ Screen loopback
 
     def stop_chatting(self) -> None:
-        """Flush the Buffered Input just before Quitting"""
+        """Drain the Buffered Input just before Quitting"""
 
         kr = self.keyboard_reader
         sw = self.screen_writer
+
+        # Drain the Keyboard Buffer
 
         while self.kbhit(timeout=0.100):
             km = kr.read_key_mix(timeout=None)
             assert km, (km,)  # because timeout=None
             sw.sprint(km)
 
-        kbytes = bytes(kr.kbytesahead[kr.kbindex :])
-        if kbytes:
+        # Drain the Keyboard Bytes fetched ahead
+
+        kbytes = bytes(kr.kbytearray[kr.kbindex :])
+        if kbytes:  # todo: empty except when Exception unhandled?
             sw.sprint(kbytes)
             sw.sprint()
 
         sw.sprint("bye")
+
+        # todo2: revive the Apps at 'git checkout main' App's
+        # todo2: revive the App to loop Keyboard to Screen
 
 
 @dataclasses.dataclass(order=True)  # , frozen=True)
@@ -364,10 +371,13 @@ class KeyboardReader:
     terminal_studio: TerminalStudio
     screen_writer: ScreenWriter
 
+    kmixes: list[KeyMix]
+    kmindex: int
+
     kpacks: list[KeyPack]
     kpindex: int
 
-    kbytesahead: bytearray
+    kbytearray: bytearray
     kbindex: int
 
     def __init__(self, terminal_studio: TerminalStudio, screen_writer: ScreenWriter) -> None:
@@ -375,73 +385,176 @@ class KeyboardReader:
         self.terminal_studio = terminal_studio
         self.screen_writer = screen_writer
 
-        self.kbytesahead = bytearray()
-        self.kbindex = 0
+        self.kmixes = list()
+        self.kmindex = 0
 
         self.kpacks = list()
         self.kpindex = 0
 
+        self.kbytearray = bytearray()
+        self.kbindex = 0
+
     def read_key_mix(self, timeout: float | None) -> KeyMix:
         """Read one Key Mix"""
 
-        kpacks = self.kpacks
-        kpindex = self.kpindex
+        kmixes = self.kmixes
+        kmindex = self.kmindex
 
         # Fetch >= 1 Key Mixes before Timeout, else return an empty Key Mix now
 
-        if kpindex >= len(kpacks):
-            self._fill_kpacks_(timeout=timeout)
-            if kpindex >= len(kpacks):
+        if kmindex >= len(kmixes):
+            self._fill_kmixes_(timeout=timeout)
+            if kmindex >= len(kmixes):
                 empty_kmix = KeyMix(b"")
                 return empty_kmix
 
         # Read one Key Mix
 
-        kpack = kpacks[kpindex]
-        self.kpindex += 1
-
-        kbytes = kpack.to_kbytes()
-        kmix = KeyMix(kbytes)
+        kmix = kmixes[kmindex]
+        self.kmindex += 1
 
         return kmix
 
-    def _fill_kpacks_(self, timeout: float | None) -> None:
-        """Read enough KeyBytes to close the next Key Pack"""
+    def _fill_kmixes_(self, timeout: float | None) -> None:
+        """Read enough Key Packs to close the next Key Mix"""
 
-        sw = self.screen_writer
+        kmixes = self.kmixes
+        kmindex = self.kmindex
 
-        kbytesahead = self.kbytesahead
-        kbindex = self.kbindex
         kpacks = self.kpacks
         kpindex = self.kpindex
 
+        option_ktext_by_kt = KeyMix.OPTION_KTEXT_BY_KT
+
+        # Read more Key Mixes only when needed
+
+        assert kmindex == len(kmixes), (kmindex, kmixes[kmindex:])
+
+        # Fill with Key Packs, else quit now
+
+        kqa_tuple: tuple[tuple[str, str], ...] = tuple()
+        if kpindex >= len(kpacks):
+            kqa_tuple = self._fill_kpacks_(timeout=timeout)
+            if kpindex >= len(kpacks):
+                return
+
+        # Drain the Key Packs
+
+        while kpindex < len(kpacks):
+            kpack = kpacks[kpindex]
+            self.kpindex += 1
+            kpindex = self.kpindex  # replaces
+
+            # Form a 1st Draft Key Mix
+
+            kencode = kpack.to_kbytes()
+
+            try:
+                kdecode = kencode.decode()
+            except UnicodeDecodeError:
+                kdecode = ""
+
+            kmix = KeyMix(kbytes=kencode, kqa_tuple=kqa_tuple)
+
+            # Take up 1 or the 1st of 2 Key Mixes from 1 or 2 Key Packs
+
+            kmixes.append(kmix)
+
+            # Take up 2 Key Mixes from 1 Key Pack, when sent by an Option/Alt ⌥ Accent E plus J or ⇧J
+
+            if kencode in (b"j\xcc\x81", b"J\xcc\x81"):
+                option_e_j_kcaps = "J́" if kencode == b"j\xcc\x81" else "⇧J́"
+                assert kmix.kcaps == option_e_j_kcaps, (kmix.kcaps, kdecode, kencode)
+                kmix.kcaps = "⌥E"
+
+                option_e_j_kmix = KeyMix(kbytes=kencode[:1])  # '⇧J'
+                assert not option_e_j_kmix.kface, (option_e_j_kmix.kface, kencode)
+
+                kmixes.append(option_e_j_kmix)
+                continue
+
+            # Take up 2 Key Mixes from 1 Key Pack, when sent by an Option/Alt ⌥ Accent Key
+
+            option_accent_key_mix_pair = kdecode in option_ktext_by_kt.keys()
+            if kdecode and (kdecode[0] == "`") and (kdecode[1:]):
+                option_accent_key_mix_pair = True
+
+            if option_accent_key_mix_pair:
+                assert kdecode, (kdecode, kencode)  # option_ktext or ``
+                assert not kmix.kface, (kmix.kface, kdecode, kencode)  # option_ktext or ``
+
+                if kdecode.startswith("`"):
+                    ktext = "⌥`"
+                    assert kmix.kcaps.startswith("`"), (kmix.kcaps, kdecode, kencode)
+                    kcaps_list = [ktext, kmix.kcaps[1:]]
+                    kmix.kcaps = ktext
+                else:
+                    assert len(kdecode) == 1, (kdecode, kencode)
+                    ktext = option_ktext_by_kt[kdecode]
+                    kcaps_list = ktext.split()
+
+                    kcaps_0 = kcaps_list[0]  # '⌥E'
+                    assert kmix.kcaps == kcaps_0, (kmix.kcaps, kcaps_0, ktext)
+
+                    if kcaps_list[1:]:
+                        if kcaps_0.startswith("⌥⇧"):  # (kcaps_0 == "⌥`") is already ok
+                            assert kcaps_0.count("⇧") == 1, (kcaps_0, kencode)  # '⌥⇧E'
+                            alt_kcaps_0 = kcaps_0.replace("⌥⇧", "⌥")  # '⌥E'
+                            kmix.kcaps = alt_kcaps_0
+
+                # Patch up the 1st Key Face of the 2 Key Mixes
+
+                assert len(kcaps_list) in (1, 2), (kcaps_list, kdecode, kencode)  # ['⌥E', 'E']
+                if kcaps_list[1:]:
+
+                    kcaps_0 = kcaps_list[0]  # '⌥E'
+                    assert "⇧" not in kcaps_0, (kcaps_0, kencode)
+
+                    # Patch up the 2nd Key Face of the 2 Key Mixes
+
+                    option_accent_kmix = KeyMix(kbytes=b"")
+
+                    assert not kmix.kface, (kmix.kface, kencode)  # because kbytes=b""
+                    assert not option_accent_kmix.kcaps, (
+                        option_accent_kmix.kcaps,
+                    )  # because kbytes=b""
+
+                    option_accent_kmix.kcaps = kcaps_list[-1]  # 'I'
+
+                    kmixes.append(option_accent_kmix)
+                    continue
+
+    def _fill_kpacks_(self, timeout: float | None) -> tuple[tuple[str, str], ...]:
+        """Read enough Key Bytes to close the next Key Pack"""
+
+        kpacks = self.kpacks
+        kpindex = self.kpindex
+
+        kbytearray = self.kbytearray
+        kbindex = self.kbindex
+
         option_kt_join = KeyMix.OPTION_KT_JOIN  # '∂' for ⌥D
-        option_accent_encodes = KeyMix.OPTION_ACCENT_ENCODES
 
         # Read more Key Packs only when needed
 
         assert kpindex == len(kpacks), (kpindex, kpacks[kpindex:])
 
-        # Fill the Bytes
+        # Fill with Bytes, else quit now
 
-        answers = list()
-        if kbindex >= len(kbytesahead):
-            answers = self._fill_kbytesahead_(timeout)
-            if kbindex >= len(kbytesahead):
-                return
-
-        answer = ""
-        if answers:
-            answer = answers[-1]
-            assert answer == "\033[0n", (answer,)
+        kqa_tuple: tuple[tuple[str, str], ...] = tuple()
+        if kbindex >= len(kbytearray):
+            kqa_tuple = self._fill_kbytearray_(timeout)
+            if kbindex >= len(kbytearray):
+                assert not kqa_tuple, (kqa_tuple,)
+                return kqa_tuple
 
         # Drain the Bytes
 
         kpack = KeyPack(b"")
-        while kbindex < len(kbytesahead):
-            kbyte = bytes(kbytesahead[kbindex:][:1])
+        while kbindex < len(kbytearray):
+            kbyte = bytes(kbytearray[kbindex:][:1])
 
-            # Append Bytes till Key Pack closes  # todo2: wrong for ⎋[⇧Z etc closing ⎋[⇧M Csi Mouse
+            # Append Bytes till Key Pack closes
 
             extra = kpack.take_one_kbyte_if(kbyte)
             if not extra:
@@ -464,15 +577,6 @@ class KeyboardReader:
                     kpack = KeyPack(b"")
                     continue
 
-            # Retake the Key Mix late, when Text was Option Accent closed by a Not-Accentable
-
-            if len(kpacks) == (kpindex + 1):
-                old_kpack = kpacks[-1]
-                old_kbytes = old_kpack.to_kbytes()
-                if old_kbytes in option_accent_encodes:
-                    sw.sprint("todo4: Retake the Key Mix late")
-                    continue
-
             # todo2: default to run with bracketed paste on, but offer toggle off/on
 
         # Take the last of the Bytes arriving all at once as a Key Pack
@@ -480,61 +584,65 @@ class KeyboardReader:
         if kpack:
             kpacks.append(kpack)
 
+        # Succeed
+
+        return kqa_tuple
+
         # todo2: test ⎋[⇧M Csi Mouse Report then ⎋[⇧Z etc with ⎋[5n and ⎋[0n
 
-        # todo3: .read_key_mix of ⌥I⌥⇧P etc with the ⌥ Key Mix as a slow shift of the tail
-
-    def _fill_kbytesahead_(self, timeout: float | None) -> list[str]:
+    def _fill_kbytearray_(self, timeout: float | None) -> tuple[tuple[str, str], ...]:
         """Fetch Bytes into Self"""
 
-        kbytesahead = self.kbytesahead
+        kbytearray = self.kbytearray
         ts = self.terminal_studio
 
         sw = self.screen_writer
 
-        option_kt_encode_start_set = KeyMix.OPTION_KT_ENCODE_START_SET
+        encode_start_set = EncodeStartSet
 
-        encode_start_set = set(option_kt_encode_start_set)
-        encode_start_set.add(b"\033")  # ⎋
+        # Fetch 1 Key Byte to start with
 
-        # Fetch 1 K-Byte to start with
+        kbyte = ts.read_one_kbyte_if(timeout=timeout)  # fetches one or zero Key Bytes
+        kbytearray.extend(kbyte)
 
-        kbyte = ts.read_one_kbyte_if(timeout=timeout)  # fetches one or zero K-Byte's
-        kbytesahead.extend(kbyte)
+        # Plan to fetch Key Packs till next ⎋[0N, if the Key Packs might be multibyte or multiple
 
-        # Fetch >= 1 KeyPack's till next ⎋[0N, if the KeyPack's might be multibyte KeyPack's
+        question = answer = ""
+        if kbyte in encode_start_set:
+            question = "\033[5n"
+            answer = "\033[0n"
 
         questions = list()
+        if question:
+            sw.swrite(question)
+            questions.append(question)
+
+        # Fetch Key Packs till next Answer, if Question asked
+
+        open_questions = list(questions)
         answers = list()
 
-        question = "\033[5n"
-        answer = "\033[0n"
+        while open_questions:
 
-        if kbyte in encode_start_set:
+            kbyte = ts.read_one_kbyte_if(timeout=timeout)  # fetches one or zero Key Bytes
+            kbytearray.extend(kbyte)
 
-            if question not in questions:
-                questions.append(question)
+            answer_encode = answer.encode()
+            n = len(answer_encode)
 
-                sw.swrite(question)
+            if kbytearray.endswith(answer_encode):
+                del kbytearray[-n:]
 
-        while questions:
-
-            kbyte = ts.read_one_kbyte_if(timeout=timeout)  # fetches one or zero K-Byte's
-            kbytesahead.extend(kbyte)
-
-            n = len(answer.encode())
-            if kbytesahead.endswith(answer.encode()):
-                del kbytesahead[-n:]
-
+                open_questions.remove(question)
                 answers.append(answer)
-                questions.remove(question)
 
-        return answers
+        # Succeed
 
-        # todo3: add ⎋[0n mark to KeyPack's fetched that way
+        kqa_tuple = tuple(zip(questions, answers))  # maybe empty
+        return kqa_tuple
 
-        # todo2: test ⌥` ` with ⎋[5n and ⎋[0n
-        # todo2: test lots of ⌥ Key Chords with ⎋[5n and ⎋[0n, vs .text sits open
+        # todo2: launch an app of many Keyboard Viewers:  plain, ⎋, ⌃, ⌥, ⇧, ⎋⌃, etc etc
+        # todo2: how about one Keyboard Viewer at a time
 
 
 #
@@ -874,11 +982,13 @@ class KeyMix:
     kface: str  # 'Return'  # '<>'
     kcaps: str  # '⌃M'  # '⌃[[A'
     kpack: KeyPack  # .head .neck .back .stash .tail
+    kencode: bytes  # .kpack.to_kbytes()
+    kdecode: str  # .decode of .encode, else Empty Str ""
     kintsmark: bytes  # neck-start + back + tail
     kints: list[int]  # via Csi Neck after Csi Next Start
-    kqa: tuple[tuple[str, str], ...]  # questions asked, answers given
+    kqa_tuple: tuple[tuple[str, str], ...]  # questions asked, answers given
 
-    def __init__(self, kbytes: bytes, kqa: tuple[tuple[str, str], ...] = ()) -> None:
+    def __init__(self, kbytes: bytes, kqa_tuple: tuple[tuple[str, str], ...] = ()) -> None:
 
         # Collect
 
@@ -886,24 +996,36 @@ class KeyMix:
         kcaps = KeyMix.to_kcaps_if(kbytes)
         kpack = KeyPack(kbytes)  # maybe .closed, maybe not
 
+        kencode = kbytes
+        try:
+            kdecode = kbytes.decode()
+        except UnicodeDecodeError:
+            kdecode = ""
+
         (kintsmark, kints) = KeyMix.to_csi_ints_if(kbytes)
         if (not kintsmark) and (not kints):
             (kintsmark, kints) = KeyMix.to_csi_m_ints_if(kbytes)
-
-        kqa = tuple()
 
         # Succeed
 
         self.kface = kface
         self.kcaps = kcaps
         self.kpack = kpack
+        self.kencode = kencode
+        self.kdecode = kdecode
         self.kintsmark = kintsmark
         self.kints = kints
-        self.kqa = kqa
+        self.kqa_tuple = kqa_tuple
+
+        self._require_simple_kmix_()
 
     def __bool__(self) -> bool:
+
+        kcaps = self.kcaps
         kpack = self.kpack
-        truthy = bool(kpack)
+
+        truthy = bool(kcaps) or bool(kpack)
+
         return truthy
 
     def __str__(self) -> str:
@@ -913,9 +1035,9 @@ class KeyMix:
         kpack = self.kpack
         kintsmark = self.kintsmark
         kints = self.kints
-        kqa = self.kqa
+        kqa_tuple = self.kqa_tuple
 
-        # Collect
+        # Collect the distinctive Parts, while shrugging off .kencode and .kdecode
 
         parts = list()
 
@@ -935,9 +1057,9 @@ class KeyMix:
         elif kints:
             parts.append(str(kints))  # lets the .kpack show the .kintsmark
 
-        assert not kqa, (kqa,)
-        if kqa:
-            part = "".join((q + a) for (q, a) in kqa)
+        if kqa_tuple:
+            part = " ".join(f"{q} {a}" for (q, a) in kqa_tuple)
+            part = part.replace("\033", "⎋")
             parts.append(part)
 
         # Succeed
@@ -954,6 +1076,36 @@ class KeyMix:
 
         # ⌥3 '£' b'\xc2\xa3'
         # ⌥⇧@ '€' b'\xe2\x82\xac'
+
+    def _require_simple_kmix_(self) -> None:
+        """Raise Exception if some mutation gone wrong has damaged Self"""
+
+        kface = self.kface
+        kcaps = self.kcaps
+        kpack = self.kpack
+        kdecode = self.kdecode
+        kencode = self.kencode
+        kintsmark = self.kintsmark
+        kints = self.kints
+
+        if kface:
+            if kface != "Spacebar":
+                assert kcaps, (kcaps, kface, kencode)
+
+        if kdecode:
+            assert kdecode == kencode.decode(), (kdecode, kencode)
+        if kencode:
+            assert kpack, (kpack, kencode)
+
+        if kints:
+            assert kintsmark, (kintsmark, kints)
+
+        if kencode and not kdecode:
+            try:
+                kencode.decode()
+                assert False, (kencode,)
+            except UnicodeDecodeError:
+                pass
 
     @staticmethod
     def to_csi_ints_if(kbytes: bytes) -> tuple[bytes, list[int]]:
@@ -1094,8 +1246,9 @@ class KeyMix:
             kc = "⇧" + kt
 
         elif (kt != "`") and (kt in option_ktext_by_kt.keys()):  # Mac US Option Accents
-            kc = option_ktext_by_kt[kt]
-            assert " " not in kc, (kc, ko, kt)  # todo4: stop pretending 1 Key Cap not 2 Key Caps
+            kcaps_list = option_ktext_by_kt[kt].split()
+            assert len(kcaps_list) in (1, 2), (kcaps_list, ko, kt)  # ['⌥E', 'E']
+            kc = kcaps_list[0]  # trusts Caller to fix up the Ambiguity of len
 
         elif kt in option_kt_str:  # Mac US Option Key Caps
             kc = KeyMix._option_kt_to_kcap_(kt)
@@ -1149,6 +1302,7 @@ class KeyMix:
         return kc
 
         # '⌃L'  # '⇧Z'
+        # ⌥Y often comes through as \ U+005C Reverse-Solidus aka Backslash  # not ¥ Yen-Sign
 
     SHIFTED_KEYCAPS = '!"#$%&()*+' ":<>?" "@" "^_" "{|}~"  # !"#$%&()*+ :<>? @ ^_ {|}~
 
@@ -1161,11 +1315,10 @@ class KeyMix:
         "á": "⌥E A",
         "é": "⌥E E",
         "í": "⌥E I",
-        # "j́": "⌥E J",  # without the (len("j́") == 2) of ⌥EJ here  # todo3: test
+        # "j́": "⌥E J",  # without the (len("j́") == 2) of ⌥EJ here
         "ó": "⌥E O",
         "ú": "⌥E U",
         "´": "⌥⇧E",
-        "é": "⌥E E",
         # ⌥I
         "â": "⌥I A",
         "ê": "⌥I E",
@@ -1192,22 +1345,22 @@ class KeyMix:
         "ì": "⌥` I",
         "ò": "⌥` O",
         "ù": "⌥` U",
-        # "``": "⌥`",  # without the (len("``") == 2) of ⌥`` here  # todo3: test
+        # "``": "⌥`",  # without the (len("``") == 2) of ⌥`` here
     }
+
+    _KVALUES_ = sorted(OPTION_KTEXT_BY_KT.values())
+    assert len(_KVALUES_) == len(set(_KVALUES_)), _KVALUES_
 
     for _KT_ in OPTION_KTEXT_BY_KT.keys():
         assert len(_KT_) == 1, (_KT_,)
 
+    for _KTEXT_ in OPTION_KTEXT_BY_KT.values():
+        kcaps_list = _KTEXT_.split()
+        assert len(kcaps_list) in (1, 2), (len(kcaps_list), _KTEXT_)
+
     assert all(len(_) == 1 for _ in OPTION_KTEXT_BY_KT.keys())
 
     # hand-sorted by ⌥E ⌥I ⌥N ⌥U ⌥` order
-
-    _OPTION_ACCENT_KTEXTS_ = list(_ for _ in OPTION_KTEXT_BY_KT.values() if "⇧" in _)
-    _OPTION_ACCENT_KTEXTS_.append("⌥`")  # for Encode b"``"
-    assert _OPTION_ACCENT_KTEXTS_ == ["⌥⇧E", "⌥⇧I", "⌥⇧N", "⌥⇧U", "⌥`"], (_OPTION_ACCENT_KTEXTS_,)
-
-    OPTION_ACCENT_ENCODES = list(k.encode() for (k, v) in OPTION_KTEXT_BY_KT.items() if "⇧" in v)
-    OPTION_ACCENT_ENCODES.append(1 * b"`")  # for Decode "⌥`""
 
     # Decode one ⌥ KeyCap per US-Ascii Printable Byte, at an Apple MacBook
 
@@ -1279,6 +1432,8 @@ class KeyMix:
     def to_kface_if(kbytes: bytes) -> str:
         """Choose Keycaps to speak of the Bytes of 1 Keyboard Chord"""
 
+        assert KeyMix.KCAP_SEP == " "  # promises no ' ' in each single .kface
+
         # Choose no Key Face for every Decode Error
 
         try:
@@ -1292,10 +1447,9 @@ class KeyMix:
 
         if ktext in kface_by_ktext.keys():
             kface = kface_by_ktext[ktext]
-
             assert kface, (kface, kbytes)
-            assert " " not in kface, (kface, kbytes)
 
+            assert " " not in kface, (kface, kbytes)
             return kface
 
         # Choose ⎋ followed by 1 of our tabulated Key Faces, when encoded as ⎋...
@@ -1313,10 +1467,9 @@ class KeyMix:
                 assert esc_kface_plus, (esc_kface_plus, kbytes)
 
                 kface = (len(esc_prefix_minus) * "⎋") + esc_kface_plus
-
                 assert kface, (kface, kbytes)
-                assert " " not in kface, (kface, kbytes)
 
+                assert " " not in kface, (kface, kbytes)
                 return kface
 
                 # ⎋⇧Tab, like from Apple Keyboard > Option as Meta Key
@@ -1330,10 +1483,9 @@ class KeyMix:
             assert esc_kface, (esc_kface, kbytes)
 
             kface = (len(esc_prefix) * "⎋") + esc_kface
-
             assert kface, (kface, kbytes)
-            assert " " not in kface, (kface, kbytes)
 
+            assert " " not in kface, (kface, kbytes)
             return kface
 
             # ⎋Tab, ⎋Return, ⎋Delete, like from Apple Keyboard > Option as Meta Key
@@ -1344,19 +1496,17 @@ class KeyMix:
             if " " not in esc_ktext:
                 esc_kcaps = KeyMix.to_kcaps_if(esc_ktext.encode())
                 assert esc_kcaps, (esc_kcaps, esc_ktext.encode())
+
                 kface = (len(esc_prefix) * "⎋") + esc_kcaps
+
+                assert " " not in kface, (kface, kbytes)
                 return kface
 
         # Fail to choose a Key Face
 
         return ""
 
-        # ⌥Y often comes through as \ U+005C Reverse-Solidus aka Backslash  # not ¥ Yen-Sign
-
-        # 'A'
-        # '⌃L'
-        # '⇧Z'
-        # '⎋9' from ⌥9 while Apple Keyboard > Option as Meta Key  # todo3:
+        # 'A'  # '⌃L'  # '⇧Z'  # '⎋⇧Tab'  # '⎋Return'  # '⎋1'
 
     KFACE_BY_KTEXT = {  # r"←|↑|→|↓" and so on  # ⌃ ⌥ ⇧ ⌃⌥ ⌃⇧ ⌥⇧ ⌃⌥⇧ and so on
         "\x00": "⌃Spacebar",  # ⌃@  # ⌃⇧2
@@ -1628,6 +1778,8 @@ class KeyPack:
         kbytes = self.to_kbytes()
         truthy = bool(kbytes or self.closed)
 
+        self._require_simple_kpack_()
+
         return truthy
 
     def __repr__(self) -> str:
@@ -1646,6 +1798,8 @@ class KeyPack:
 
         join = f"head={head_!r}, neck={neck_!r}, back={back_!r}, stash={stash_!r}, tail={tail_!r}"
         rep = f"{cname}({text=}, {join}, {closed=})"
+
+        self._require_simple_kpack_()
 
         return rep
 
@@ -1686,6 +1840,8 @@ class KeyPack:
 
         # Succeed
 
+        self._require_simple_kpack_()
+
         assert join.isprintable(), (join,)
         return join  # doesn't show if .closed or not
 
@@ -1704,10 +1860,12 @@ class KeyPack:
 
         join = text_ + head_ + neck_ + back_ + stash_ + tail_
 
+        self._require_simple_kpack_()
+
         return join  # doesn't show if .closed or not
 
     def _require_simple_kpack_(self) -> None:
-        """Raise Exception when Self can't be real"""
+        """Raise Exception if some mutation gone wrong has damaged Self"""
 
         text = self.text
 
@@ -1804,6 +1962,8 @@ class KeyPack:
             else:
                 assert False, (head,)
 
+    StartBytes = tuple(bytes([_]) for _ in range(0xE0, 0xF4 + 1))  # what UTF-8 completes
+
     @staticmethod
     def _try_ends_later_() -> None:
         """Require each StartsWith accepted by .bytes_to_later_decode via the Endswiths"""
@@ -1817,8 +1977,13 @@ class KeyPack:
                 start = kbytes[:index]
                 start_set.add(start)
 
+        start_byte_set = set()
         for start in start_set:
             assert KeyPack.bytes_to_later_decode(start), (start,)
+            start_byte_set.add(start[:1])
+
+        start_bytes = tuple(sorted(start_byte_set))
+        assert start_bytes == KeyPack.StartBytes, (start_bytes, KeyPack.StartBytes)
 
     @staticmethod
     def _try_one_more_kbyte_() -> None:
@@ -1972,6 +2137,8 @@ class KeyPack:
 
     def take_one_kbyte_if(self, kbyte: bytes) -> bytes:
         """Take in next 1 Byte and return 0 Bytes, else return 1..4 Bytes that don't fit"""
+
+        self._require_simple_kpack_()
 
         extra = self._take_one_kbyte_if_(kbyte)
         if extra:
@@ -2390,6 +2557,8 @@ class KeyByte:
     kbytes: bytes  # empty at timeout, else 1 Byte
     t1: int  # time of Return
 
+    # todo2: start testing Class KeyByte
+
 
 BEL = "\a"  # U+0007 Bell
 CR = "\r"  # U+000D Carriage Return
@@ -2430,6 +2599,32 @@ _END_PASTE_ = "\033[" "201~"  # ⎋[201⇧~
 
 SM_DECTCEM = "\033[" "?25h"  # 06/08 Set Mode (SMS) 25 VT220 Show Cursor
 RM_DECTCEM = "\033[" "?25l"  # 06/12 Reset Mode (RM) 25 VT220 Hide Cursor
+
+
+#
+# Say which Bytes need closure, like by ⎋[5N ⎋[0N,
+# to say if they started a burst of Key Mixes,
+# or started a burst of Key Bytes,
+# or ended as quickly as they started
+#
+
+
+_S_ = set()
+_S_.add(b"\033")  # for Byte Sequences started by ⎋ Esc
+_S_.add(b"J")  # for len("J́") == 2
+_S_.add(b"j")  # for len("j́") == 2
+_S_ |= set(KeyPack.StartBytes)  # for Unicode Encodes
+_S_ |= set(KeyMix.OPTION_KT_ENCODE_START_SET)  # for ⌥ Option/Alt Accents
+
+EncodeStartSet = frozenset(_S_)
+
+
+#
+# Run a very few Self-Test's very quickly
+#
+
+
+_ = KeyMix(b"")  # < 20us
 
 
 #
