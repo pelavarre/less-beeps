@@ -424,16 +424,16 @@ class KeyboardReader:
 
         # Fill the Bytes
 
-        replies = list()
+        answers = list()
         if kbindex >= len(kbytesahead):
-            replies = self._fill_kbytesahead_(timeout)
+            answers = self._fill_kbytesahead_(timeout)
             if kbindex >= len(kbytesahead):
                 return
 
-        reply = ""
-        if replies:
-            reply = replies[-1]
-            assert reply == "\033[0n", (reply,)
+        answer = ""
+        if answers:
+            answer = answers[-1]
+            assert answer == "\033[0n", (answer,)
 
         # Drain the Bytes
 
@@ -504,32 +504,32 @@ class KeyboardReader:
 
         # Fetch >= 1 KeyPack's till next ⎋[0N, if the KeyPack's might be multibyte KeyPack's
 
-        queries = list()
-        replies = list()
+        questions = list()
+        answers = list()
 
-        query = "\033[5n"
-        reply = "\033[0n"
+        question = "\033[5n"
+        answer = "\033[0n"
 
         if kbyte in encode_start_set:
 
-            if query not in queries:
-                queries.append(query)
+            if question not in questions:
+                questions.append(question)
 
-                sw.swrite(query)
+                sw.swrite(question)
 
-        while queries:
+        while questions:
 
             kbyte = ts.read_one_kbyte_if(timeout=timeout)  # fetches one or zero K-Byte's
             kbytesahead.extend(kbyte)
 
-            n = len(reply.encode())
-            if kbytesahead.endswith(reply.encode()):
+            n = len(answer.encode())
+            if kbytesahead.endswith(answer.encode()):
                 del kbytesahead[-n:]
 
-                replies.append(reply)
-                queries.remove(query)
+                answers.append(answer)
+                questions.remove(question)
 
-        return replies
+        return answers
 
         # todo3: add ⎋[0n mark to KeyPack's fetched that way
 
@@ -876,9 +876,11 @@ class KeyMix:
     kpack: KeyPack  # .head .neck .back .stash .tail
     kintsmark: bytes  # neck-start + back + tail
     kints: list[int]  # via Csi Neck after Csi Next Start
-    # todo4:  # kqa: list[tuple[str, str]]  # questions asked, answers given
+    kqa: tuple[tuple[str, str], ...]  # questions asked, answers given
 
-    def __init__(self, kbytes: bytes) -> None:
+    def __init__(self, kbytes: bytes, kqa: tuple[tuple[str, str], ...] = ()) -> None:
+
+        # Collect
 
         kface = KeyMix.to_kface_if(kbytes)
         kcaps = KeyMix.to_kcaps_if(kbytes)
@@ -888,11 +890,16 @@ class KeyMix:
         if (not kintsmark) and (not kints):
             (kintsmark, kints) = KeyMix.to_csi_m_ints_if(kbytes)
 
+        kqa = tuple()
+
+        # Succeed
+
         self.kface = kface
         self.kcaps = kcaps
         self.kpack = kpack
         self.kintsmark = kintsmark
         self.kints = kints
+        self.kqa = kqa
 
     def __bool__(self) -> bool:
         kpack = self.kpack
@@ -906,6 +913,9 @@ class KeyMix:
         kpack = self.kpack
         kintsmark = self.kintsmark
         kints = self.kints
+        kqa = self.kqa
+
+        # Collect
 
         parts = list()
 
@@ -922,10 +932,18 @@ class KeyMix:
 
         if not kintsmark:
             assert not kints, (kints,)
-        else:
+        elif kints:
             parts.append(str(kints))  # lets the .kpack show the .kintsmark
 
+        assert not kqa, (kqa,)
+        if kqa:
+            part = "".join((q + a) for (q, a) in kqa)
+            parts.append(part)
+
+        # Succeed
+
         join = " ".join(parts)
+        assert join.isprintable(), (join,)
 
         return join
 
@@ -1261,16 +1279,16 @@ class KeyMix:
     def to_kface_if(kbytes: bytes) -> str:
         """Choose Keycaps to speak of the Bytes of 1 Keyboard Chord"""
 
+        # Choose no Key Face for every Decode Error
+
         try:
             ktext = kbytes.decode()
         except UnicodeDecodeError:
             return ""
 
-        kface_by_ktext = KeyMix.KFACE_BY_KTEXT  # '\e\e[A' for ⎋↑ etc
+        # Choose 1 of our tabulated Key Faces
 
-        headbook = (b"\033", b"\033O", b"\033[", b"\033]")  # ⎋ ⎋⇧O ⎋[ ⎋]
-        assert KeyPack.Headbook == headbook
-        assert KeyMix.KCAP_SEP == " "
+        kface_by_ktext = KeyMix.KFACE_BY_KTEXT  # '\033[A' for ↑ etc
 
         if ktext in kface_by_ktext.keys():
             kface = kface_by_ktext[ktext]
@@ -1280,39 +1298,56 @@ class KeyMix:
 
             return kface
 
-        if ktext.startswith("\033"):
-            esc_depth = len(ktext) - len(ktext.lstrip("\033"))
+        # Choose ⎋ followed by 1 of our tabulated Key Faces, when encoded as ⎋...
 
-            esc_prefix_minus = (esc_depth - 1) * "\033"
-            if esc_prefix_minus:
-                esc_ktext_plus = ktext.removeprefix(esc_prefix_minus)
-                if esc_ktext_plus in kface_by_ktext.keys():
-                    esc_kface_plus = kface_by_ktext[esc_ktext_plus]
-                    assert esc_kface_plus, (esc_kface_plus, kbytes)
+        if not ktext.startswith("\033"):
+            return ""
 
-                    kface = (len(esc_prefix_minus) * "⎋") + esc_kface_plus
+        esc_depth = len(ktext) - len(ktext.lstrip("\033"))
 
-                    assert kface, (kface, kbytes)
-                    assert " " not in kface, (kface, kbytes)
+        esc_prefix_minus = (esc_depth - 1) * "\033"
+        if esc_prefix_minus:
+            esc_ktext_plus = ktext.removeprefix(esc_prefix_minus)
+            if esc_ktext_plus in kface_by_ktext.keys():
+                esc_kface_plus = kface_by_ktext[esc_ktext_plus]
+                assert esc_kface_plus, (esc_kface_plus, kbytes)
 
-                    return kface
-
-                    # ⎋⎋F1
-
-            esc_prefix = esc_depth * "\033"
-            esc_ktext = ktext.removeprefix(esc_prefix)
-            if esc_ktext in kface_by_ktext.keys():
-                esc_kface = kface_by_ktext[esc_ktext]
-                assert esc_kface, (esc_kface, kbytes)
-
-                kface = (len(esc_prefix) * "⎋") + esc_kface
+                kface = (len(esc_prefix_minus) * "⎋") + esc_kface_plus
 
                 assert kface, (kface, kbytes)
                 assert " " not in kface, (kface, kbytes)
 
                 return kface
 
-                # ⎋Tab, ⎋Return, ⎋Delete
+                # ⎋⇧Tab, like from Apple Keyboard > Option as Meta Key
+
+        # Choose ⎋ followed by 1 of our tabulated Key Faces, when not encoded as ⎋...
+
+        esc_prefix = esc_depth * "\033"
+        esc_ktext = ktext.removeprefix(esc_prefix)
+        if esc_ktext in kface_by_ktext.keys():
+            esc_kface = kface_by_ktext[esc_ktext]
+            assert esc_kface, (esc_kface, kbytes)
+
+            kface = (len(esc_prefix) * "⎋") + esc_kface
+
+            assert kface, (kface, kbytes)
+            assert " " not in kface, (kface, kbytes)
+
+            return kface
+
+            # ⎋Tab, ⎋Return, ⎋Delete, like from Apple Keyboard > Option as Meta Key
+
+        # Choose ⎋ followed by 1 Text Character, like from Apple Keyboard > Option as Meta Key
+
+        if len(esc_ktext) == 1:
+            if " " not in esc_ktext:
+                esc_kcaps = KeyMix.to_kcaps_if(esc_ktext.encode())
+                assert esc_kcaps, (esc_kcaps, esc_ktext.encode())
+                kface = (len(esc_prefix) * "⎋") + esc_kcaps
+                return kface
+
+        # Fail to choose a Key Face
 
         return ""
 
@@ -1649,6 +1684,9 @@ class KeyPack:
             assert (not stash_) or (not tail_), (stash_, tail_)
             join += " " + str(back_ + stash_ + tail_)
 
+        # Succeed
+
+        assert join.isprintable(), (join,)
         return join  # doesn't show if .closed or not
 
         # "b'\033[' b'6' b' q'"
