@@ -196,10 +196,14 @@ class TerminalStudio:
         fileno = self.fileno
         tcgetattr = self.tcgetattr
 
+        assert _SM_BRACKETED_PASTE_ == "\033[" "?2004h"
+
         # Enter once
 
         if tcgetattr:
             return self
+
+        # Flush Output, drain Input, and change Input Mode
 
         stdio.flush()  # before each 'tty.setraw' of TerminalStudio.__enter__
 
@@ -215,11 +219,13 @@ class TerminalStudio:
         else:
             tty.setcbreak(fileno, when=termios.TCSADRAIN)  # todo: .when defaults to .TCSAFLUSH
 
+        # Ask for Bracketed Paste, as if Unbracketed Paste given by default
+
+        stdio.write("\033[" "?2004h")
+
         # Succeed
 
         return self
-
-        # todo3: TerminalStudio default to run with Bracketed Paste on
 
         # todo: try termios.TCSAFLUSH to discard Input at entry
         # todo: try tty.setcbreak, especially when debugging hangs
@@ -230,10 +236,18 @@ class TerminalStudio:
         fileno = self.fileno
         tcgetattr = self.tcgetattr
 
+        assert _RM_BRACKETED_PASTE_ == "\033[" "?2004l"
+
         # Exit once
 
         if not tcgetattr:
             return
+
+        # Ask for Unbracketed Paste, as if Bracketed Paste asked for by .__enter__ etc
+
+        stdio.write("\033[" "?2004l")
+
+        # Flush Output, drain Input, and change Input Mode
 
         stdio.flush()  # before each 'termios.tcsetattr' of TerminalStudio.__exit__
 
@@ -243,8 +257,6 @@ class TerminalStudio:
         termios.tcsetattr(fd, when, attributes)
 
         self.tcgetattr = list()  # replaces
-
-        return None
 
         # todo: try termios.TCSAFLUSH to discard Input at exit
 
