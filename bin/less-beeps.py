@@ -219,6 +219,8 @@ class TerminalStudio:
 
         return self
 
+        # todo3: TerminalStudio default to run with Bracketed Paste on
+
         # todo: try termios.TCSAFLUSH to discard Input at entry
         # todo: try tty.setcbreak, especially when debugging hangs
 
@@ -364,6 +366,10 @@ class ScreenWriter:
         ts = self.terminal_studio
         stdio = ts.stdio
         stdio.write(text)
+
+        # todo2: ScreenWriter snoop ⎋[⇧?2004L and ⎋[⇧?2004H to know toggled Bracketed Paste
+        # todo2: snoop ⎋[⇧?1006H and ⎋[⇧?1006L to know toggled Csi ⇧M M Sgr Mouse
+        # todo2: snoop ⎋[⇧?1005H and ⎋[⇧?1005L to know toggled Csi ⇧M ⇧M Six Mouse
 
 
 @dataclasses.dataclass(order=True)  # , frozen=True)
@@ -579,13 +585,6 @@ class KeyboardReader:
                     kpack = KeyPack(b"")
                     continue
 
-            # todo2: default to run with Bracketed Paste on
-            # todo3: snoop ⎋[⇧?2004L and ⎋[⇧?2004H to toggle Bracketed Paste
-
-            # todo3: snoop ⎋[⇧?1006H and ⎋[⇧?1006L to toggle Csi ⇧M M Sgr Mouse
-
-            # todo3: snoop ⎋[⇧?1005H and ⎋[⇧?1005L to toggle Csi ⇧M ⇧M Six Mouse
-
             # todo3: question/answer ⎋[⇧R ⎋[T on top of ⎋[5N to do ⌥ Release Bursts
 
         # Take the last of the Bytes arriving all at once as a Key Pack
@@ -602,12 +601,16 @@ class KeyboardReader:
     def _fill_kbytearray_(self, timeout: float | None) -> tuple[tuple[str, str], ...]:
         """Fetch Bytes into Self"""
 
-        kbytearray = self.kbytearray
         ts = self.terminal_studio
-
         sw = self.screen_writer
+        kbytearray = self.kbytearray
+        kbindex = self.kbindex
 
         encode_start_set = EncodeStartSet
+
+        # Read more Key Bytes only when needed
+
+        assert kbindex == len(kbytearray), (kbindex, kbytearray[kbindex:])
 
         # Fetch 1 Key Byte to start with
 
@@ -635,12 +638,22 @@ class KeyboardReader:
 
         while open_questions:
 
+            # Fetch 1 Key Byte
+
             kbyte = ts.read_one_kbyte_if(timeout=timeout)  # fetches one or zero Key Bytes
             kbytearray.extend(kbyte)
+
+            # Don't take ⎋[0N as End-of-Input when immediately after explicit ⎋[200~ Start-of-Paste
+
+            if kbytearray[kbindex:] == b"\033[200~":
+                question_index = len(kbytearray) + 1
+
+            # Do take ⎋[0N as End-of-Input when received after sending ⎋[5 to ask for it
 
             answer_encode = answer.encode()
             n = len(answer_encode)
 
+            assert answer_encode, answer_encode  # because truthy .open_questions
             if kbytearray[question_index:].endswith(answer_encode):
                 del kbytearray[-n:]
 
