@@ -302,7 +302,6 @@ class TerminalStudio:
     #
     # Launch, run, quit - read & eval & print
     #
-    #
 
     def speak_first(self) -> None:
         """Launch quickly"""
@@ -313,20 +312,116 @@ class TerminalStudio:
     def chat_awhile(self) -> None:
         r"""Loop and don't quit till one of ⌃C ⌃D ⌃Z ⌃\ """
 
-        kr = self.keyboard_reader
         sw = self.screen_writer
 
         sw.sprint()
         while True:
+            self.loop_back()
+            self.trace_key_mixes()
 
-            km = kr.read_key_mix(timeout=None)
-            assert km, (km,)  # because timeout=None
-            sw.sprint(km)
+    def loop_back(self) -> None:
 
-            if km.kcaps in ("⌃C", "⌃D", "⌃Z", "⌃\\"):
+        kr = self.keyboard_reader
+        sw = self.screen_writer
+
+        kmindex = -1
+        while True:
+
+            if kmindex >= 0:
+
+                kbytearray = bytearray()
+                for kmi in range(kmindex, kr.kmindex):
+                    kmix = kr.kmixes[kmi]
+                    kpack = kmix.kpack
+                    kbytes = kpack.to_kbytes()
+                    kbytearray.extend(kbytes)
+
+                kpack = KeyPack(b"")
+                for (index, kord) in enumerate(kbytearray):
+                    rindex = index - len(kbytearray)
+
+                    kbyte = bytes([kord])
+                    extra = kpack.take_one_kbyte_if(kbyte)
+                    if extra:
+                        break
+
+                    kbytes = kpack.to_kbytes()
+                    if kpack.closed:
+                        kdecode = kbytes.decode()
+
+                        # sw.swrite(repr(kdecode))
+                        sw.swrite(kdecode)
+
+                        kmindex = -1
+
+            kmix = kr.read_one_key_mix()
+
+            if kmix.kcaps in ("⌃Q", "⌃V"):
                 break
 
+            ok = False
+            # ok = ok or self.answer_printable_kdecode(kmix.kdecode)
+            ok = ok or self.answer_controls_kmix(kmix)
+            ok = ok or self.answer_arrows_kface(kmix.kface)
+            if not ok:
+                if kmix.kface == "⎋":
+                    sw.sprint(kmix.kface, end="")
+                    kmindex = kr.kmindex - 1
+                elif kmix.kface:
+                    sw.sprint("", kmix.kface, end=" ")
+                elif kmix.kcaps:
+                    sw.sprint(kmix.kcaps, end="")
+                else:
+                    sw.sprint("", kmix.kencode, end=" ")
+
+            if kmix.kcaps in ("⌃C", "⌃D", "⌃Z", "⌃\\"):
+                sw.sprint("")
+                sys.exit()
+
         # todo1: livelocks less wild in Keyboard/ Screen loopback
+
+    def trace_key_mixes(self) -> None:
+
+        kr = self.keyboard_reader
+        sw = self.screen_writer
+
+        kmixes = kr.kmixes
+        old_kmix = kmixes[-1]
+        assert old_kmix.kcaps in ("⌃Q", "⌃V")
+
+        kcaps = old_kmix.kcaps
+
+        sw.swrite("\0337")
+        sw.swrite(kcaps)
+        sw.swrite("\0338")
+
+        kmix = kr.read_one_key_mix()
+
+        sw.swrite("\0337")
+        sw.sprint(kcaps, kmix)
+        sw.swrite("\0338")
+        sw.swrite("\n")
+
+        kmindex = len(kr.kmixes)
+        while kr.kmindex < kmindex:
+            kmix = kr.read_one_key_mix()
+
+            sw.swrite("\0337")
+            sw.sprint(kcaps, kmix)
+            sw.swrite("\0338")
+            sw.swrite("\n")
+
+        if kmix.kcaps == kcaps:
+            while True:
+                kmix = kr.read_one_key_mix()
+
+                sw.swrite("\0337")
+                sw.sprint(kcaps + kcaps, kmix)
+                sw.swrite("\0338")
+                sw.swrite("\n")
+
+                if kmix.kcaps == kcaps:
+                    break
 
     def stop_chatting(self) -> None:
         """Drain the Buffered Input just before Quitting"""
@@ -337,8 +432,7 @@ class TerminalStudio:
         # Drain the Keyboard Buffer
 
         while self.kbhit(timeout=0.100):
-            km = kr.read_key_mix(timeout=None)
-            assert km, (km,)  # because timeout=None
+            km = kr.read_one_key_mix()
             sw.sprint(km)
 
         # Drain the Keyboard Bytes fetched ahead
@@ -354,6 +448,81 @@ class TerminalStudio:
         # todo3: ⌃Q and ⌃V quote till first KeyboardReader .kbytearray gone
 
         # todo2: revive the Apps at 'git checkout main' App's
+
+    #
+    # Choose Outputs for each Input
+    #
+
+    def answer_printable_kdecode(self, kdecode: str) -> bool:
+        """Loop Printable Key Bytes to Screen"""
+
+        sw = self.screen_writer
+
+        if kdecode and kdecode.isprintable():
+            sw.swrite(kdecode)
+            return True
+
+        return False
+
+    def answer_controls_kmix(self, kmix: KeyMix) -> bool:
+        """Loop basic Control Sequences to Screen"""
+
+        sw = self.screen_writer
+
+        #
+
+        swrite_by_kface = {
+            # "Delete": "\b" "\033[P",  # todo3: overwrite/ insert mode
+            "Delete": "\b",
+            "Return": "\r",
+            "Tab": "\t",
+            "⇧Tab": "\033[Z",
+        }
+
+        kface = kmix.kface
+        if kface in swrite_by_kface.keys():
+            swrite = swrite_by_kface[kface]
+            sw.swrite(swrite)
+            return True
+
+        #
+
+        swrite_by_kcaps = {
+            "⌃H": "\b",
+            "⌃J": "\n",
+            "⌃K": "\x0B",
+        }
+
+        kcaps = kmix.kcaps
+        if kcaps in swrite_by_kcaps.keys():
+            swrite = swrite_by_kcaps[kcaps]
+            sw.swrite(swrite)
+            return True
+
+        #
+
+        return False
+
+    def answer_arrows_kface(self, kface: str) -> bool:
+        """Loop Arrows and shifted Arrows to Screen"""
+
+        sw = self.screen_writer
+
+        swrite_by_kf = {
+            "↑": "\033[A",
+            "↓": "\033[B",
+            "→": "\033[C",
+            "←": "\033[D",
+        }
+
+        ok = False
+        for kf in ("←", "↑", "→", "↓"):
+            if kf in kface:
+                swrite = swrite_by_kf[kf]
+                sw.swrite(swrite)
+                ok = True
+
+        return ok
 
 
 @dataclasses.dataclass(order=True)  # , frozen=True)
@@ -414,13 +583,21 @@ class KeyboardReader:
         self.kbytearray = bytearray()
         self.kbindex = 0
 
-    def read_key_mix(self, timeout: float | None) -> KeyMix:
+    def read_one_key_mix(self) -> KeyMix:
         """Read one Key Mix"""
+
+        kmix = self.read_one_key_mix_if(timeout=None)  # todo2: more test of .timeout is not None
+        assert kmix, (kmix,)  # because timeout=None
+
+        return kmix
+
+    def read_one_key_mix_if(self, timeout: float | None) -> KeyMix:
+        """Read one truthy Key Mix, else timeout and return a falsey empty Key Mix"""
 
         kmixes = self.kmixes
         kmindex = self.kmindex
 
-        # Fetch >= 1 Key Mixes before Timeout, else return an empty Key Mix now
+        # Fetch one truthy Key Mix, else timeout and return a falsey empty Key Mix
 
         if kmindex >= len(kmixes):
             self._fill_kmixes_(timeout=timeout)
@@ -874,7 +1051,6 @@ class ArgDocParser:
 
         # Fetch the Parser Doc from a fitting virtual Terminal
         # Fetch from a Black Terminal of 89 columns, not from the current Terminal Width
-        # Fetch from later Python of "options:", not earlier Python of "optional arguments:"
 
         with_columns_else = os.environ.get("COLUMNS", default_eq_None)  # checkpoints
         with_no_color_else = os.environ.get("NO_COLOR", default_eq_None)  # checkpoints
