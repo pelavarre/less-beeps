@@ -336,8 +336,10 @@ class TerminalStudio:
 
         sw.sprint("bye")
 
+        # todo3: revive the App to loop Keyboard to Screen
+        # todo3: ⌃Q and ⌃V quote till first KeyboardReader .kbytearray gone
+
         # todo2: revive the Apps at 'git checkout main' App's
-        # todo2: revive the App to loop Keyboard to Screen
 
 
 @dataclasses.dataclass(order=True)  # , frozen=True)
@@ -577,7 +579,14 @@ class KeyboardReader:
                     kpack = KeyPack(b"")
                     continue
 
-            # todo2: default to run with bracketed paste on, but offer toggle off/on
+            # todo2: default to run with Bracketed Paste on
+            # todo3: snoop ⎋[⇧?2004L and ⎋[⇧?2004H to toggle Bracketed Paste
+
+            # todo3: snoop ⎋[⇧?1006H and ⎋[⇧?1006L to toggle Csi ⇧M M Sgr Mouse
+
+            # todo3: snoop ⎋[⇧?1005H and ⎋[⇧?1005L to toggle Csi ⇧M ⇧M Six Mouse
+
+            # todo3: question/answer ⎋[⇧R ⎋[T on top of ⎋[5N to do ⌥ Release Bursts
 
         # Take the last of the Bytes arriving all at once as a Key Pack
 
@@ -605,6 +614,8 @@ class KeyboardReader:
         kbyte = ts.read_one_kbyte_if(timeout=timeout)  # fetches one or zero Key Bytes
         kbytearray.extend(kbyte)
 
+        question_index = len(kbytearray)
+
         # Plan to fetch Key Packs till next ⎋[0N, if the Key Packs might be multibyte or multiple
 
         question = answer = ""
@@ -630,7 +641,7 @@ class KeyboardReader:
             answer_encode = answer.encode()
             n = len(answer_encode)
 
-            if kbytearray.endswith(answer_encode):
+            if kbytearray[question_index:].endswith(answer_encode):
                 del kbytearray[-n:]
 
                 open_questions.remove(question)
@@ -1037,7 +1048,7 @@ class KeyMix:
         kints = self.kints
         kqa_tuple = self.kqa_tuple
 
-        # Collect the distinctive Parts, while shrugging off .kencode and .kdecode
+        # Collect the distinctive Parts, but shrug off .kencode and .kdecode
 
         parts = list()
 
@@ -1057,9 +1068,21 @@ class KeyMix:
         elif kints:
             parts.append(str(kints))  # lets the .kpack show the .kintsmark
 
+        # Mark the end strongly with the Questions asked and their Answers
+
         if kqa_tuple:
-            part = " ".join(f"{q} {a}" for (q, a) in kqa_tuple)
-            part = part.replace("\033", "⎋")
+
+            kqa_texts = list()
+            for kq, ka in kqa_tuple:
+                for k in (kq, ka):
+                    k_bytes = k.encode()
+                    k_caps = KeyMix.to_kcaps_if(k_bytes)
+                    assert k_caps.startswith("⌃["), (k_caps, k_bytes)
+                    k_face = "⎋" + k_caps.removeprefix("⌃[")  # '⎋[0N'
+                    kqa_texts.append(k_face)
+
+            part = " ".join(kqa_texts)  # '⎋[5N ⎋[0N'
+
             parts.append(part)
 
         # Succeed
@@ -2588,14 +2611,18 @@ CSI_P_CHARS = """0123456789:;<=>?"""  # Csi Parameter Bytes
 CSI_I_CHARS = """ !'#$%&'()*+,-./"""  # Csi Intermediate [Penultimate] Bytes
 CSI_F_CHARS = "@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~"  # Csi Final Bytes
 
+_START_PASTE_ = "\033[" "200~"  # ⎋[200⇧~ Start of Bracketed Paste
+_END_PASTE_ = "\033[" "201~"  # ⎋[201⇧~ End of Bracketed Paste
+
 
 _SM_SGR_MOUSE_ = "\033[" "?1000;1006h"  # codes Press/ Release as ⎋[{f};{x};{y} ⇧M and M
 _RM_SGR_MOUSE_ = "\033[" "?1000;1006l"
 
+_SM_SIX_MOUSE_ = "\033[" "?1000;1005h"  # codes Press/ Release as two ⎋[⇧M{xyz} Bytes/ Chars
+_RM_SIX_MOUSE_ = "\033[" "?1000;1005l"
+
 _SM_BRACKETED_PASTE_ = "\033[" "?2004h"  # codes Start/ End as ⎋[200~ and ⎋[201~
 _RM_BRACKETED_PASTE_ = "\033[" "?2004l"
-_START_PASTE_ = "\033[" "200~"  # ⎋[200⇧~
-_END_PASTE_ = "\033[" "201~"  # ⎋[201⇧~
 
 SM_DECTCEM = "\033[" "?25h"  # 06/08 Set Mode (SMS) 25 VT220 Show Cursor
 RM_DECTCEM = "\033[" "?25l"  # 06/12 Reset Mode (RM) 25 VT220 Hide Cursor
