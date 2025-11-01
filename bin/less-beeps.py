@@ -338,7 +338,6 @@ class TerminalStudio:
 
                 kpack = KeyPack(b"")
                 for index, kord in enumerate(kbytearray):
-                    rindex = index - len(kbytearray)
 
                     kbyte = bytes([kord])
                     extra = kpack.take_one_kbyte_if(kbyte)
@@ -402,6 +401,10 @@ class TerminalStudio:
         sw.swrite("\0338")
         sw.swrite("\n")
 
+        if kmix.kcaps in ("⌃C", "⌃D", "⌃Z", "⌃\\"):
+            sw.sprint("")
+            sys.exit()
+
         kmindex = len(kr.kmixes)
         while kr.kmindex < kmindex:
             kmix = kr.read_one_key_mix()
@@ -410,6 +413,10 @@ class TerminalStudio:
             sw.sprint(kcaps, kmix)
             sw.swrite("\0338")
             sw.swrite("\n")
+
+            if kmix.kcaps in ("⌃C", "⌃D", "⌃Z", "⌃\\"):
+                sw.sprint("")
+                sys.exit()
 
         if kmix.kcaps == kcaps:
             while True:
@@ -422,6 +429,10 @@ class TerminalStudio:
 
                 if kmix.kcaps == kcaps:
                     break
+
+                if kmix.kcaps in ("⌃C", "⌃D", "⌃Z", "⌃\\"):
+                    sw.sprint("")
+                    sys.exit()
 
     def stop_chatting(self) -> None:
         """Drain the Buffered Input just before Quitting"""
@@ -1291,13 +1302,15 @@ class KeyMix:
 
         return join
 
-        # ⇧⇥ ⌃[[⇧Z b'\x1b[' b'Z' []
-        # ↑ ⌃[[⇧A b'\x1b[' b'A' []
-        # ⎋F1 ⌃[⌃[⇧O⇧P b'\x1b\x1bO' b'P'
-        # ⇧→ ⌃[[1;2⇧C b'\x1b[' b'1;2' b'C' [1, 2]
+        # ⇧⇥ ⎋[⇧Z b'\x1b[' b'Z'  # Shift Rightwards-Arrow-to-Bar
+        # ↑ ⎋[⇧A b'\x1b[' b'A'  # Upwards-Arrow
 
-        # ⌥3 '£' b'\xc2\xa3'
-        # ⌥⇧@ '€' b'\xe2\x82\xac'
+        # <> ⌥3 '£' b'\xc2\xa3'  # an example of shifted by Option
+        # <> ⌥⇧@ '€' b'\xe2\x82\xac'  # an example of Option-Shift
+
+        # ⇧→ ⎋[1;2⇧C b'\x1b[' b'1;2' b'C'  # Shift Rightwards-Arrow
+        # ⎋⇧Fn ⎋⌃P b'\x1b' b'\x10'  # Meta Shift Fn   # only shifting keys, without substance
+        # ⎋ ⎋ b'\x1b'  # an explicit Face same as its Caps
 
     def _require_simple_kmix_(self) -> None:
         """Raise Exception if some mutation gone wrong has damaged Self"""
