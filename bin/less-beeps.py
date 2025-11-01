@@ -399,6 +399,9 @@ class TerminalStudio:
         # todo4: write the loop back at the left of the Key Caps, not beyond the end of them
         # todo4: stop disturbing the ⎋7 Alt Cursor
 
+        # todo4: bind Delete differently while Inserting
+        # todo4: dream up ways to take text as text
+
     def trace_key_mixes(self) -> None:
 
         kr = self.keyboard_reader
@@ -518,11 +521,11 @@ class TerminalStudio:
         #
 
         swrite_by_kcaps = {
-            "⌃G": "\a",
-            "⌃H": "\b",
-            # "⌃I": "\t",  # yes, but unneeded here
-            "⌃J": "\n",
-            "⌃K": "\x0b",
+            "⌃G": "\a",  # Bell
+            "⌃H": "\b",  # Backspace
+            # "⌃I": "\t",  # Tab  # yes, but unneeded here
+            "⌃J": "\n",  # Line-Feed
+            "⌃K": "\x0b",  # Vertical-Tab
         }
 
         kcaps = kmix.kcaps
@@ -555,6 +558,18 @@ class TerminalStudio:
                 ok = True
 
         return ok
+
+        # todo4: take ⌃H ⌃J ⌃K ⌃L as arrows
+
+        # todo: take ⌃A ⌃S ⌃D ⌃F as second player arrows
+
+        # todo3: take ⌃S ⌃Q as --egg=xoff
+
+        # todo: offer classic ⌃C as --egg=sigint
+        # todo: offer classic ⌃Z as --egg=sigtstp
+        # todo: offer classic ⌃C as --egg=sigint
+
+        # todo: offer test of timeout=None timing out at ⌃D as --egg=eot
 
 
 @dataclasses.dataclass(order=True)  # , frozen=True)
@@ -1287,13 +1302,16 @@ class KeyMix:
 
         parts = list()
 
-        parts.append(kface if kface else "<>")
+        kface_part = kface if kface else "<>"
+        parts.append(kface_part)
 
-        if kcaps:
+        if kcaps and (kcaps != kface_part):  # not ⎋, not ␢
             parts.append(kcaps)
 
         kbytes = kpack.to_kbytes()
-        parts.append(str(kpack))
+        kbytes_part = r"b'\x20'" if (kbytes == b" ") else str(kbytes)  # ' ' Spacebar  # ␠  # ␣  # ␢
+        parts.append(kbytes_part)
+
         if kpack.text:
             if len(kbytes) > len(kpack.text):
                 parts.append(str(kbytes))
@@ -1347,8 +1365,9 @@ class KeyMix:
         kints = self.kints
 
         if kface:
-            if kface != "Spacebar":
-                assert kcaps, (kcaps, kface, kencode)
+            assert kcaps, (kcaps, kface, kencode)
+            if kface == kcaps:
+                assert kface in ("⎋", "␢"), (kface, kcaps, kencode)
 
         if kdecode:
             assert kdecode == kencode.decode(), (kdecode, kencode)
@@ -1471,9 +1490,6 @@ class KeyMix:
 
         kcaps = ""
         for kt in ktext:  # often 'len(ktext) == 1'
-            if kt == " ":
-                return ""
-
             kc = KeyMix._kt_to_kcap_(kt)
             kcaps += kc
 
@@ -1498,10 +1514,17 @@ class KeyMix:
 
         assert KeyMix.SHIFTED_KEYCAPS == '!"#$%&()*+' ":<>?" "@" "^_" "{|}~"
 
-        # Show more Key Caps than US-Ascii mentions
+        # Show the Key Cap of the Spacebar  # blank ' ' Space in macOS Keyboard Viewer
 
-        if kt in '!"#$%&()*+' ":<>?" "@" "^_" "{|}~":
+        if ko == 0x20:  # ' ' Spacebar  # ␠  # ␣  # ␢
+            kc = "␢"
+
+        # Show the Key Caps of shifted US-Ascii Punctuation
+
+        elif kt in '!"#$%&()*+' ":<>?" "@" "^_" "{|}~":
             kc = "⇧" + kt
+
+        # Show more Key Caps than US-Ascii mentions
 
         elif (kt != "`") and (kt in option_ktext_by_kt.keys()):  # Mac US Option Accents
             kcaps_list = option_ktext_by_kt[kt].split()
@@ -1524,7 +1547,7 @@ class KeyMix:
 
                 # '⌃^' speaks of (ko == 0x1E == (0x5E ^ 0x40))
 
-            # '^ 0x40' speaks of ⌃@ but not ⌃⇧@ and not ⌃⇧2 and not ⌃Spacebar at b"\x00"
+            # '^ 0x40' speaks of ⌃@ but not ⌃⇧@ and not ⌃⇧2 and not ⌃␢ at b"\x00"
             # '^ 0x40' speaks of ⌃M but not Return ⏎ at b"\x0D"
             # '^ 0x40' speaks of ⌃[ ⌃\ ⌃] ⌃_ but not ⎋ and not ⌃⇧_ and not ⌃⇧{ ⌃⇧| ⌃⇧} ⌃-
             # '^ 0x40' speaks of ⌃? but not Delete ⌫ at b"\x7F"
@@ -1543,7 +1566,7 @@ class KeyMix:
             kc = repr(bytes([ko]))  # b'\x80'
         elif ko == 0xA0:  # 'No-Break Space'
             assert ((0xA0 & 0x7F) ^ 0x40) == 0x60 == ord("`")
-            kc = "⌃`"  # macOS ⌥Spacebar
+            kc = "⌃`"  # macOS ⌥␢
         elif ko == 0xAD:  # 'Soft Hyphen'  # near to a C1 Control Byte
             kc = repr(bytes([ko]))  # b'\xad'
 
@@ -1771,12 +1794,18 @@ class KeyMix:
         # 'A'  # '⌃L'  # '⇧Z'  # '⎋⇧⇥'  # '⎋⏎'  # '⎋1'
 
     KFACE_BY_KTEXT = {  # r"←|↑|→|↓" and so on  # ⌃ ⌥ ⇧ ⌃⌥ ⌃⇧ ⌥⇧ ⌃⌥⇧ and so on
-        "\x00": "⌃Spacebar",  # ⌃@  # ⌃⇧2
-        # "\x03": "Interrupt",  # ⌃C also found at Fn⏎ in iTerm2 Apple
-        # "\x08": "Backspace",  # ⌃H also found at ⌃⇧⌫ and ⌃⌥⇧⌫ in iTerm2 Apple
-        "\x09": "⇥",  # '\t' ⇥
-        "\x0d": "⏎",  # '\r' ⏎
-        "\033": "⎋",  # Esc  # Meta  # includes ⎋Spacebar ⎋⇥ ⎋⏎ ⎋⌫ without ⌥
+        "\x00": "⌃␢",  # ␀ ⌃@  # ⌃⇧2 (NUL)
+        # "\x03": "Interrupt",  # ␃ ⌃C SigInt also found at Fn⏎ in iTerm2 Apple (ETX)
+        # "\x04": "End-of-Transmission",  # ␄ ⌃D (EOT)
+        # "\x08": "Backspace",  # ␈ ⌃H also found at ⌃⇧⌫ and ⌃⌥⇧⌫ in iTerm2 Apple (BS)
+        "\x09": "⇥",  # ⇥ ␉ ⌃I '\t' Horizontal Character-Tabulation (HT)
+        # "\x0a": "",  # ␊ ⌃J '\n' Line-Feed (LF)  # not ␤
+        # "\x0b": "",  # ␋ ⌃K Vertical-Tabulation (VT)
+        "\x0d": "⏎",  # ⏎ ⌃M '\r' Carriage-Return (CR)
+        # "\x1a": "Substitute",  # ␄ ⌃Z SigTStp (SUB)
+        # "\x1c": "Information-Separator-Four",  # ⌃\ SigQuit (FS of FS GS RS US)
+        # "\x20": "␢",  # ' ' Spacebar  # ␠  # ␣  # ␢
+        "\033": "⎋",  # Esc  # Meta  # includes ⎋␢ ⎋⇥ ⎋⏎ ⎋⌫ without ⌥ (ESC)
         "\033" "\x01": "⌥⇧Fn←",  # ⎋⇧Fn←   # coded with ⌃A
         "\033" "\x03": "⎋Fn⏎",  # coded with ⌃C  # not ⌥Fn⏎
         "\033" "\x04": "⌥⇧Fn→",  # ⎋⇧Fn→   # coded with ⌃D
@@ -1970,10 +1999,10 @@ class KeyMix:
         "\033[" "Z": "⇧⇥",  # ⇤  # Csi 05/10 Cursor Backward Tabulation (CBT)
         "\033" "b": "⌥←",  # ⎋B  # ⎋←  # Emacs M-b Backword-Word  # Apple
         "\033" "f": "⌥→",  # ⎋F  # ⎋→  # Emacs M-f Forward-Word  # Apple
-        "\x20": "Spacebar",  # ' '  # ␠  # ␣  # ␢
+        "\x20": "␢",  # ' ' Spacebar  # ␠  # ␣ Open-Box  # ␢ Blank-Symbol
         # "``": "⌥` `",  # without the "``" Key Text here, because it comes as 2 Key Faces
-        "\x7f": "⌫",  # ␡  # ⌫  # ⌦  # Delete
-        "\xa0": "⌥Spacebar",  # '\N{No-Break Space}'
+        "\x7f": "⌫",  # ␡ ⌃⇧?  # ⌫  # ⌦  # Delete
+        "\xa0": "⌥␢",  # '\N{No-Break Space}'
     }
 
     assert list(KFACE_BY_KTEXT.keys()) == sorted(KFACE_BY_KTEXT.keys())
@@ -2691,7 +2720,7 @@ class KeyPack:
                 neck.extend(encode)
                 return b""
 
-        if 0x20 <= code < 0x30:  # 16 Intermediate Codes  # Spacebar !"#$%&\'()*+,-./
+        if 0x20 <= code < 0x30:  # 16 Intermediate Codes  # ␢!"#$%&\'()*+,-./
             back.extend(encode)
             return b""
 
