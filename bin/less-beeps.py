@@ -543,21 +543,24 @@ class TerminalStudio:
 
         sw = self.screen_writer
 
-        swrite_by_kf = {
+        arrows = "".join(_ for _ in "←↑→↓" if _ in kface)
+        if not arrows:
+            return False
+
+        assert len(arrows) == 1, (arrows, kface)
+        arrow = arrows[-1]
+
+        swrite_by_arrow = {
             "↑": "\033[A",
             "↓": "\033[B",
             "→": "\033[C",
             "←": "\033[D",
         }
 
-        ok = False
-        for kf in ("←", "↑", "→", "↓"):
-            if kf in kface:
-                swrite = swrite_by_kf[kf]
-                sw.swrite(swrite)
-                ok = True
+        swrite = swrite_by_arrow[arrow]
+        sw.swrite(swrite)
 
-        return ok
+        return True
 
         # todo4: take ⌃H ⌃J ⌃K ⌃L as arrows
 
