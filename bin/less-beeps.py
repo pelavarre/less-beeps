@@ -346,12 +346,13 @@ class TerminalStudio:
 
                     kbytes = kpack.to_kbytes()
                     if kpack.closed:
-                        kdecode = kbytes.decode()
+                        if not kbytes.startswith(b"\033[M"):
+                            kdecode = kbytes.decode()
 
-                        # sw.swrite(repr(kdecode))
-                        sw.swrite(kdecode)
+                            # sw.swrite(repr(kdecode))
+                            sw.swrite(kdecode)
 
-                        kmindex = -1
+                            kmindex = -1
 
             kmix = kr.read_one_key_mix()
 
@@ -370,6 +371,12 @@ class TerminalStudio:
                     sw.sprint("", kmix.kface, end=" ")
                 elif kmix.kcaps:
                     sw.sprint(kmix.kcaps, end="")
+                    # kdecode = kmix.kdecode
+                    # if len(kdecode) == 1:
+                    #     kord = ord(kdecode)
+                    #     if (0 <= kord <= 0x1F) or (kord == 0x7F):
+                    #         if kdecode != "\033":
+                    #             sw.swrite(kdecode)
                 else:
                     sw.sprint("", kmix.kencode, end=" ")
 
@@ -457,9 +464,6 @@ class TerminalStudio:
 
         sw.sprint("bye")
 
-        # todo3: revive the App to loop Keyboard to Screen
-        # todo3: ⌃Q and ⌃V quote till first KeyboardReader .kbytearray gone
-
         # todo2: revive the Apps at 'git checkout main' App's
 
     #
@@ -501,7 +505,9 @@ class TerminalStudio:
         #
 
         swrite_by_kcaps = {
+            "⌃G": "\a",
             "⌃H": "\b",
+            # "⌃I": "\t",  # yes, but unneeded here
             "⌃J": "\n",
             "⌃K": "\x0b",
         }
@@ -787,7 +793,7 @@ class KeyboardReader:
                     kpack = KeyPack(b"")
                     continue
 
-            # todo3: question/answer ⎋[⇧R ⎋[T on top of ⎋[5N to do ⌥ Release Bursts
+            # todo3: question/answer ⎋[⇧R ⎋[T on top of ⎋[5N to do ⌥ Click Release Bursts
 
         # Take the last of the Bytes arriving all at once as a Key Pack
 
@@ -2286,6 +2292,7 @@ class KeyPack:
 
         KeyPack._try_open_(b"\033[", b"6", b" ")  # Csi Head with Neck and Back but no Tail
 
+        KeyPack._try_close_(b"\033[", b"1", b"M")  # Csi Tail ⇧M that isn't ⎋[⇧M Head
         KeyPack._try_close_(b"\033\033[", b"3;5", b"~")  # Esc Csi Head with Neck and Tail, no Back
         KeyPack._try_close_(b"\033[", b"3;5", b"H")  # Csi Head with Neck and Tail, no Back
         KeyPack._try_close_(b"\033[", b"6", b" q")  # Csi Head with Neck and Back & Tail
@@ -2394,10 +2401,10 @@ class KeyPack:
 
         assert len(kbyte) == 1, (kbyte,)
 
-        closed = self.closed
-        stash = self.stash
         text = self.text
         head = self.head
+        stash = self.stash
+        closed = self.closed
 
         headbook = (b"\033", b"\033O", b"\033[", b"\033]")  # ⎋ ⎋⇧O ⎋[ ⎋]
         assert headbook == KeyPack.Headbook
@@ -2423,6 +2430,19 @@ class KeyPack:
 
                         # todo: accepts unbounded 0..N Esc Bytes as next guess of Head
 
+        # Proceed
+
+        extra = self._take_after_headbook_(kbyte)
+        return extra
+
+    def _take_after_headbook_(self, kbyte: bytes) -> bytes:
+        """Take in next 1 Byte and return 0 Bytes, else return 1..4 Bytes that don't fit"""
+
+        head = self.head
+        neck = self.neck
+        back = self.back
+        stash = self.stash
+
         # Hold 1..3 Decodable Bytes
 
         encode = bytes(stash + kbyte)
@@ -2446,8 +2466,9 @@ class KeyPack:
 
         head_plus = head + encode
         if head_plus == b"\033[M":
-            head.extend(encode)  # chooses b"\033[M" as Head
-            return b""
+            if (not neck) and (not back):
+                head.extend(encode)  # chooses b"\033[M" as Head
+                return b""
 
         if head.startswith(b"\033[M"):  # ⎋[⇧M
             extra = self._take_after_csi_shift_em_if_(encode, decode=decode)

@@ -1,4 +1,6 @@
-# Four Easter-Eggs | Less-Beeps
+# Easter-Eggs | Less-Beeps
+
+## Easter Eggs hidden in our Code
 
 1 ) There may be more than nine games, or less than one
 
