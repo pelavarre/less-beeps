@@ -472,11 +472,11 @@ class TerminalStudio:
         #
 
         swrite_by_kface = {
-            # "Delete": "\b" "\033[P",  # todo3: overwrite/ insert mode
-            "Delete": "\b",
-            "Return": "\r",
-            "Tab": "\t",
-            "⇧Tab": "\033[Z",
+            # "⌫": "\b" "\033[P",  # todo3: overwrite/ insert mode
+            "⌫": "\b",  # Delete
+            "⏎": "\r",  # Return
+            "⇥": "\t",  # Tab
+            "⇧⇥": "\033[Z",  # ⇧Tab
         }
 
         kface = kmix.kface
@@ -1191,7 +1191,7 @@ def excepthook(  # ) -> ...:
 class KeyMix:
     """Bundle one Tap or Click or Keyboard Input"""
 
-    kface: str  # 'Return'  # '<>'
+    kface: str  # '⏎'  # '<>'
     kcaps: str  # '⌃M'  # '⌃[[A'
     kpack: KeyPack  # .head .neck .back .stash .tail
     kencode: bytes  # .kpack.to_kbytes()
@@ -1293,7 +1293,7 @@ class KeyMix:
 
         return join
 
-        # ⇧Tab ⌃[[⇧Z b'\x1b[' b'Z' []
+        # ⇧⇥ ⌃[[⇧Z b'\x1b[' b'Z' []
         # ↑ ⌃[[⇧A b'\x1b[' b'A' []
         # ⎋F1 ⌃[⌃[⇧O⇧P b'\x1b\x1bO' b'P'
         # ⇧→ ⌃[[1;2⇧C b'\x1b[' b'1;2' b'C' [1, 2]
@@ -1480,16 +1480,20 @@ class KeyMix:
 
         # Show the Key Caps of US-Ascii, plus the ⌃ ⇧ Control/ Shift Key Caps
 
-        elif (ko < 0x20) or (ko == 0x7F):  # C0 Control Bytes, or \x7F Delete (DEL)
-            if ko == 0x1F:  # Apple ⌃- doesn't come through as  (0x2D ^ 0x40)
+        elif (ko < 0x20) or (ko == 0x7F):  # C0 Control Bytes, or \x7F Delete (DEL) ⌫
+            if ko == 0x1B:
+                kc = "⎋"  # could be ⌃[
+            elif ko == 0x1F:  # Apple ⌃- doesn't come through as  (0x2D ^ 0x40)
                 kc = "⌃-"  # Apple ⌃-  and ⌃⇧_ do come through as (0x5F ^ 0x40)
             else:
                 kc = "⌃" + chr(ko ^ 0x40)  # '^ 0x40' mixes ⌃ into one of @ A..Z [\]^_ ?, such as ⌃^
 
+                # '⌃^' speaks of (ko == 0x1E == (0x5E ^ 0x40))
+
             # '^ 0x40' speaks of ⌃@ but not ⌃⇧@ and not ⌃⇧2 and not ⌃Spacebar at b"\x00"
-            # '^ 0x40' speaks of ⌃M but not Return at b"\x0D"
+            # '^ 0x40' speaks of ⌃M but not Return ⏎ at b"\x0D"
             # '^ 0x40' speaks of ⌃[ ⌃\ ⌃] ⌃_ but not ⎋ and not ⌃⇧_ and not ⌃⇧{ ⌃⇧| ⌃⇧} ⌃-
-            # '^ 0x40' speaks of ⌃? but not Delete at b"\x7F"
+            # '^ 0x40' speaks of ⌃? but not Delete ⌫ at b"\x7F"
 
             # ⌃` ⌃2 ⌃6 ⌃⇧~ don't work
 
@@ -1650,7 +1654,7 @@ class KeyMix:
     # Define Key Cap Names with no " " Space's in them, for many multibyte Control Byte Sequences
     #
 
-    KCAP_SEP = " "  # separates '⇧Tab' from '⇧T a b', '⎋⇧FnX' from '⎋⇧Fn X', etc
+    KCAP_SEP = " "  # separates '⎋⇧FnX' from '⎋⇧Fn X', etc
 
     @staticmethod
     def to_kface_if(kbytes: bytes) -> str:
@@ -1696,7 +1700,7 @@ class KeyMix:
                 assert " " not in kface, (kface, kbytes)
                 return kface
 
-                # ⎋⇧Tab, like from Apple Keyboard > Option as Meta Key
+                # ⎋⇧⇥, like from Apple Keyboard > Option as Meta Key
 
         # Choose ⎋ followed by 1 of our tabulated Key Faces, when not encoded as ⎋...
 
@@ -1712,7 +1716,7 @@ class KeyMix:
             assert " " not in kface, (kface, kbytes)
             return kface
 
-            # ⎋Tab, ⎋Return, ⎋Delete, like from Apple Keyboard > Option as Meta Key
+            # ⎋⇥, ⎋⏎, ⎋⌫, like from Apple Keyboard > Option as Meta Key
 
         # Choose ⎋ followed by 1 Text Character, like from Apple Keyboard > Option as Meta Key
 
@@ -1730,19 +1734,19 @@ class KeyMix:
 
         return ""
 
-        # 'A'  # '⌃L'  # '⇧Z'  # '⎋⇧Tab'  # '⎋Return'  # '⎋1'
+        # 'A'  # '⌃L'  # '⇧Z'  # '⎋⇧⇥'  # '⎋⏎'  # '⎋1'
 
     KFACE_BY_KTEXT = {  # r"←|↑|→|↓" and so on  # ⌃ ⌥ ⇧ ⌃⌥ ⌃⇧ ⌥⇧ ⌃⌥⇧ and so on
         "\x00": "⌃Spacebar",  # ⌃@  # ⌃⇧2
-        # "\x03": "Interrupt",  # ⌃C also found at FnReturn in iTerm2 Apple
-        # "\x08": "Backspace",  # ⌃H also found at ⌃⇧Delete and ⌃⌥⇧Delete in iTerm2 Apple
-        "\x09": "Tab",  # '\t' ⇥
-        "\x0d": "Return",  # '\r' ⏎
-        "\033": "⎋",  # Esc  # Meta  # includes ⎋Spacebar ⎋Tab ⎋Return ⎋Delete without ⌥
+        # "\x03": "Interrupt",  # ⌃C also found at Fn⏎ in iTerm2 Apple
+        # "\x08": "Backspace",  # ⌃H also found at ⌃⇧⌫ and ⌃⌥⇧⌫ in iTerm2 Apple
+        "\x09": "⇥",  # '\t' ⇥
+        "\x0d": "⏎",  # '\r' ⏎
+        "\033": "⎋",  # Esc  # Meta  # includes ⎋Spacebar ⎋⇥ ⎋⏎ ⎋⌫ without ⌥
         "\033" "\x01": "⌥⇧Fn←",  # ⎋⇧Fn←   # coded with ⌃A
-        "\033" "\x03": "⎋FnReturn",  # coded with ⌃C  # not ⌥FnReturn
+        "\033" "\x03": "⎋Fn⏎",  # coded with ⌃C  # not ⌥Fn⏎
         "\033" "\x04": "⌥⇧Fn→",  # ⎋⇧Fn→   # coded with ⌃D
-        "\033" "\x08": "⎋⌃Delete",  # ⎋⌃Delete  # coded with ⌃H  # aka \b
+        "\033" "\x08": "⎋⌃⌫",  # ⎋⌃⌫  # coded with ⌃H  # aka \b
         "\033" "\x0b": "⌥⇧Fn↑",  # ⎋⇧Fn↑   # coded with ⌃K
         "\033" "\x0c": "⌥⇧Fn↓",  # ⎋⇧Fn↓  # coded with ⌃L  # aka \f
         "\033" "\x10": "⎋⇧Fn",  # ⎋ Meta ⇧ Shift of FnF1..FnF12  # not ⌥⇧Fn  # coded with ⌃P
@@ -1751,13 +1755,13 @@ class KeyMix:
         "\033" "\033O" "B": "⌃⌥↓",  # Esc Ss3 ⇧B  # Google
         "\033" "\033O" "C": "⌃⌥→",  # Esc Ss3 ⇧C  # Google
         "\033" "\033O" "D": "⌃⌥←",  # Esc Ss3 ⇧D  # Google
-        "\033" "\033[" "3;5~": "⌥⌃FnDelete",  # ⎋⌃FnDelete  # Apple
+        "\033" "\033[" "3;5~": "⌥⌃Fn⌫",  # ⎋⌃Fn⌫  # Apple
         "\033" "\033[" "A": "⌥↑",  # Csi 04/01 Cursor Up (CUU)  # Option-as-Meta  # Google
         "\033" "\033[" "B": "⌥↓",  # Csi 04/02 Cursor Down (CUD)  # Option-as-Meta  # Google
         "\033" "\033[" "C": "⌥→",  # Csi 04/03 Cursor [Forward] Right (CUF_X)  # Google
         "\033" "\033[" "D": "⌥←",  # Csi 04/04 Cursor [Back] Left (CUB_X)  # Google
-        "\033" "\033[" "Z": "⎋⇧Tab",  # ⇤  # Csi 05/10 CBT  # not ⌥⇧Tab
-        "\033" "\x28": "⎋FnDelete",  # not ⌥FnDelete
+        "\033" "\033[" "Z": "⎋⇧⇥",  # ⇤  # Csi 05/10 CBT  # not ⌥⇧⇥
+        "\033" "\x28": "⎋Fn⌫",  # not ⌥Fn⌫
         #
         "\033O" "P": "F1",  # Ss3 ⇧P  # but Apple takes ⇧F1 ⇧F2 ⇧F3 ⇧F4 from Terminal
         "\033O" "Q": "F2",  # Ss3 ⇧Q
@@ -1904,14 +1908,14 @@ class KeyMix:
         "\033[" "32~": "⇧F10",
         "\033[" "33~": "⇧F11",
         "\033[" "34~": "⇧F12",
-        "\033[" "3;2~": "⇧FnDelete",
-        "\033[" "3;3~": "⌥FnDelete",  # iTerm2 Apple
-        "\033[" "3;4~": "⌥⇧FnDelete",  # iTerm2 Apple
-        "\033[" "3;5~": "⌃FnDelete",  # Apple
-        "\033[" "3;6~": "⌃⇧FnDelete",  # iTerm2 Apple
-        "\033[" "3;7~": "⌃⌥Delete",  # iTerm2 Apple
-        "\033[" "3;8~": "⌃⌥⇧FnDelete",  # iTerm2 Apple
-        "\033[" "3~": "FnDelete",
+        "\033[" "3;2~": "⇧Fn⌫",
+        "\033[" "3;3~": "⌥Fn⌫",  # iTerm2 Apple
+        "\033[" "3;4~": "⌥⇧Fn⌫",  # iTerm2 Apple
+        "\033[" "3;5~": "⌃Fn⌫",  # Apple
+        "\033[" "3;6~": "⌃⇧Fn⌫",  # iTerm2 Apple
+        "\033[" "3;7~": "⌃⌥⌫",  # iTerm2 Apple
+        "\033[" "3;8~": "⌃⌥⇧Fn⌫",  # iTerm2 Apple
+        "\033[" "3~": "Fn⌫",
         #
         "\033[" "5;3~": "⌥Fn↑",  # iTerm2 Apple
         "\033[" "5;4~": "⌥⇧Fn↑",  # iTerm2 Apple
@@ -1929,12 +1933,12 @@ class KeyMix:
         "\033[" "D": "←",  # Csi 04/04 Cursor [Back] Left (CUB)  # also ⌥← Apple
         "\033[" "F": "⇧Fn→",  # Apple  # Csi 04/06 Cursor Preceding Line (CPL)
         "\033[" "H": "⇧Fn←",  # Apple  # Csi 04/08 Cursor Position (CUP)
-        "\033[" "Z": "⇧Tab",  # ⇤  # Csi 05/10 Cursor Backward Tabulation (CBT)
+        "\033[" "Z": "⇧⇥",  # ⇤  # Csi 05/10 Cursor Backward Tabulation (CBT)
         "\033" "b": "⌥←",  # ⎋B  # ⎋←  # Emacs M-b Backword-Word  # Apple
         "\033" "f": "⌥→",  # ⎋F  # ⎋→  # Emacs M-f Forward-Word  # Apple
         "\x20": "Spacebar",  # ' '  # ␠  # ␣  # ␢
         # "``": "⌥` `",  # without the "``" Key Text here, because it comes as 2 Key Faces
-        "\x7f": "Delete",  # ␡  # ⌫  # ⌦
+        "\x7f": "⌫",  # ␡  # ⌫  # ⌦  # Delete
         "\xa0": "⌥Spacebar",  # '\N{No-Break Space}'
     }
 
