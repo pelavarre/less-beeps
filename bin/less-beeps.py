@@ -337,7 +337,7 @@ class TerminalStudio:
                     kbytearray.extend(kbytes)
 
                 kpack = KeyPack(b"")
-                for (index, kord) in enumerate(kbytearray):
+                for index, kord in enumerate(kbytearray):
                     rindex = index - len(kbytearray)
 
                     kbyte = bytes([kord])
@@ -490,7 +490,7 @@ class TerminalStudio:
         swrite_by_kcaps = {
             "⌃H": "\b",
             "⌃J": "\n",
-            "⌃K": "\x0B",
+            "⌃K": "\x0b",
         }
 
         kcaps = kmix.kcaps
@@ -1277,10 +1277,8 @@ class KeyMix:
             for kq, ka in kqa_tuple:
                 for k in (kq, ka):
                     k_bytes = k.encode()
-                    k_caps = KeyMix.to_kcaps_if(k_bytes)
-                    assert k_caps.startswith("⌃["), (k_caps, k_bytes)
-                    k_face = "⎋" + k_caps.removeprefix("⌃[")  # '⎋[0N'
-                    kqa_texts.append(k_face)
+                    k_caps = KeyMix.to_kcaps_if(k_bytes)  # '⎋[5N'  # '⎋[0N'
+                    kqa_texts.append(k_caps)
 
             part = " ".join(kqa_texts)  # '⎋[5N ⎋[0N'
 
