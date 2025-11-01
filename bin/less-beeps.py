@@ -543,12 +543,24 @@ class TerminalStudio:
 
         sw = self.screen_writer
 
-        arrows = "".join(_ for _ in "←↑→↓" if _ in kface)
+        # Take ⌃H ⌃J ⌃K ⌃L as Arrows from the First Player
+
+        arrows_by_kface = {"⌃H": "←", "⌃J": "↓", "⌃K": "↑", "⌃L": "→"}
+
+        alt_kface = kface
+        if kface in arrows_by_kface.keys():
+            alt_kface = arrows_by_kface[kface]
+
+        # Take Arrows as Arrows, no matter if shifted by ⎋ ⌃ ⌥ ⇧ ⌘ Fn
+
+        arrows = "".join(_ for _ in "←↑→↓" if _ in alt_kface)
         if not arrows:
             return False
 
-        assert len(arrows) == 1, (arrows, kface)
+        assert len(arrows) == 1, (arrows, alt_kface, kface)
         arrow = arrows[-1]
+
+        # Move as told
 
         swrite_by_arrow = {
             "↑": "\033[A",
@@ -561,8 +573,6 @@ class TerminalStudio:
         sw.swrite(swrite)
 
         return True
-
-        # todo4: take ⌃H ⌃J ⌃K ⌃L as arrows
 
         # todo: take ⌃A ⌃S ⌃D ⌃F as second player arrows
 
