@@ -8,6 +8,8 @@
 
 4 ) You can press any of of the classic ⌃C ⌃D ⌃Z ⌃\ to quit, you don't have to choose
 
+5 ) You can press ⌃Q to close ⌃V ⌃V, you can press ⌃V to close ⌃Q ⌃Q
+
 ## Links
 
 + [GitHub Repository](https://github.com/pelavarre/less-beeps/blob/main/easter-eggs.md)

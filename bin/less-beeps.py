@@ -21,7 +21,7 @@ notes:
   distributed alongside an Easter-Eggs .md file
 
 examples:
-  ./bin/less-beeps.py --
+  ./bin/less-beeps.py --yolo
   bin/@ Fn F1
 """
 
@@ -428,6 +428,8 @@ class TerminalStudio:
                 sw.swrite("\n")
 
                 if kmix.kcaps == kcaps:
+                    break
+                if kmix.kcaps in ("⌃Q", "⌃V"):  # despite '!= kcaps'
                     break
 
                 if kmix.kcaps in ("⌃C", "⌃D", "⌃Z", "⌃\\"):
