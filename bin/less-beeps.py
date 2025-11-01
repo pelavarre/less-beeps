@@ -345,14 +345,23 @@ class TerminalStudio:
                         break
 
                     kbytes = kpack.to_kbytes()
+                    neck_ = bytes(kpack.neck)
+                    tail_ = bytes(kpack.tail)
+
                     if kpack.closed:
-                        if not kbytes.startswith(b"\033[M"):
+
+                        if kbytes.startswith(b"\033[M"):
+                            pass  # sw.swrite("⎋[⇧M{cb}{cx}{cy} Click")  # Release or Press
+                        elif neck_.startswith(b"<") and (tail_ in (b"m", b"M")):
+                            pass  # sw.swrite("⎋[<{f};{x};{y}m Click")  # Release or Press
+                        else:
+
                             kdecode = kbytes.decode()
 
                             # sw.swrite(repr(kdecode))
                             sw.swrite(kdecode)
 
-                            kmindex = -1
+                        kmindex = -1
 
             kmix = kr.read_one_key_mix()
 
@@ -384,7 +393,11 @@ class TerminalStudio:
                 sw.sprint("")
                 sys.exit()
 
+        # todo1: celebrate how our ⇥ and ⇧⇥ do speed up and snap-to-grid the → and ←
         # todo1: livelocks less wild in Keyboard/ Screen loopback
+
+        # todo4: write the loop back at the left of the Key Caps, not beyond the end of them
+        # todo4: stop disturbing the ⎋7 Alt Cursor
 
     def trace_key_mixes(self) -> None:
 
@@ -793,7 +806,9 @@ class KeyboardReader:
                     kpack = KeyPack(b"")
                     continue
 
-            # todo3: question/answer ⎋[⇧R ⎋[T on top of ⎋[5N to do ⌥ Click Release Bursts
+            # todo4: do the ⌥ Click Release Bursts as ⎋[<{f};{x};{y}m Releases, not looped back
+            # todo3: question/answer ⎋[⇧R on top of ⎋[5N how often?
+            # todo3: question/answer ⎋[T on top of ⎋[5N how often?
 
         # Take the last of the Bytes arriving all at once as a Key Pack
 
