@@ -1605,6 +1605,8 @@ class KeyMix:
                 kc = "⎋"  # could be ⌃[
             elif ko == 0x1E:  # Apple ⌃^ doesn't come through at all
                 kc = "⌃⇧^"  # Apple ⌃⇧^ does come through as (0x5E ^ 0x40)
+                if flags.google:
+                    kc = "⌃^"
             elif ko == 0x1F:  # Apple ⌃- doesn't come through as  (0x2D ^ 0x40)
                 kc = "⌃-"  # Apple ⌃-  and ⌃⇧_ do come through as (0x5F ^ 0x40)
             else:
