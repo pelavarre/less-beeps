@@ -620,17 +620,21 @@ class ScreenWriter:
 class KeyboardReader:
     """Mirror the Reads from a Terminal Keyboard"""
 
-    terminal_studio: TerminalStudio
-    screen_writer: ScreenWriter
+    terminal_studio: TerminalStudio  # where to read
+    screen_writer: ScreenWriter  # where to write
 
-    kmixes: list[KeyMix]
-    kmindex: int
+    kmixes: list[KeyMix]  # Key Mixes formed from Key Packs
+    kmindex: int  # count of Key Mixes returned
 
-    kpacks: list[KeyPack]
-    kpindex: int
+    kpacks: list[KeyPack]  # Key Packs formed from Key Bytes
+    kpindex: int  # count of Key Packs returned
 
-    kbytearray: bytearray
-    kbindex: int
+    kbytearray: bytearray  # Bytes fetched from Stdio
+    kbindex: int  # count of Bytes returned
+
+    open_queries: list[str]  # Queries written, not yet closed by Replies
+    high_wide: tuple[int, int]  # (-1, -1) and then (y_high, x_wide) from ⎋[18T
+    row_column: tuple[int, int]  # (-1, -1) and then (row_y, column_x) from ⎋[6N
 
     def __init__(self, terminal_studio: TerminalStudio, screen_writer: ScreenWriter) -> None:
 
@@ -645,6 +649,10 @@ class KeyboardReader:
 
         self.kbytearray = bytearray()
         self.kbindex = 0
+
+        self.open_queries = list()
+        self.high_wide = (-1, -1)
+        self.row_column = (-1, -1)
 
     def read_one_key_mix(self) -> KeyMix:
         """Read one Key Mix"""
@@ -838,8 +846,8 @@ class KeyboardReader:
                     continue
 
             # todo4: do the ⌥ Click Release Bursts as ⎋[<{f};{x};{y}m Releases, not looped back
-            # todo3: question/answer ⎋[⇧R on top of ⎋[5N how often?
-            # todo3: question/answer ⎋[T on top of ⎋[5N how often?
+            # todo3: Query/Reply ⎋[⇧R on top of ⎋[5N how often?
+            # todo3: Query/Reply ⎋[T on top of ⎋[5N how often?
 
         # Take the last of the Bytes arriving all at once as a Key Pack
 
@@ -859,6 +867,7 @@ class KeyboardReader:
         sw = self.screen_writer
         kbytearray = self.kbytearray
         kbindex = self.kbindex
+        open_queries = self.open_queries
 
         encode_start_set = EncodeStartSet
 
@@ -871,26 +880,21 @@ class KeyboardReader:
         kbyte = ts.read_one_kbyte_if(timeout=timeout)  # fetches one or zero Key Bytes
         kbytearray.extend(kbyte)
 
-        question_index = len(kbytearray)
+        query_index = len(kbytearray)
 
         # Plan to fetch Key Packs till next ⎋[0N, if the Key Packs might be multibyte or multiple
 
-        question = answer = ""
         if kbyte in encode_start_set:
-            question = "\033[5n"
-            answer = "\033[0n"
+            query = "\033[5n"
+            sw.swrite(query)
+            open_queries.append(query)
 
-        questions = list()
-        if question:
-            sw.swrite(question)
-            questions.append(question)
+        # Fetch Key Packs till next Reply, if Query asked
 
-        # Fetch Key Packs till next Answer, if Question asked
+        queries: list[str] = list()
+        replies: list[str] = list()
 
-        open_questions = list(questions)
-        answers = list()
-
-        while open_questions:
+        while open_queries:
 
             # Fetch 1 Key Byte
 
@@ -900,23 +904,29 @@ class KeyboardReader:
             # Don't take ⎋[0N as End-of-Input when immediately after explicit ⎋[200~ Start-of-Paste
 
             if kbytearray[kbindex:] == b"\033[200~":
-                question_index = len(kbytearray) + 1
+                query_index = len(kbytearray) + 1
 
             # Do take ⎋[0N as End-of-Input when received after sending ⎋[5 to ask for it
 
-            answer_encode = answer.encode()
-            n = len(answer_encode)
+            query = "\033[5n"
 
-            assert answer_encode, answer_encode  # because truthy .open_questions
-            if kbytearray[question_index:].endswith(answer_encode):
+            reply = "\033[0n"
+            reply_encode = reply.encode()
+            n = len(reply_encode)
+
+            assert reply_encode, reply_encode  # because truthy .open_querys
+            if kbytearray[query_index:].endswith(reply_encode):
                 del kbytearray[-n:]
 
-                open_questions.remove(question)
-                answers.append(answer)
+                assert open_queries == [query], (open_queries, query)
+                open_queries.remove(query)
+
+                queries.append(query)
+                replies.append(reply)
 
         # Succeed
 
-        kqa_tuple = tuple(zip(questions, answers))  # maybe empty
+        kqa_tuple = tuple(zip(queries, replies))  # maybe empty
         return kqa_tuple
 
         # todo2: launch an app of many Keyboard Viewers:  plain, ⎋, ⌃, ⌥, ⇧, ⎋⌃, etc etc
@@ -1263,7 +1273,7 @@ class KeyMix:
     kdecode: str  # .decode of .encode, else Empty Str ""
     kintsmark: bytes  # neck-start + back + tail
     kints: list[int]  # via Csi Neck after Csi Next Start
-    kqa_tuple: tuple[tuple[str, str], ...]  # questions asked, answers given
+    kqa_tuple: tuple[tuple[str, str], ...]  # queries asked, replies given
 
     def __init__(self, kbytes: bytes, kqa_tuple: tuple[tuple[str, str], ...] = ()) -> None:
 
@@ -1337,7 +1347,7 @@ class KeyMix:
         elif kints:
             parts.append(str(kints))  # lets the .kpack show the .kintsmark
 
-        # Mark the end strongly with the Questions asked and their Answers
+        # Mark the end strongly with the Queries asked and the Replies given
 
         if kqa_tuple:
 
@@ -2869,17 +2879,6 @@ class KeyPack:
         self._require_simple_kpack_()
 
         return False
-
-
-@dataclasses.dataclass(order=True)  # , frozen=True)
-class KeyByte:
-    """Mirror one Os Read of one Byte, or zero Bytes, from a Terminal Keyboard"""
-
-    t0: int  # time of Call
-    kbytes: bytes  # empty at timeout, else 1 Byte
-    t1: int  # time of Return
-
-    # todo2: start testing Class KeyByte
 
 
 BEL = "\a"  # U+0007 Bell
