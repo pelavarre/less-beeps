@@ -1,28 +1,24 @@
 #!/usr/bin/env python3
 
 r"""
-usage: less-beeps.py [--help] [-y Y] [-x X] [-h H] [-w W] [-f] [CHORD ...]
+usage: less-beeps.py [-h] [-y] [-f] [--egg EGG]
 
-give away nine classic simple terminal games for you to fork
-
-positional arguments:
-  CHORD        taken as if pressed, such as 'F2' or 'Esc' or '^'
+give away nine classic simple terminal games for you to fork now
 
 options:
-  --help       show this help message and exit
-  -y Y         don't write above Row Y
-  -x X         don't write left of Column X
-  -h H         don't write more than H Rows
-  -w W         don't write more than W Columns
-  -f, --force  ask fewer questions
+  -h, --help   show this help message and exit
+  -y, --yolo   do what's popular now (can also be spelled as '--')
+  -f, --force  ask fewer questions (launches slowly enough to complete self-test's)
+  --egg EGG    toss in an Easter Egg, such as 'sigint' and 'native'
 
 notes:
-  distributed as a single .py file, now that a million words isn't many
-  distributed alongside an Easter-Eggs .md file
+  travels as a single .py file, now that a million words isn't many words
+  travels with an Easter-Eggs .md file
 
 examples:
+  bin/@
   ./bin/less-beeps.py --yolo
-  bin/@ Fn F1
+  ./bin/less-beeps.py --egg=native --egg=sigint
 """
 
 # code reviewed by People, Black, Flake8, Mypy-Strict, & Pylance-Standard
@@ -76,12 +72,13 @@ class Flags:
     portrait: bool = False  # flags.portrait, for when lots more high than wide
     barefoot: bool = False  # flags.barefoot, for when no rows beneath a Southern Keyboard
 
-    keyboard_interrupt_repl: bool = False  # flags.keyboard_interrupt_repl
+    native: bool | None = None  # flags.native, for don't make this Terminal feel friendlier
+    sigint: bool | None = None  # flags.sigint, for ⌃C to work
+    # sigtstp: bool | None = None  # flags.sigtstp, for ⌃Z to work  # todo2:
+    # sigquit: bool | None = None  # flags.sigquit, for ⌃\ to work  # todo2:
 
 
 flags = Flags()
-
-# flags.keyboard_interrupt_repl = True
 
 
 #
@@ -108,47 +105,54 @@ def arg_doc_to_parser(doc: str) -> ArgDocParser:
 
     assert argparse.ZERO_OR_MORE == "*"
 
-    parser = ArgDocParser(doc, add_help=False)
+    parser = ArgDocParser(doc, add_help=True)
 
-    chord_help = "taken as if pressed, such as 'F2' or 'Esc' or '^'"
-    parser.add_argument("chords", metavar="CHORD", nargs="*", help=chord_help)
+    yolo_help = "do what's popular now (can also be spelled as '--')"
+    force_help = "ask fewer questions (launches slowly enough to complete self-test's)"
+    egg_help = "toss in an Easter Egg, such as 'sigint' and 'native'"
 
-    help_help = "show this help message and exit"
-    y_help = "don't write above Row Y"
-    x_help = "don't write left of Column X"
-    h_help = "don't write more than H Rows"
-    w_help = "don't write more than W Columns"
-    force_help = "ask fewer questions"
-
-    parser.add_argument("--help", action="help", help=help_help)
-    parser.add_argument("-y", metavar="Y", help=y_help)
-    parser.add_argument("-x", metavar="X", help=x_help)
-    parser.add_argument("-h", metavar="H", help=h_help)
-    parser.add_argument("-w", metavar="W", help=w_help)
+    parser.add_argument("-y", "--yolo", action="count", help=yolo_help)
     parser.add_argument("-f", "--force", action="count", help=force_help)
+    parser.add_argument("--egg", dest="eggs", metavar="EGG", action="append", help=egg_help)
 
     return parser
 
 
-def shell_args_take_in(args: list[str], parser: ArgDocParser) -> argparse.Namespace:
+def shell_args_take_in(args: list[str], parser: ArgDocParser) -> None:
     """Take in the Shell Command-Line Args"""
 
-    ns = parser.parse_args_if(args)
+    arg_doc_parser = parser  # marks ArgDocParser != argparse.ArgumentParser
 
-    assert not ns.chords, (ns.chords, ns)
+    # Take in the Args without final judgment
 
-    assert not ns.y, (ns.y, ns)
-    assert not ns.x, (ns.x, ns)
-    assert not ns.h, (ns.h, ns)
-    assert not ns.w, (ns.w, ns)
+    ns = arg_doc_parser.parse_args_if(args)
+
+    ns_keys = list(vars(ns).keys())
+    assert ns_keys == ["yolo", "force", "eggs"], (ns_keys, ns, args)
+
+    # Fail now, else fall through
+
+    assert (ns.yolo is None) or (ns.yolo >= 1), (ns.yolo, ns, args)
 
     if ns.force:
         KeyPack._try_key_pack_()
 
-    ns_keys = list(vars(ns).keys())
-    assert ns_keys == ["chords", "y", "x", "h", "w", "force"], (ns_keys, ns)
+    eggs = ns.eggs or list()
+    for egg_text in eggs:
+        egg_texts = egg_text.split(",")
+        for egg in egg_texts:
 
-    return ns
+            if egg and "native".startswith(egg):
+                flags.native = True
+            elif egg and "sigint".startswith(egg):
+                flags.sigint = True
+            # elif egg and "sigquit".startswith(egg):
+            #     flags.sigquit = True
+            # elif egg and "sigtstp".startswith(egg):
+            #     flags.sigtstp = True
+            else:
+                arg_doc_parser.parser.print_usage()
+                sys.exit(2)  # exits 2 for bad Arg
 
 
 #
@@ -214,7 +218,7 @@ class TerminalStudio:
 
         # Stop line-buffering Input, stop replacing \n Output with \r\n, etc
 
-        if not flags.keyboard_interrupt_repl:
+        if not flags.sigint:
             tty.setraw(fileno, when=termios.TCSADRAIN)  # todo: .when defaults to .TCSAFLUSH
         else:
             tty.setcbreak(fileno, when=termios.TCSADRAIN)  # todo: .when defaults to .TCSAFLUSH
@@ -306,8 +310,20 @@ class TerminalStudio:
     def speak_first(self) -> None:
         """Launch quickly"""
 
+        kr = self.keyboard_reader
         sw = self.screen_writer
-        sw.sprint("⌃D to quit,  Fn F1 for more help,  or ⌥-Click far from the Cursor")
+
+        if not flags.native:
+            sw.sprint("⌃D to quit, Fn F1 for more help, or ⌥-Click far from the Cursor")
+        else:
+            if flags.sigint:
+                sw.sprint("⌃C to quit, and expect ⌃J to imply ⌃M")
+            else:
+                sw.sprint("Close your Terminal Window Pane to quit")
+                sw.sprint("Press Return to agree, press Spacebar to disagree")
+                kmix = kr.read_one_key_mix()
+                if kmix.kface != "⏎":  # such as "␢"
+                    sys.exit(1)
 
     def chat_awhile(self) -> None:
         r"""Loop and don't quit till one of ⌃C ⌃D ⌃Z ⌃\ """
@@ -328,42 +344,15 @@ class TerminalStudio:
         while True:
 
             if kmindex >= 0:
-
-                kbytearray = bytearray()
-                for kmi in range(kmindex, kr.kmindex):
-                    kmix = kr.kmixes[kmi]
-                    kpack = kmix.kpack
-                    kbytes = kpack.to_kbytes()
-                    kbytearray.extend(kbytes)
-
-                kpack = KeyPack(b"")
-                for index, kord in enumerate(kbytearray):
-
-                    kbyte = bytes([kord])
-                    extra = kpack.take_one_kbyte_if(kbyte)
-                    if extra:
-                        break
-
-                    kbytes = kpack.to_kbytes()
-                    neck_ = bytes(kpack.neck)
-                    tail_ = bytes(kpack.tail)
-
-                    if kpack.closed:
-
-                        if kbytes.startswith(b"\033[M"):
-                            pass  # sw.swrite("⎋[⇧M{cb}{cx}{cy} Click")  # Release or Press
-                        elif neck_.startswith(b"<") and (tail_ in (b"m", b"M")):
-                            pass  # sw.swrite("⎋[<{f};{x};{y}m Click")  # Release or Press
-                        else:
-
-                            kdecode = kbytes.decode()
-
-                            # sw.swrite(repr(kdecode))
-                            sw.swrite(kdecode)
-
-                        kmindex = -1
+                kmindex = self.loop_back_kmindex(kmindex)
 
             kmix = kr.read_one_key_mix()
+
+            if flags.native:
+                kdecode = kmix.kdecode
+                assert kdecode, (kdecode, kmix)
+                sw.swrite(kdecode)
+                continue
 
             if kmix.kcaps in ("⌃Q", "⌃V"):
                 break
@@ -380,12 +369,6 @@ class TerminalStudio:
                     sw.sprint("", kmix.kface, end=" ")
                 elif kmix.kcaps:
                     sw.sprint(kmix.kcaps, end="")
-                    # kdecode = kmix.kdecode
-                    # if len(kdecode) == 1:
-                    #     kord = ord(kdecode)
-                    #     if (0 <= kord <= 0x1F) or (kord == 0x7F):
-                    #         if kdecode != "\033":
-                    #             sw.swrite(kdecode)
                 else:
                     sw.sprint("", kmix.kencode, end=" ")
 
@@ -401,6 +384,47 @@ class TerminalStudio:
 
         # todo4: bind Delete differently while Inserting
         # todo4: dream up ways to take text as text
+
+    def loop_back_kmindex(self, kmindex: int) -> int:
+
+        kr = self.keyboard_reader
+        sw = self.screen_writer
+
+        kbytearray = bytearray()
+        for kmi in range(kmindex, kr.kmindex):
+            kmix = kr.kmixes[kmi]
+            kpack = kmix.kpack
+            kbytes = kpack.to_kbytes()
+            kbytearray.extend(kbytes)
+
+        kpack = KeyPack(b"")
+        for index, kord in enumerate(kbytearray):
+
+            kbyte = bytes([kord])
+            extra = kpack.take_one_kbyte_if(kbyte)
+            if extra:
+                break
+
+            kbytes = kpack.to_kbytes()
+            neck_ = bytes(kpack.neck)
+            tail_ = bytes(kpack.tail)
+
+            if kpack.closed:
+
+                if kbytes.startswith(b"\033[M"):
+                    pass  # sw.swrite("⎋[⇧M{cb}{cx}{cy} Click")  # Release or Press
+                elif neck_.startswith(b"<") and (tail_ in (b"m", b"M")):
+                    pass  # sw.swrite("⎋[<{f};{x};{y}m Click")  # Release or Press
+                else:
+
+                    kdecode = kbytes.decode()
+
+                    # sw.swrite(repr(kdecode))
+                    sw.swrite(kdecode)
+
+                kmindex = -1
+
+        return kmindex
 
     def trace_key_mixes(self) -> None:
 
@@ -583,7 +607,7 @@ class TerminalStudio:
 
         # todo: offer classic ⌃C as --egg=sigint
         # todo: offer classic ⌃Z as --egg=sigtstp
-        # todo: offer classic ⌃C as --egg=sigint
+        # todo: offer classic ⌃\ as --egg=sigquit
 
         # todo: offer test of timeout=None timing out at ⌃D as --egg=eot
 
@@ -1001,7 +1025,7 @@ class ArgDocParser:
         if len(args) == 1:  # because ArgParse chokes if '--' Sep present without Pos Args
             args_0 = args[0]
             if args_0.startswith("--") and ("--yolo".startswith(args_0)):
-                shargs = list()
+                shargs = ["--yolo"]
 
                 # steals --y, or --yo, or --yol, or --yolo, as if --, when only Arg
 
@@ -1228,13 +1252,15 @@ def excepthook(  # ) -> ...:
 
     sys.excepthook = with_excepthook
 
-    if exc_type is SystemExit:  # todo: doc how raise SystemExit calls .excepthook in python3 -i
-        # with_excepthook(exc_type, exc_value, exc_traceback)
+    if exc_type is SystemExit:
+        assert sys.flags.interactive, (sys.flags.interactive, exc_type, exc_value)  # aka python3 -i
         return
+
+        # consciously doesn't call: with_excepthook(exc_type, exc_value, exc_traceback)
 
     # Quit now for visible cause, if KeyboardInterrupt
 
-    if not flags.keyboard_interrupt_repl:
+    if flags.sigint:
         if exc_type is KeyboardInterrupt:
             with_stderr.write("KeyboardInterrupt\n")
             sys.exit(130)  # 0x80 + signal.SIGINT

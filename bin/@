@@ -1,1 +1,6 @@
-less-beeps.py
+set -xe
+if [ $# -eq 0 ]; then
+    (set -xe; ./bin/less-beeps.py --yolo)
+else
+    (set -xe; ./bin/less-beeps.py "$@")
+fi
