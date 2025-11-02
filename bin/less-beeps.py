@@ -371,7 +371,7 @@ class TerminalStudio:
             ok = False
             # ok = ok or self.answer_printable_kdecode(kmix.kdecode)
             ok = ok or self.answer_controls_kmix(kmix)
-            ok = ok or self.answer_arrows_kface(kmix.kface)
+            ok = ok or self.answer_arrows_kmix(kmix)
             if not ok:
                 if kmix.kface == "⎋":
                     sw.sprint(kmix.kface, end="")
@@ -522,10 +522,10 @@ class TerminalStudio:
 
         swrite_by_kcaps = {
             "⌃G": "\a",  # Bell
-            "⌃H": "\b",  # Backspace
+            # "⌃H": "\b",  # Backspace  # nope, not wanted here
             # "⌃I": "\t",  # Tab  # yes, but unneeded here
-            "⌃J": "\n",  # Line-Feed
-            "⌃K": "\x0b",  # Vertical-Tab
+            # "⌃J": "\n",  # Line-Feed  # nope, not wanted here
+            # "⌃K": "\x0b",  # Vertical-Tab  # nope, not wanted here
         }
 
         kcaps = kmix.kcaps
@@ -538,18 +538,21 @@ class TerminalStudio:
 
         return False
 
-    def answer_arrows_kface(self, kface: str) -> bool:
+    def answer_arrows_kmix(self, kmix: KeyMix) -> bool:
         """Loop Arrows and shifted Arrows to Screen"""
+
+        kface = kmix.kface
+        kcaps = kmix.kcaps
 
         sw = self.screen_writer
 
         # Take ⌃H ⌃J ⌃K ⌃L as Arrows from the First Player
 
-        arrows_by_kface = {"⌃H": "←", "⌃J": "↓", "⌃K": "↑", "⌃L": "→"}
+        arrows_by_kcaps = {"⌃H": "←", "⌃J": "↓", "⌃K": "↑", "⌃L": "→"}
 
-        alt_kface = kface
-        if kface in arrows_by_kface.keys():
-            alt_kface = arrows_by_kface[kface]
+        alt_kface = kmix.kface
+        if kcaps in arrows_by_kcaps.keys():
+            alt_kface = arrows_by_kcaps[kcaps]
 
         # Take Arrows as Arrows, no matter if shifted by ⎋ ⌃ ⌥ ⇧ ⌘ Fn
 
