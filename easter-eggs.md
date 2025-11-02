@@ -2,13 +2,16 @@
 
 ## Easter Eggs we have coded but not named
 
-### Three Eggs
+### 3+ Eggs
 
 1 ) There may be more than nine games, or less than one
 
 2 ) You can press any of of the classic ⌃C ⌃D ⌃Z ⌃\ to quit, you don't have to choose
 
 3 ) You can press ⌃Q to close ⌃V ⌃V, you can press ⌃V to close ⌃Q ⌃Q
+
+And yes indeed, our .md Markdown Sourcefiles do have more words in them,
+found inside each of their invisible \<\!-- --\> Html tags
 
 ## Easter Eggs we have coded and named
 
@@ -64,9 +67,15 @@ Look for sad surprises
 
 + Don't expect ⌥← and ⌥→ to move the Cursor around a macOS Terminal,
     because there they come in coded for Emacs as ⎋B and ⎋F
++ Don't expect ⎋⇧D to include the ⌃M
+    like it does at a macOS Terminal
++ Don't expect ⎋L to work
+    away from the macOS Terminal
++ Don't expect ⌃⇧? to work
+    away from the macOS iTerm2,
+    for it beeps at the macOS Terminal and vanishes at the Google Cloud Shell
 
 Please do tell us which surprises are worth mentioning here?
-
 
 2 )
 
@@ -81,7 +90,7 @@ Unless you think to add up front more ways to quit, such as calling for some of
 Keycap Symbols are ⎋ Esc, ⌃ Control, ⌥ Option/ Alt, ⇧ Shift, ⌘ Command/ Os
 
     ⌃G ⌃H ⌃I ⌃J ⌃M mean \a \b \t \n \r, and ⌃[ means \e, also known as ⎋ Esc
-    Tab means ⌃I \t, and Return means ⌃M \r
+    ⇥ Tab means ⌃I \t, and ⏎ Return means ⌃M \r, and ⌫ ⌃? Delete means \b
 
 The famous Esc ⎋ Byte Pairs are ⎋ 7 8 C L ⇧D ⇧E ⇧M
 
