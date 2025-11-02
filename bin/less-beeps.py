@@ -346,6 +346,8 @@ class TerminalStudio:
             if kmindex >= 0:
                 kmindex = self.loop_back_kmindex(kmindex)
 
+            #
+
             kmix = kr.read_one_key_mix()
 
             if flags.native:
@@ -353,6 +355,8 @@ class TerminalStudio:
                 assert kdecode, (kdecode, kmix)
                 sw.swrite(kdecode)
                 continue
+
+            #
 
             if kmix.kcaps in ("⌃Q", "⌃V"):
                 break
@@ -416,11 +420,17 @@ class TerminalStudio:
                 elif neck_.startswith(b"<") and (tail_ in (b"m", b"M")):
                     pass  # sw.swrite("⎋[<{f};{x};{y}m Click")  # Release or Press
                 else:
-
                     kdecode = kbytes.decode()
 
-                    # sw.swrite(repr(kdecode))
-                    sw.swrite(kdecode)
+                    swrite = kdecode
+                    if not flags.native:
+                        if kdecode == "\033D":
+                            swrite = "\033E"  # as if ⌃M ⌃J
+                        elif kdecode == "\033l":
+                            swrite = "\033[H"  # moves to Northwest Screen Corner
+
+                    # sw.swrite(repr(swrite))
+                    sw.swrite(swrite)
 
                 kmindex = -1
 
@@ -544,12 +554,13 @@ class TerminalStudio:
 
         #
 
-        swrite_by_kcaps = {
-            "⌃G": "\a",  # Bell
-            # "⌃H": "\b",  # Backspace  # nope, not wanted here
-            # "⌃I": "\t",  # Tab  # yes, but unneeded here
-            # "⌃J": "\n",  # Line-Feed  # nope, not wanted here
-            # "⌃K": "\x0b",  # Vertical-Tab  # nope, not wanted here
+        swrite_by_kcaps = {  # ⌃H ⌃J ⌃K ⌃L not wanted here
+            "⌃G": "\a",  # rings Bell
+            "⎋7": "\0337",  # checkpoints Screen Cursor
+            "⎋8": "\0338",  # reverts Screen Cursor
+            "⎋C": "\033c",  # moves to Northwest Screen Corner, wipes Screen
+            "⎋⇧E": "\033E",  # as if ⌃M ⌃J
+            "⎋⇧M": "\033M",  # as if ↑
         }
 
         kcaps = kmix.kcaps
@@ -1418,8 +1429,8 @@ class KeyMix:
 
         if kface:
             assert kcaps, (kcaps, kface, kencode)
-            if kface == kcaps:
-                assert kface in ("⎋", "␢"), (kface, kcaps, kencode)
+
+            # .kface == .kcaps happens at ␢, ⎋, ⎋⇧L, etc
 
         if kdecode:
             assert kdecode == kencode.decode(), (kdecode, kencode)
@@ -1789,18 +1800,27 @@ class KeyMix:
             assert " " not in kface, (kface, kbytes)
             return kface
 
-        # Choose ⎋ followed by 1 of our tabulated Key Faces, when encoded as ⎋...
+            # '␢'  # '⇥'  # '⏎'  # '⎋'
+            # '⌥←' from '⎋B', no matter if Apple Keyboard > Option as Meta Key
+            # '⇧⇥' from '⎋[⇧Z' at '⇧⇥' and at '⌥⇧⇥' while not Apple Keyboard > Option as Meta Key
+
+        # Choose no Key Face for any Key Text not starting with ⎋
 
         if not ktext.startswith("\033"):
             return ""
 
+        # Choose >= 1 ⎋ followed by 1 of our tabulated Key Faces whose Key Text does start with ⎋
+
         esc_depth = len(ktext) - len(ktext.lstrip("\033"))
+        assert esc_depth >= 1, (esc_depth, kbytes)
 
         esc_prefix_minus = (esc_depth - 1) * "\033"
         if esc_prefix_minus:
-            esc_ktext_plus = ktext.removeprefix(esc_prefix_minus)
-            if esc_ktext_plus in kface_by_ktext.keys():
-                esc_kface_plus = kface_by_ktext[esc_ktext_plus]
+            esc_suffix_plus = ktext.removeprefix(esc_prefix_minus)
+            assert esc_suffix_plus.startswith("\033"), (esc_suffix_plus, kbytes)
+
+            if esc_suffix_plus in kface_by_ktext.keys():
+                esc_kface_plus = kface_by_ktext[esc_suffix_plus]
                 assert esc_kface_plus, (esc_kface_plus, kbytes)
 
                 kface = (len(esc_prefix_minus) * "⎋") + esc_kface_plus
@@ -1809,12 +1829,14 @@ class KeyMix:
                 assert " " not in kface, (kface, kbytes)
                 return kface
 
-                # ⎋⇧⇥, like from Apple Keyboard > Option as Meta Key
+                # '⎋⇧⇥' from '⎋⎋[⇧Z' while Apple Keyboard > Option as Meta Key
 
-        # Choose ⎋ followed by 1 of our tabulated Key Faces, when not encoded as ⎋...
+        # Choose >= 1 ⎋ followed by 1 of our tabulated Key Faces whose Key Text doesn't start with ⎋
 
         esc_prefix = esc_depth * "\033"
         esc_ktext = ktext.removeprefix(esc_prefix)
+        assert not esc_ktext.startswith("\033"), (esc_ktext, kbytes)
+
         if esc_ktext in kface_by_ktext.keys():
             esc_kface = kface_by_ktext[esc_ktext]
             assert esc_kface, (esc_kface, kbytes)
@@ -1825,7 +1847,9 @@ class KeyMix:
             assert " " not in kface, (kface, kbytes)
             return kface
 
-            # ⎋⇥, ⎋⏎, ⎋⌫, like from Apple Keyboard > Option as Meta Key
+            # ⎋⇥, ⎋⏎, ⎋⌫, like from Apple Keyboard > Option as Meta Key, or from pbpaste|
+
+            # todo4: solve:  printf '\033[Z' |pbcopy
 
         # Choose ⎋ followed by 1 Text Character, like from Apple Keyboard > Option as Meta Key
 
@@ -1838,6 +1862,8 @@ class KeyMix:
 
                 assert " " not in kface, (kface, kbytes)
                 return kface
+
+                # ⎋L, ⎋⇧L, etc, while Apple Keyboard > Option as Meta Key, or from pbpaste|
 
         # Fail to choose a Key Face
 

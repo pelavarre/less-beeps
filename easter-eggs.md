@@ -41,13 +41,29 @@ We stop working to limit what you can type out on the Keyboard
     not to also step down
 + Press any of ← ↑ → ↓ to move the Cursor off of the Gameboard,
     not only inside
-+ Don't expect ⌥← and ⌥→ to move the Cursor,
-    because they come in coded as ⎋B and ⎋F
-+ Do expect ⇧Fn← to leap into the far Northwest,
-    because it comes in coded as ⎋[⇧H by macOS Terminal,
-    or as ⎋[1;2H by macOS iTerm2
 
 And so on and on and on
+
+Toss in this Easter Egg, and you can pick Terminals apart by how they behave
+
+Look for choices held in common, as minimum standards
+
++ Do expect ⎋C to leap into the far Northwest and wipe the Screen
++ Do expect ⎋8 to leap back to where you last said ⎋7,
+    and initially to the Northwest Corner
+
+Look for happy surprises at a macOS Terminal
+
++ Do expect ⎋L to leap into the far Northwest of a macOS Terminal,
++ Do expect ⇧Fn← to leap into the far Northwest of a macOS Terminal,
+    because there that comes in coded as ⎋[⇧H
++ Do expect ⇧Fn→ to go Far West and a bit North across a macOS Terminal,
+    because there that comes in coded as ⎋[⇧F,
+
+Look for sad surprises
+
++ Don't expect ⌥← and ⌥→ to move the Cursor around a macOS Terminal,
+    because there they come in coded for Emacs as ⎋B and ⎋F
 
 Please do tell us which surprises are worth mentioning here?
 
@@ -59,6 +75,43 @@ To quit playing --egg=native, you'll have to close your Terminal Window Pane
 
 Unless you think to add up front more ways to quit, such as calling for some of
     --egg=sigint, --egg=sigtstp, --egg=sigquit
+
+## Terminal Screen-Write Cheat-Sheet
+
+Keycap Symbols are ⎋ Esc, ⌃ Control, ⌥ Option/ Alt, ⇧ Shift, ⌘ Command/ Os
+
+    ⌃G ⌃H ⌃I ⌃J ⌃M mean \a \b \t \n \r, and ⌃[ means \e, also known as ⎋ Esc
+    Tab means ⌃I \t, and Return means ⌃M \r
+
+The famous Esc ⎋ Byte Pairs are ⎋ 7 8 C L ⇧D ⇧E ⇧M
+
+    ⎋7 cursor-checkpoint  ⎋8 cursor-revert (defaults to Y 1 X 1)
+    ⎋C screen-erase  ⎋L row-column-leap
+    ⎋⇧D \r+↓ else \r+\n  ⎋⇧E \r+↓ else \r+\n  ⎋⇧M ↑ else scroll+↑
+
+The famous Csi ⎋[ Sequences are ⎋[ ⇧ @ ABCDE GHIJKLM P ST Z and ⎋[ D H LMN Q T
+
+    ⎋[⇧A ↑  ⎋[⇧B ↓  ⎋[⇧C →  ⎋[⇧D ←
+    ⎋[I ⌃I  ⎋[⇧Z ⇧Tab
+    ⎋[D row-leap  ⎋[⇧G column-leap  ⎋[⇧H row-column-leap
+
+    ⎋[⇧M rows-delete  ⎋[⇧L rows-insert  ⎋[⇧P chars-delete  ⎋[⇧@ chars-insert
+    ⎋[⇧J after-erase  ⎋[1⇧J before-erase  ⎋[2⇧J screen-erase  ⎋[3⇧J scrollback-erase
+    ⎋[⇧K row-tail-erase  ⎋[1⇧K row-head-erase  ⎋[2⇧K row-erase
+    ⎋[⇧T scrolls-down  ⎋[⇧S scrolls-up
+
+    ⎋[4H insert  ⎋[4L replace  ⎋[6 Q bar  ⎋[4 Q skid  ⎋[ Q unstyled
+
+    ⎋[1M bold  ⎋[4M underline  ⎋[7M reverse/inverse
+    ⎋[31M red  ⎋[32M green  ⎋[34M blue  ⎋[38;5;130M orange
+    ⎋[M plain
+
+    ⎋[5N call for reply ⎋[0N
+    ⎋[6N call for reply ⎋[{y};{x}⇧R  ⎋[18T call for reply ⎋[8;{rows};{columns}T
+
+    ⎋['⇧} cols-insert  ⎋['⇧~ cols-delete
+
+<!-- Consciously don't mention ⎋['⇧ ⎋['⇧~ as 'famous', because macOS Terminal lacks those two -->
 
 ## Links
 
