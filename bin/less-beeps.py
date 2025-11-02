@@ -1603,16 +1603,20 @@ class KeyMix:
         elif (ko < 0x20) or (ko == 0x7F):  # C0 Control Bytes, or \x7F Delete (DEL) ⌫
             if ko == 0x1B:
                 kc = "⎋"  # could be ⌃[
+            elif ko == 0x1E:  # Apple ⌃^ doesn't come through at all
+                kc = "⌃⇧^"  # Apple ⌃⇧^ does come through as (0x5E ^ 0x40)
             elif ko == 0x1F:  # Apple ⌃- doesn't come through as  (0x2D ^ 0x40)
                 kc = "⌃-"  # Apple ⌃-  and ⌃⇧_ do come through as (0x5F ^ 0x40)
             else:
-                kc = "⌃" + chr(ko ^ 0x40)  # '^ 0x40' mixes ⌃ into one of @ A..Z [\]^_ ?, such as ⌃^
+                alt_kt = chr(ko ^ 0x40)
+                assert alt_kt in r"@ABCDEFGHIJKLMNO" r"PQRSTUVWXYZ" r"\]", (alt_kt, ko)  # not "[^_"
+                kc = "⌃" + alt_kt
 
-                # '⌃^' speaks of (ko == 0x1E == (0x5E ^ 0x40))
+                # '^ 0x40' mixes ⌃ into one of @ A..Z [\]^_ ?, such as ⌃⇧^
+                # '⌃⇧^' speaks of (ko == 0x1E == (0x5E ^ 0x40))
 
-            # '^ 0x40' speaks of ⌃@ but not ⌃⇧@ and not ⌃⇧2 and not ⌃␢ at b"\x00"
+            # '^ 0x40' speaks of ⌃⇧@ but not ⌃⇧2 and not ⌃␢ at b"\x00" here, but is ⌃␢ elsewhere
             # '^ 0x40' speaks of ⌃M but not Return ⏎ at b"\x0D"
-            # '^ 0x40' speaks of ⌃[ ⌃\ ⌃] ⌃_ but not ⎋ and not ⌃⇧_ and not ⌃⇧{ ⌃⇧| ⌃⇧} ⌃-
             # '^ 0x40' speaks of ⌃? but not Delete ⌫ at b"\x7F"
 
             # ⌃` ⌃2 ⌃6 ⌃⇧~ don't work
@@ -1652,7 +1656,8 @@ class KeyMix:
         # '⌃L'  # '⇧Z'
         # ⌥Y often comes through as \ U+005C Reverse-Solidus aka Backslash  # not ¥ Yen-Sign
 
-    SHIFTED_KEYCAPS = '!"#$%&()*+' ":<>?" "@" "^_" "{|}~"  # !"#$%&()*+ :<>? @ ^_ {|}~
+    SHIFTED_KEYCAPS = '!"#$%&()*+' ":<>?" "@" "^_" "{|}~"
+    # aka !"#$%&()*+ :<>? @ ^_ {|}~  # aka ~!@#$%^&*()_+ {}| :" <>?
 
     #
     # Decode Keys shifted by ⌥ Option/Alt, as at MacBook

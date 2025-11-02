@@ -71,9 +71,12 @@ Look for sad surprises
     like it does at a macOS Terminal
 + Don't expect ⎋L to work
     away from the macOS Terminal
++ Don't expect ⌃⇧^ and ⌃^ to work
+    away from macOS iTerm2,
+    for the macOS Terminal takes only the one and the Google Cloud Shell takes only the other
 + Don't expect ⌃⇧? to work
     away from the macOS iTerm2,
-    for it beeps at the macOS Terminal and vanishes at the Google Cloud Shell
+    for the macOS Terminal beeps at it and the Google Cloud Shell disappears it
 
 Please do tell us which surprises are worth mentioning here?
 
