@@ -135,7 +135,7 @@ def shell_args_take_in(args: list[str], parser: ArgDocParser) -> None:
     assert (ns.yolo is None) or (ns.yolo >= 1), (ns.yolo, ns, args)
 
     if ns.force:
-        KeyPack._try_key_pack_()
+        _try_less_beeps_()
 
     eggs = ns.eggs or list()
     for egg_text in eggs:
@@ -153,6 +153,18 @@ def shell_args_take_in(args: list[str], parser: ArgDocParser) -> None:
             else:
                 arg_doc_parser.parser.print_usage()
                 sys.exit(2)  # exits 2 for bad Arg
+
+
+def _try_less_beeps_() -> None:
+    """Run slow and quick Self-Test's of Less-Beeps·Py"""
+
+    print("--force => KeyPack._try_key_pack_()", file=sys.stderr)
+    KeyPack._try_key_pack_()
+
+    print("--force => KeyMix._try_key_mix_()", file=sys.stderr)
+    KeyMix._try_key_mix_()
+
+    print("--force complete", file=sys.stderr)
 
 
 #
@@ -377,7 +389,7 @@ class TerminalStudio:
                     sw.sprint("", kmix.kencode, end=" ")
 
             if kmix.kcaps in ("⌃C", "⌃D", "⌃Z", "⌃\\"):
-                sw.sprint("")
+                sw.sprint()
                 sys.exit()
 
         # todo1: celebrate how our ⇥ and ⇧⇥ do speed up and snap-to-grid the → and ←
@@ -438,60 +450,64 @@ class TerminalStudio:
 
     def trace_key_mixes(self) -> None:
 
-        kr = self.keyboard_reader
         sw = self.screen_writer
 
+        kr = self.keyboard_reader
         kmixes = kr.kmixes
-        old_kmix = kmixes[-1]
-        assert old_kmix.kcaps in ("⌃Q", "⌃V")
+        entry_kmix = kmixes[-1]
+        entry_kcaps = entry_kmix.kcaps
 
-        kcaps = old_kmix.kcaps
+        assert entry_kcaps in ("⌃Q", "⌃V"), (entry_kcaps,)
 
-        sw.swrite("\0337")
-        sw.swrite(kcaps)
-        sw.swrite("\0338")
-
-        kmix = kr.read_one_key_mix()
+        # Enter the chat
 
         sw.swrite("\0337")
-        sw.sprint(kcaps, kmix)
+        sw.swrite(entry_kcaps)
         sw.swrite("\0338")
-        sw.swrite("\n")
 
-        if kmix.kcaps in ("⌃C", "⌃D", "⌃Z", "⌃\\"):
-            sw.sprint("")
-            sys.exit()
+        # Read and print the Key Mixes of one Keyboard Chord,
+        # except quit early at any of ⌃C ⌃D ⌃Z ⌃\
 
-        kmindex = len(kr.kmixes)
-        while kr.kmindex < kmindex:
-            kmix = kr.read_one_key_mix()
+        lock_once = False
+        mark = entry_kcaps
+        while True:
 
-            sw.swrite("\0337")
-            sw.sprint(kcaps, kmix)
-            sw.swrite("\0338")
-            sw.swrite("\n")
+            kmixes = kr.read_some_key_mixes()
+            assert kmixes, (kmixes,)  # because .read_some_key_mixes chooses timeout=None
 
-            if kmix.kcaps in ("⌃C", "⌃D", "⌃Z", "⌃\\"):
-                sw.sprint("")
-                sys.exit()
-
-        if kmix.kcaps == kcaps:
-            while True:
-                kmix = kr.read_one_key_mix()
+            for index, kmix in enumerate(kmixes):
 
                 sw.swrite("\0337")
-                sw.sprint(kcaps + kcaps, kmix)
+                if len(kmixes) == 1:
+                    sw.sprint(mark, kmix, end="")
+                else:
+                    sw.sprint(index, mark, kmix, end="")
                 sw.swrite("\0338")
                 sw.swrite("\n")
 
-                if kmix.kcaps == kcaps:
-                    break
-                if kmix.kcaps in ("⌃Q", "⌃V"):  # despite '!= kcaps'
-                    break
-
                 if kmix.kcaps in ("⌃C", "⌃D", "⌃Z", "⌃\\"):
-                    sw.sprint("")
+                    sw.sprint()
                     sys.exit()
+
+            # Take twice entry as lock loop
+
+            kcaps_list = list(_.kcaps for _ in kmixes)
+
+            if kcaps_list == [entry_kcaps]:
+                if not lock_once:
+                    lock_once = True
+                    mark = f"{entry_kcaps} {entry_kcaps}"
+                    continue
+
+            # Take once entry as break loop
+
+            if not lock_once:
+                break
+
+            # Take thrice entry as break loop
+
+            if kcaps_list in (["⌃Q"], ["⌃V"]):
+                break
 
     def stop_chatting(self) -> None:
         """Drain the Buffered Input just before Quitting"""
@@ -689,6 +705,27 @@ class KeyboardReader:
         self.high_wide = (-1, -1)
         self.row_column = (-1, -1)
 
+    def read_some_key_mixes(self) -> list[KeyMix]:
+        """Read all the Key Mixes that came together, minus whatever has already been read"""
+
+        kmixes = self.kmixes
+        kmindex = self.kmindex
+
+        # Fetch some Key Mixes, else timeout and return an empty List
+
+        if kmindex >= len(kmixes):
+            self._fill_kmixes_(timeout=None)
+            if kmindex >= len(kmixes):
+                return list()
+
+        # Read all the Key Mixes that came together, minus whatever has already been read
+
+        some_kmixes = kmixes[kmindex:]
+        self.kmindex += len(some_kmixes)
+        assert self.kmindex == len(kmixes), (self.kmindex, len(kmixes))
+
+        return some_kmixes
+
     def read_one_key_mix(self) -> KeyMix:
         """Read one Key Mix"""
 
@@ -766,12 +803,21 @@ class KeyboardReader:
             # Take up 2 Key Mixes from 1 Key Pack, when sent by an Option/Alt ⌥ Accent E plus J or ⇧J
 
             if kencode in (b"j\xcc\x81", b"J\xcc\x81"):
-                option_e_j_kcaps = "J́" if kencode == b"j\xcc\x81" else "⇧J́"
-                assert kmix.kcaps == option_e_j_kcaps, (kmix.kcaps, kdecode, kencode)
+                combined_kcaps = "J́" if kencode == b"j\xcc\x81" else "⇧J́"
+                assert len(combined_kcaps) in (2, 3), (len(combined_kcaps), combined_kcaps, kencode)
+                assert kmix.kcaps == combined_kcaps, (kmix.kcaps, kdecode, kencode)
                 kmix.kcaps = "⌥E"
 
-                option_e_j_kmix = KeyMix(kbytes=kencode[:1])  # '⇧J'
+                option_e_j_kmix = KeyMix(b"")
                 assert not option_e_j_kmix.kface, (option_e_j_kmix.kface, kencode)
+                assert not option_e_j_kmix.kcaps, (option_e_j_kmix.kcaps, kencode)
+                option_e_j_kcaps = "J" if kencode == b"j\xcc\x81" else "⇧J"
+                assert len(option_e_j_kcaps) in (1, 2), (
+                    len(option_e_j_kcaps),
+                    option_e_j_kcaps,
+                    kencode,
+                )
+                option_e_j_kmix.kcaps = option_e_j_kcaps
 
                 kmixes.append(option_e_j_kmix)
                 continue
@@ -1312,6 +1358,11 @@ class KeyMix:
     kints: list[int]  # via Csi Neck after Csi Next Start
     kqa_tuple: tuple[tuple[str, str], ...]  # queries asked, replies given
 
+    #
+    # Init, Bool, Str, & ._require_simple_kmix_,
+    # and also .to_csi_ints_if and .to_csi_shift_m6_ints_if
+    #
+
     def __init__(self, kbytes: bytes, kqa_tuple: tuple[tuple[str, str], ...] = ()) -> None:
 
         # Collect
@@ -1328,7 +1379,7 @@ class KeyMix:
 
         (kintsmark, kints) = KeyMix.to_csi_ints_if(kbytes)
         if (not kintsmark) and (not kints):
-            (kintsmark, kints) = KeyMix.to_csi_m_ints_if(kbytes)
+            (kintsmark, kints) = KeyMix.to_csi_shift_m6_ints_if(kbytes)
 
         # Succeed
 
@@ -1372,11 +1423,14 @@ class KeyMix:
             parts.append(kcaps)
 
         kbytes = kpack.to_kbytes()
-        kbytes_part = r"b'\x20'" if (kbytes == b" ") else str(kbytes)  # ' ' Spacebar  # ␠  # ␣  # ␢
-        parts.append(kbytes_part)
-
-        if kpack.text:
-            if len(kbytes) > len(kpack.text):
+        if not kpack.text:
+            parts.append(str(kbytes))
+        elif kpack.text == " ":
+            parts.append(r"'\x20'")  # ' ' Spacebar  # ␠  # ␣  # ␢
+            assert len(kbytes) == len(kpack.text), (len(kbytes), len(kpack.text), kbytes)
+        else:
+            parts.append(repr(kpack.text))
+            if len(kbytes) != len(kpack.text):
                 parts.append(str(kbytes))
 
         if not kintsmark:
@@ -1463,18 +1517,18 @@ class KeyMix:
 
         # Fail if not a Csi Escape Sequence closed by its Tail
 
-        kintsmark = b""
-        kints: list[int] = list()
+        empty_kintsmark = b""
+        empty_kints: list[int] = list()
 
         if (head != b"\033[") or not closed:
-            return (kintsmark, kints)
+            return (empty_kintsmark, empty_kints)
 
         # Fail if no ';' Semicolon Marks and no Decimal Digits
 
         kintsmark = bytes(back + tail)
         m = re.search(b"[0-9;]+", string=neck)
         if not m:
-            return (kintsmark, kints)
+            return (empty_kintsmark, empty_kints)
 
         # Pass back the Ints
 
@@ -1491,7 +1545,7 @@ class KeyMix:
         # (b"<m", [8, 80, 25])
 
     @staticmethod
-    def to_csi_m_ints_if(kbytes: bytes) -> tuple[bytes, list[int]]:
+    def to_csi_shift_m6_ints_if(kbytes: bytes) -> tuple[bytes, list[int]]:
         """Pick out the Nonnegative Int Literals of a Csi Mouse Report"""
 
         kpack = KeyPack(kbytes)
@@ -1532,6 +1586,39 @@ class KeyMix:
         return (kintsmark, kints)
 
     #
+    # Run slow and quick Self-Test's
+    #
+
+    @staticmethod
+    def _try_key_mix_() -> None:
+        """Run slow and quick Self-Test's of Class KeyMix"""
+
+        for code in range(0x11000):
+            decode = chr(code)
+
+            if code in range(0xD800, 0xDFFF + 1):
+                try:
+                    encode = bytes(decode.encode())
+                except UnicodeEncodeError:
+                    continue
+                assert False, (hex(code), code)
+
+            encode = bytes(decode.encode())
+
+            kcaps = KeyMix.to_kcaps_if(encode)
+            if code == 0xF8FF:
+                assert not decode.isprintable(), (hex(code), code)
+                assert kcaps, (kcaps, encode, hex(code), code)
+            elif decode.isprintable():
+                assert kcaps, (kcaps, encode, hex(code), code)
+            elif code >= 0x100:
+                assert not kcaps, (kcaps, encode, hex(code), code)
+
+            KeyMix.to_kface_if(encode)
+
+            # ⌥⇧K is Apple Logo Icon  is \uF8FF is in the U+E000..U+F8FF Private Use Area (PUA)
+
+    #
     # Choose 1 Keycap per Character to speak of the Bytes of 1 Keyboard Chord
     #
 
@@ -1553,8 +1640,11 @@ class KeyMix:
 
         kcaps = ""
         for kt in ktext:  # often 'len(ktext) == 1'
-            kc = KeyMix._kt_to_kcap_(kt)
+            kc = KeyMix._kt_to_kcap_if_(kt)
             kcaps += kc
+
+            if not kc:
+                return ""
 
         assert kcaps, (kcaps, kbytes)
         assert " " not in kcaps, (kcaps, kbytes)
@@ -1567,7 +1657,7 @@ class KeyMix:
         # '⎋[200~' and '⎋[201~' before/ after Paste to bracket it
 
     @staticmethod
-    def _kt_to_kcap_(kt: str) -> str:
+    def _kt_to_kcap_if_(kt: str) -> str:
         """Form 1 Key Cap to speak of 1 Keyboard Chord"""
 
         ko = ord(kt)
@@ -1595,33 +1685,16 @@ class KeyMix:
             kc = kcaps_list[0]  # trusts Caller to fix up the Ambiguity of len
 
         elif kt in option_kt_str:  # Mac US Option Key Caps
-            kc = KeyMix._option_kt_to_kcap_(kt)
+            kc = KeyMix._option_kt_to_kcap_(kt)  # maybe
+            assert kc, (kc, ko, kt)
             assert " " not in kc, (kc, ko, kt)
 
         # Show the Key Caps of US-Ascii, plus the ⌃ ⇧ Control/ Shift Key Caps
 
         elif (ko < 0x20) or (ko == 0x7F):  # C0 Control Bytes, or \x7F Delete (DEL) ⌫
-            if ko == 0x1B:
-                kc = "⎋"  # could be ⌃[
-            elif ko == 0x1E:  # Apple ⌃^ doesn't come through at all
-                kc = "⌃⇧^"  # Apple ⌃⇧^ does come through as (0x5E ^ 0x40)
-                if flags.google:
-                    kc = "⌃^"
-            elif ko == 0x1F:  # Apple ⌃- doesn't come through as  (0x2D ^ 0x40)
-                kc = "⌃-"  # Apple ⌃-  and ⌃⇧_ do come through as (0x5F ^ 0x40)
-            else:
-                alt_kt = chr(ko ^ 0x40)
-                assert alt_kt in r"@ABCDEFGHIJKLMNO" r"PQRSTUVWXYZ" r"\]", (alt_kt, ko)  # not "[^_"
-                kc = "⌃" + alt_kt
-
-                # '^ 0x40' mixes ⌃ into one of @ A..Z [\]^_ ?, such as ⌃⇧^
-                # '⌃⇧^' speaks of (ko == 0x1E == (0x5E ^ 0x40))
-
-            # '^ 0x40' speaks of ⌃⇧@ but not ⌃⇧2 and not ⌃␢ at b"\x00" here, but is ⌃␢ elsewhere
-            # '^ 0x40' speaks of ⌃M but not Return ⏎ at b"\x0D"
-            # '^ 0x40' speaks of ⌃? but not Delete ⌫ at b"\x7F"
-
-            # ⌃` ⌃2 ⌃6 ⌃⇧~ don't work
+            kc = KeyMix._kt_control_to_kcap_(kt)
+            assert kc, (kc, ko, kt)
+            assert " " not in kc, (kc, ko, kt)
 
         elif "A" <= kt <= "Z":  # printable Upper Case English
             kc = "⇧" + chr(ko)  # shifted Key Cap '⇧A' from b'A'
@@ -1644,6 +1717,8 @@ class KeyMix:
         else:
             assert ko < 0x11_0000, (ko, kt)
             kc = chr(ko)  # '!', '¡', etc
+            if not kc.isprintable():
+                return ""
 
             # todo: Got Key Caps Str "\u00A1" .. "\u00FF" for Bytes b"\xA1" .. b"\xFF" - Want better?
 
@@ -1657,6 +1732,40 @@ class KeyMix:
 
         # '⌃L'  # '⇧Z'
         # ⌥Y often comes through as \ U+005C Reverse-Solidus aka Backslash  # not ¥ Yen-Sign
+
+    @staticmethod
+    def _kt_control_to_kcap_(kt: str) -> str:
+
+        ko = ord(kt)
+        assert (ko < 0x20) or (ko == 0x7F), (ko, kt)
+
+        if ko == 0x00:
+            kc = "⌃⇧@"
+        elif ko == 0x1B:
+            kc = "⎋"  # ⌃[ Esc
+        elif ko == 0x1E:  # Apple ⌃^ doesn't come through at all
+            kc = "⌃⇧^"  # Apple ⌃⇧^ does come through as (0x5E ^ 0x40)
+            if flags.google:
+                kc = "⌃^"
+        elif ko == 0x1F:  # Apple ⌃- doesn't come through as  (0x2D ^ 0x40)
+            kc = "⌃-"  # Apple ⌃-  and ⌃⇧_ both do come through as (0x5F ^ 0x40)
+        elif ko == 0x7F:
+            kc = "⌃⇧?"  # ⌫  # Delete
+        else:
+            alt_kt = chr(ko ^ 0x40)
+            assert alt_kt in r"ABCDEFGHIJKLMNO" r"PQRSTUVWXYZ" r"\]", (alt_kt, ko)  # not [ ⇧^ ⇧_
+            kc = "⌃" + alt_kt
+
+            # '^ 0x40' mixes ⌃ into one of @ A..Z [\]^_ ?, such as ⌃⇧^
+            # '⌃⇧^' speaks of (ko == 0x1E == (0x5E ^ 0x40))
+
+        return kc
+
+        # '^ 0x40' speaks of ⌃⇧@ but not ⌃⇧2 and not ⌃␢ at b"\x00" here, but is ⌃␢ elsewhere
+        # '^ 0x40' speaks of ⌃M but not Return ⏎ at b"\x0D"
+        # '^ 0x40' speaks of ⌃? but not Delete ⌫ at b"\x7F"
+
+        # ⌃` ⌃2 ⌃6 ⌃⇧~ don't work
 
     SHIFTED_KEYCAPS = '!"#$%&()*+' ":<>?" "@" "^_" "{|}~"
     # aka !"#$%&()*+ :<>? @ ^_ {|}~  # aka ~!@#$%^&*()_+ {}| :" <>?
@@ -2289,12 +2398,12 @@ class KeyPack:
             assert not stash, (stash, closed, self)
 
     #
-    # Run quick and slow Self-Test's
+    # Run slow and quick Self-Test's
     #
 
     @staticmethod
     def _try_key_pack_() -> None:
-        """Run quick and slow Self-Test's"""
+        """Run slow and quick Self-Test's of Class KeyPack"""
 
         KeyPack._try_open_(b"")  # empty
         KeyPack._try_headbook_()
@@ -2600,7 +2709,7 @@ class KeyPack:
                 return b""
 
         if head.startswith(b"\033[M"):  # ⎋[⇧M
-            extra = self._take_after_csi_shift_em_if_(encode, decode=decode)
+            extra = self._take_into_csi_shift_m6_if_(encode, decode=decode)
             return extra
 
         if head.endswith(b"\033["):
@@ -2724,7 +2833,7 @@ class KeyPack:
 
         # does take ⎋\x10 ⎋\b ⎋\t ⎋\n ⎋\r ⎋\x7f etc
 
-    def _take_after_csi_shift_em_if_(self, encode: bytes, decode: str) -> bytes:
+    def _take_into_csi_shift_m6_if_(self, encode: bytes, decode: str) -> bytes:
         """Take Bytes into a Csi Mouse Report of 6 Bytes or 6 Characters"""
 
         head = self.head
@@ -2907,13 +3016,13 @@ class KeyPack:
                 back.extend(stash)
                 stash.clear()
 
-            # doesn't call .close_if_csi_shift_m
+            # doesn't call .close_if_csi_shift_m_no_ints
 
         # Require
 
         self._require_simple_kpack_()
 
-    def close_if_csi_shift_m(self) -> bool:
+    def close_if_csi_shift_m_no_ints(self) -> bool:
         """Convert to Csi ⎋[⇧M cut short, if now standing open as 3 of 6 Char Mouse Report"""
 
         head = self.head
