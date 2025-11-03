@@ -352,14 +352,15 @@ class TerminalStudio:
         kr = self.keyboard_reader
         sw = self.screen_writer
 
-        kmindex = -1
+        kbindex = -1
         while True:
 
-            if kmindex >= 0:
-                kmindex = self.loop_back_kmindex(kmindex)
+            if kbindex >= 0:
+                kbindex = self.loop_back_kbindex(kbindex)
 
             #
 
+            count_kbindex = kr.kbindex
             kmix = kr.read_one_key_mix()
 
             if flags.native:
@@ -373,14 +374,23 @@ class TerminalStudio:
             if kmix.kcaps in ("⌃Q", "⌃V"):
                 break
 
+            count_if = self.kbindex_to_count_if(count_kbindex)
+            count = 1 if (count_if is None) else count_if
+
             ok = False
-            # ok = ok or self.answer_printable_kdecode(kmix.kdecode)
-            ok = ok or self.answer_controls_kmix(kmix)
-            ok = ok or self.answer_arrows_kmix(kmix)
+            for _ in range(count):
+
+                ok = False
+                ok = ok or self.answer_controls_kmix(kmix)
+                ok = ok or self.answer_arrows_kmix(kmix)
+
+                if not ok:
+                    break
+
             if not ok:
                 if kmix.kface == "⎋":
                     sw.sprint(kmix.kface, end="")
-                    kmindex = kr.kmindex - 1
+                    kbindex = kr.kbindex - 1
                 elif kmix.kface:
                     sw.sprint("", kmix.kface, end=" ")
                 elif kmix.kcaps:
@@ -392,6 +402,8 @@ class TerminalStudio:
                 sw.sprint()
                 sys.exit()
 
+        # todo4: ⌥-Click to move Cursor to Mouse correctly over Wrapped Lines
+
         # todo1: celebrate how our ⇥ and ⇧⇥ do speed up and snap-to-grid the → and ←
         # todo1: livelocks less wild in Keyboard/ Screen loopback
 
@@ -401,26 +413,28 @@ class TerminalStudio:
         # todo4: bind Delete differently while Inserting
         # todo4: dream up ways to take text as text
 
-    def loop_back_kmindex(self, kmindex: int) -> int:
+    def loop_back_kbindex(self, kbindex: int) -> int:
+
+        assert kbindex >= 0, (kbindex,)
 
         kr = self.keyboard_reader
+        kbytearray = kr.kbytearray
+
         sw = self.screen_writer
 
-        kbytearray = bytearray()
-        for kmi in range(kmindex, kr.kmindex):
-            kmix = kr.kmixes[kmi]
-            kpack = kmix.kpack
-            kbytes = kpack.to_kbytes()
-            kbytearray.extend(kbytes)
+        count = self.kbindex_to_count_if(kbindex)
+        end_kbytearray = kbytearray[kbindex:]
 
         kpack = KeyPack(b"")
-        for index, kord in enumerate(kbytearray):
-
+        extra = b""
+        for kord in end_kbytearray:
             kbyte = bytes([kord])
+
             extra = kpack.take_one_kbyte_if(kbyte)
             if extra:
                 break
 
+        if not extra:
             kbytes = kpack.to_kbytes()
             neck_ = bytes(kpack.neck)
             tail_ = bytes(kpack.tail)
@@ -441,12 +455,42 @@ class TerminalStudio:
                         elif kdecode == "\033l":
                             swrite = "\033[H"  # moves to Northwest Screen Corner
 
-                    # sw.swrite(repr(swrite))
-                    sw.swrite(swrite)
+                    if not count:
+                        sw.swrite(swrite)
+                    elif count < 0:
+                        sw.swrite(repr(swrite))
+                    else:
+                        for _ in range(count):
+                            sw.swrite(swrite)
 
-                kmindex = -1
+                kbindex = -1
 
-        return kmindex
+        return kbindex
+
+    def kbindex_to_count_if(self, kbindex: int) -> int | None:
+        """Snoop a Python Int Literal out of a glance back into our Key Log of Bytes"""
+
+        kr = self.keyboard_reader
+        kbytearray = kr.kbytearray
+
+        count: int | None = None
+        count_kbytearray = bytearray()
+
+        if kbindex > 0:
+            for index in range(kbindex):
+                reversed_rindex = -1 - index
+                count_kbytearray = kbytearray[:kbindex][reversed_rindex:]
+
+                count_head = count_kbytearray[:1]
+                if count_head not in b"+-" b"0123456789" b"ABCDEFOX_" b"abcdefox":  # no .eE
+                    break
+
+                try:
+                    count = int(count_kbytearray, 0)
+                except ValueError:
+                    continue
+
+        return count
 
     def trace_key_mixes(self) -> None:
 
@@ -515,6 +559,8 @@ class TerminalStudio:
         kr = self.keyboard_reader
         sw = self.screen_writer
 
+        kbytearray = kr.kbytearray
+
         # Drain the Keyboard Buffer
 
         while self.kbhit(timeout=0.100):
@@ -523,7 +569,7 @@ class TerminalStudio:
 
         # Drain the Keyboard Bytes fetched ahead
 
-        kbytes = bytes(kr.kbytearray[kr.kbindex :])
+        kbytes = bytes(kbytearray[kr.kbindex :])
         if kbytes:  # todo: empty except when Exception unhandled?
             sw.sprint(kbytes)
             sw.sprint()

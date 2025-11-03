@@ -107,7 +107,7 @@ The famous Csi ⎋[ Sequences are ⎋[ ⇧ @ ABCDE GHIJKLM P ST Z and ⎋[ D H L
     ⎋[I ⌃I  ⎋[⇧Z ⇧Tab
     ⎋[D row-leap  ⎋[⇧G column-leap  ⎋[⇧H row-column-leap
 
-    ⎋[⇧M rows-delete  ⎋[⇧L rows-insert  ⎋[⇧P chars-delete  ⎋[⇧@ chars-insert
+    ⎋[1⇧M rows-delete  ⎋[⇧L rows-insert  ⎋[⇧P chars-delete  ⎋[⇧@ chars-insert
     ⎋[⇧J after-erase  ⎋[1⇧J before-erase  ⎋[2⇧J screen-erase  ⎋[3⇧J scrollback-erase
     ⎋[⇧K row-tail-erase  ⎋[1⇧K row-head-erase  ⎋[2⇧K row-erase
     ⎋[⇧T scrolls-down  ⎋[⇧S scrolls-up
