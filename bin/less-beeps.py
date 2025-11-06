@@ -9,7 +9,7 @@ options:
   -h, --help   show this help message and exit
   -y, --yolo   do what's popular now (can also be spelled as '--')
   -f, --force  ask fewer questions (launches slowly enough to complete self-test's)
-  --egg EGG    toss in an Easter Egg, such as 'sigint' and 'native'
+  --egg EGG    toss in an Easter Egg, such as 'leaper' or 'native' or 'sigint'
 
 notes:
   travels as a single .py file, now that a million words isn't many words
@@ -18,7 +18,8 @@ notes:
 examples:
   bin/@
   ./bin/less-beeps.py --yolo
-  ./bin/less-beeps.py --egg=native --egg=sigint
+  ./bin/less-beeps.py --egg=native --egg=sigint  # emulations off, but ⌃C to quit
+  ./bin/less-beeps.py --egg=leaper  # tap to move cursor
 """
 
 # code reviewed by People, Black, Flake8, Mypy-Strict, & Pylance-Standard
@@ -71,6 +72,7 @@ class Flags:
     portrait: bool = False  # flags.portrait, for when lots more high than wide
     barefoot: bool = False  # flags.barefoot, for when no rows beneath a Southern Keyboard
 
+    leaper: bool = False  # flags.leaper, for tap to move cursor
     native: bool | None = None  # flags.native, for don't make this Terminal feel friendlier
     sigint: bool | None = None  # flags.sigint, for ⌃C to work
     # sigtstp: bool | None = None  # flags.sigtstp, for ⌃Z to work  # todo2:
@@ -108,7 +110,7 @@ def arg_doc_to_parser(doc: str) -> ArgDocParser:
 
     yolo_help = "do what's popular now (can also be spelled as '--')"
     force_help = "ask fewer questions (launches slowly enough to complete self-test's)"
-    egg_help = "toss in an Easter Egg, such as 'sigint' and 'native'"
+    egg_help = "toss in an Easter Egg, such as 'leaper' or 'native' or 'sigint'"
 
     parser.add_argument("-y", "--yolo", action="count", help=yolo_help)
     parser.add_argument("-f", "--force", action="count", help=force_help)
@@ -124,8 +126,7 @@ def shell_args_take_in(args: list[str], parser: ArgDocParser) -> None:
 
     # Take in the Args without final judgment
 
-    ns = arg_doc_parser.parse_args_if(args)
-    assert ns.yolo, (ns.yolo, ns)  # else called .print_usage and exited
+    ns = arg_doc_parser.parse_args_if(args)  # often prints help & exits zero
 
     ns_keys = list(vars(ns).keys())
     assert ns_keys == ["yolo", "force", "eggs"], (ns_keys, ns, args)
@@ -140,14 +141,18 @@ def shell_args_take_in(args: list[str], parser: ArgDocParser) -> None:
         egg_texts = egg_text.split(",")
         for egg in egg_texts:
 
-            if egg and "native".startswith(egg):
+            if egg and "leaper".startswith(egg):
+                flags.leaper = True
+            elif egg and "native".startswith(egg):
                 flags.native = True
             elif egg and "sigint".startswith(egg):
                 flags.sigint = True
+
             # elif egg and "sigquit".startswith(egg):
             #     flags.sigquit = True
             # elif egg and "sigtstp".startswith(egg):
             #     flags.sigtstp = True
+
             else:
                 arg_doc_parser.parser.print_usage()
                 sys.exit(2)  # exits 2 for bad Arg
@@ -346,6 +351,7 @@ class TerminalStudio:
             self.trace_key_mixes()
 
     def loop_back(self) -> None:
+        """Loop-back the Keyboard to Screen"""
 
         kr = self.keyboard_reader
         sw = self.screen_writer
@@ -353,65 +359,165 @@ class TerminalStudio:
         kbindex = -1
         while True:
 
+            # Loop-back the Bytes at the ⎋ Esc and forget the ⎋ Esc, or don't
+
             if kbindex >= 0:
                 kbindex = self.loop_back_kbindex(kbindex)
 
-            #
+            # Fetch more Key Mixes
 
-            count_kbindex = kr.kbindex
-            kmix = kr.read_one_key_mix()
+            kmixes_kbindex = kr.kbindex
 
-            if flags.native:
-                kdecode = kmix.kdecode
-                assert kdecode, (kdecode, kmix)
-                sw.swrite(kdecode)
-                continue
+            kmixes = kr.read_some_key_mixes()
+            assert kmixes, (kmixes,)  # because .read_some_key_mixes chooses timeout=None
 
-            #
+            leap_kmix = self.kmixes_to_leap_kmix(kmixes)
+            if leap_kmix:
+                kmixes = [leap_kmix]
+
+            # Take up each Key Mix, in order
+
+            empty_kmix = KeyMix()
+
+            kmix = empty_kmix
+            for kmix in kmixes:
+
+                # Write straight through transparently, when given --egg=native
+
+                if flags.native:
+                    kdecode = kmix.kdecode
+                    assert kdecode, (kdecode, kmix)
+                    sw.swrite(kdecode)
+                    continue
+
+                # Snoop a Python Int Literal, if present
+
+                count_if = self.kbindex_to_count_if(kmixes_kbindex)
+                count = 1 if (count_if is None) else count_if
+
+                # Take the Key Mix as a Repeated Instruction, if meaningful
+
+                ok = False
+                for _ in range(count):
+
+                    ok = False
+                    ok = ok or self.answer_controls_kmix(kmix)
+                    ok = ok or self.answer_arrows_kmix(kmix)
+                    ok = ok or self.answer_leap_kmix(kmix)
+
+                    if not ok:
+                        break
+
+                # Take the Key Mix as something to trace, if not meaningful
+
+                if not ok:
+                    if kmix.kface == "⎋":
+                        sw.swrite("\0337")
+                        sw.sprint(kmix.kface, end="")
+                        kbindex = kr.kbindex - 1
+                    elif kmix.kface:
+                        sw.sprint("", kmix.kface, end=" ")
+                    elif kmix.kcaps:
+                        sw.sprint(kmix.kcaps, end="")
+                    else:
+                        sw.sprint("", kmix.kencode, end=" ")
+
+                # Exit at any of ⌃C ⌃D ⌃Z ⌃\
+
+                if kmix.kcaps in ("⌃C", "⌃D", "⌃Z", "⌃\\"):
+                    sw.sprint()
+                    sys.exit()
+
+            assert kmix is not empty_kmix, (kmix, empty_kmix)
+
+            # Stop looping back at ⌃Q or ⌃V
 
             if kmix.kcaps in ("⌃Q", "⌃V"):
                 break
 
-            count_if = self.kbindex_to_count_if(count_kbindex)
-            count = 1 if (count_if is None) else count_if
+        # todo5: stop disturbing the ⎋7 Alt Cursor
 
-            ok = False
-            for _ in range(count):
-
-                ok = False
-                ok = ok or self.answer_controls_kmix(kmix)
-                ok = ok or self.answer_arrows_kmix(kmix)
-
-                if not ok:
-                    break
-
-            if not ok:
-                if kmix.kface == "⎋":
-                    sw.swrite("\0337")
-                    sw.sprint(kmix.kface, end="")
-                    kbindex = kr.kbindex - 1
-                elif kmix.kface:
-                    sw.sprint("", kmix.kface, end=" ")
-                elif kmix.kcaps:
-                    sw.sprint(kmix.kcaps, end="")
-                else:
-                    sw.sprint("", kmix.kencode, end=" ")
-
-            if kmix.kcaps in ("⌃C", "⌃D", "⌃Z", "⌃\\"):
-                sw.sprint()
-                sys.exit()
-
-        # todo4: ⌥-Click to move Cursor to Mouse correctly over Wrapped Lines
-
-        # todo1: celebrate how our ⇥ and ⇧⇥ do speed up and snap-to-grid the → and ←
+        # todo1: celebrate how our ⇥ Tab and ⇧⇥ ⇧Tab do speed up and snap-to-grid the → and ←
         # todo1: livelocks less wild in Keyboard/ Screen loopback
-
-        # todo4: stop disturbing the ⎋7 Alt Cursor
 
         # todo4: bind Delete differently while Inserting
         # todo4: dream up ways to take text as text
 
+    def kmixes_to_leap_kmix(self, kmixes: list[KeyMix]) -> KeyMix:
+        """Convert Arrow Burst to a Mouse Click Release"""
+
+        kr = self.keyboard_reader
+
+        (h, w) = kr.high_wide
+        (y, x) = kr.row_column
+
+        assert 1 <= y <= h, (y, x, h, w)
+        assert 1 <= x <= w, (y, x, h, w)
+
+        # Take up each Key Mix, in order
+
+        for kmix in kmixes:
+            kpack = kmix.kpack
+
+            pn = -1
+
+            if kpack.closed:
+                if kpack.head == b"\033[":
+                    fm = re.fullmatch(rb"[0-9]+", string=kpack.neck)
+                    if fm:
+                        assert kpack.tail, (kpack.tail, kpack)  # because .closed
+
+                        pn = int(kpack.neck)
+
+            if pn < 0:
+                return KeyMix()
+
+            backtail = bytes(kpack.back + kpack.tail)
+
+            # Accept a Run-Length Compression of an Arrow
+
+            if backtail == b"A":  # ↑
+                y -= pn
+            elif backtail == b"B":  # ↓
+                y += pn
+            elif backtail == b"C":  # →
+                x += pn
+            elif backtail == b"D":  # ←
+                x -= pn
+            else:
+                return KeyMix()
+
+            # Wrap around Screen Edges (unlike the classic ⎋[ ⇧A ⇧B ⇧C ⇧D)
+
+            while x < 1:
+                x += w
+                y -= 1
+
+            while x > w:
+                x -= w
+                y += 1
+
+            assert 1 <= y <= h, (y, x, h, w)
+
+        # Fabricate a Touch Tap Release or Mouse Click Release
+
+        f = int("0b01000", base=0)  # f = 0b⌃⌥⇧00
+        kbytes = f"\033[<{f};{x};{y}m".encode()
+
+        query = "\033[5n"
+        reply = "\033[0n"
+        kqa = (query, reply)
+        kqa_tuple = (kqa,)
+
+        leap_kmix = KeyMix(kbytes, kqa_tuple=kqa_tuple)
+        assert leap_kmix, (leap_kmix,)
+
+        # Succeed
+
+        return leap_kmix
+
     def loop_back_kbindex(self, kbindex: int) -> int:
+        """Loop-back the Bytes at the ⎋ Esc and return -1, else return .kbindex unchanged"""
 
         assert kbindex >= 0, (kbindex,)
 
@@ -419,6 +525,9 @@ class TerminalStudio:
         kbytearray = kr.kbytearray
 
         sw = self.screen_writer
+
+        # Snoop a Python Int Literal, if present behind the ⎋ Esc
+        # Snoop a single Key Pack, if present at the ⎋ Esc
 
         count = self.kbindex_to_count_if(kbindex)
         end_kbytearray = kbytearray[kbindex:]
@@ -433,6 +542,9 @@ class TerminalStudio:
                 break
 
         if not extra:
+
+            # Loop-back the Key Pack if closed, and not a Mouse Click Release or Press
+
             kbytes = kpack.to_kbytes()
             neck_ = bytes(kpack.neck)
             tail_ = bytes(kpack.tail)
@@ -446,6 +558,9 @@ class TerminalStudio:
                 else:
                     kdecode = kbytes.decode()
 
+                    # Emulate macOS ⎋D and macOS ⎋L
+                    # in terms of more popular ⎋E and ⎋[⇧H
+
                     swrite = kdecode
                     if not flags.native:
                         if kdecode == "\033D":
@@ -453,12 +568,15 @@ class TerminalStudio:
                         elif kdecode == "\033l":
                             swrite = "\033[H"  # moves to Northwest Screen Corner
 
+                    # Write the Bytes of the Key Pack, but back at the ⎋ Esc
+
                     sw.swrite("\0338")
-                    if not count:
+
+                    if not count:  # writes once if not preceded by Int
                         sw.swrite(swrite)
-                    elif count < 0:
+                    elif count < 0:  # writes Py Repr of Bytes if preceded by Negative Int
                         sw.swrite(repr(swrite))
-                    else:
+                    else:  # writes 0 or more repeats if preceded by Non-Negative Int
                         for _ in range(count):
                             sw.swrite(swrite)
 
@@ -581,16 +699,16 @@ class TerminalStudio:
     # Choose Outputs for each Input
     #
 
-    def answer_printable_kdecode(self, kdecode: str) -> bool:
-        """Loop Printable Key Bytes to Screen"""
-
-        sw = self.screen_writer
-
-        if kdecode and kdecode.isprintable():
-            sw.swrite(kdecode)
-            return True
-
-        return False
+    # def answer_printable_kdecode(self, kdecode: str) -> bool:
+    #     """Loop Printable Key Bytes to Screen"""
+    #
+    #     sw = self.screen_writer
+    #
+    #     if kdecode and kdecode.isprintable():
+    #         sw.swrite(kdecode)
+    #         return True
+    #
+    #     return False
 
     def answer_controls_kmix(self, kmix: KeyMix) -> bool:
         """Loop basic Control Sequences to Screen"""
@@ -682,6 +800,47 @@ class TerminalStudio:
         # todo: offer classic ⌃\ as --egg=sigquit
 
         # todo: offer test of timeout=None timing out at ⌃D as --egg=eot
+
+    def answer_leap_kmix(self, kmix: KeyMix) -> bool:
+        """Leap the Terminal Cursor to come and meet a Touch Tap or Mouse Click Release or Press"""
+
+        kpack = kmix.kpack
+
+        sw = self.screen_writer
+
+        # Don't eat the Input without Echo unless given a --egg=leaper
+
+        if not flags.leaper:
+            return False
+
+        # Look for a Touch Tap Release or Mouse Click Release
+
+        f = x = y = -1
+
+        if kpack.closed:
+            if kpack.head == b"\033[":
+                fm = re.fullmatch(rb"<([0-9]+);([0-9]+);([0-9]+)", string=kpack.neck)
+                if fm:
+                    assert kpack.tail, (kpack.tail, kpack)  # because .closed
+
+                    f = int(fm.group(1))
+                    x = int(fm.group(2))
+                    y = int(fm.group(3))
+
+        if f < 0:
+            return False
+
+        backtail = bytes(kpack.back + kpack.tail)
+        if backtail not in (b"M", b"m"):
+            return False
+
+        # Leap the Terminal Cursor to come and meet a Touch Tap or Mouse Click Release
+
+        sw.swrite(f"\033[{y};{x}H")
+
+        return True
+
+        # todo6: solve .answer_leap_kmix for 6 Character Mouse Report's
 
 
 @dataclasses.dataclass(order=True)  # , frozen=True)
@@ -788,7 +947,7 @@ class KeyboardReader:
         if kmindex >= len(kmixes):
             self._fill_kmixes_(timeout=timeout)
             if kmindex >= len(kmixes):
-                empty_kmix = KeyMix(b"")
+                empty_kmix = KeyMix()
                 return empty_kmix
 
         # Read one Key Mix
@@ -853,7 +1012,7 @@ class KeyboardReader:
                 assert kmix.kcaps == combined_kcaps, (kmix.kcaps, kdecode, kencode)
                 kmix.kcaps = "⌥E"
 
-                option_e_j_kmix = KeyMix(b"")
+                option_e_j_kmix = KeyMix()
                 assert not option_e_j_kmix.kface, (option_e_j_kmix.kface, kencode)
                 assert not option_e_j_kmix.kcaps, (option_e_j_kmix.kcaps, kencode)
                 option_e_j_kcaps = "J" if kencode == b"j\xcc\x81" else "⇧J"
@@ -906,12 +1065,10 @@ class KeyboardReader:
 
                     # Patch up the 2nd Key Face of the 2 Key Mixes
 
-                    option_accent_kmix = KeyMix(kbytes=b"")
+                    option_accent_kmix = KeyMix()
 
                     assert not kmix.kface, (kmix.kface, kencode)  # because kbytes=b""
-                    assert not option_accent_kmix.kcaps, (
-                        option_accent_kmix.kcaps,
-                    )  # because kbytes=b""
+                    assert not option_accent_kmix.kcaps, option_accent_kmix.kcaps
 
                     option_accent_kmix.kcaps = kcaps_list[-1]  # 'I'
 
@@ -971,10 +1128,6 @@ class KeyboardReader:
                     kpacks.append(kpack)
                     kpack = KeyPack(b"")
                     continue
-
-            # todo4: do the ⌥ Click Release Bursts as ⎋[<{f};{x};{y}m Releases, not looped back
-            # todo3: Query/Reply ⎋[⇧R on top of ⎋[5N how often?
-            # todo3: Query/Reply ⎋[T on top of ⎋[5N how often?
 
         # Take the last of the Bytes arriving all at once as a Key Pack
 
@@ -1107,10 +1260,10 @@ class KeyboardReader:
 
                     continue
 
-        # If two or more Arrows keyed in at once
+        # If four or more Arrows keyed in at once
 
         kbytes = bytes(kbytearray[kbindex:])
-        if len(kbytes) >= (2 * 3):
+        if len(kbytes) >= (4 * 3):  # tested by mashing Arrows Keypad of ← ↑ ↓ →
             index = 0
             while index < len(kbytes):
                 arrow = kbytes[index:][:3]
@@ -1490,7 +1643,9 @@ class KeyMix:
     # and also .to_csi_ints_if and .to_csi_shift_m6_ints_if
     #
 
-    def __init__(self, kbytes: bytes, kqa_tuple: tuple[tuple[str, str], ...] = tuple()) -> None:
+    def __init__(
+        self, kbytes: bytes = b"", kqa_tuple: tuple[tuple[str, str], ...] = tuple()
+    ) -> None:
 
         # Collect
 
@@ -1719,6 +1874,8 @@ class KeyMix:
     @staticmethod
     def _try_key_mix_() -> None:
         """Run slow and quick Self-Test's of Class KeyMix"""
+
+        _ = KeyMix()  # < 20us
 
         for code in range(0x11000):
             decode = chr(code)
@@ -2091,8 +2248,6 @@ class KeyMix:
             return kface
 
             # ⎋⇥, ⎋⏎, ⎋⌫, like from Apple Keyboard > Option as Meta Key, or from pbpaste|
-
-            # todo4: solve:  printf '\033[Z' |pbcopy
 
         # Choose ⎋ followed by 1 Text Character, like from Apple Keyboard > Option as Meta Key
 
@@ -3237,14 +3392,6 @@ _S_ |= set(KeyPack.StartBytes)  # for Unicode Encodes
 _S_ |= set(KeyMix.OPTION_KT_ENCODE_START_SET)  # for ⌥ Option/Alt Accents
 
 EncodeStartSet = frozenset(_S_)
-
-
-#
-# Run a very few Self-Test's very quickly
-#
-
-
-_ = KeyMix(b"")  # < 20us
 
 
 #
