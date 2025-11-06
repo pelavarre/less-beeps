@@ -126,13 +126,12 @@ def shell_args_take_in(args: list[str], parser: ArgDocParser) -> None:
     # Take in the Args without final judgment
 
     ns = arg_doc_parser.parse_args_if(args)
+    assert ns.yolo, (ns.yolo, ns)  # else called .print_usage and exited
 
     ns_keys = list(vars(ns).keys())
     assert ns_keys == ["yolo", "force", "eggs"], (ns_keys, ns, args)
 
     # Fail now, else fall through
-
-    assert (ns.yolo is None) or (ns.yolo >= 1), (ns.yolo, ns, args)
 
     if ns.force:
         _try_less_beeps_()
@@ -389,6 +388,7 @@ class TerminalStudio:
 
             if not ok:
                 if kmix.kface == "⎋":
+                    sw.swrite("\0337")
                     sw.sprint(kmix.kface, end="")
                     kbindex = kr.kbindex - 1
                 elif kmix.kface:
@@ -407,7 +407,6 @@ class TerminalStudio:
         # todo1: celebrate how our ⇥ and ⇧⇥ do speed up and snap-to-grid the → and ←
         # todo1: livelocks less wild in Keyboard/ Screen loopback
 
-        # todo4: write the loop back at the left of the Key Caps, not beyond the end of them
         # todo4: stop disturbing the ⎋7 Alt Cursor
 
         # todo4: bind Delete differently while Inserting
@@ -455,6 +454,7 @@ class TerminalStudio:
                         elif kdecode == "\033l":
                             swrite = "\033[H"  # moves to Northwest Screen Corner
 
+                    sw.swrite("\0338")
                     if not count:
                         sw.swrite(swrite)
                     elif count < 0:
@@ -729,7 +729,6 @@ class KeyboardReader:
     kbytearray: bytearray  # Bytes fetched from Stdio
     kbindex: int  # count of Bytes returned
 
-    open_queries: list[str]  # Queries written, not yet closed by Replies
     high_wide: tuple[int, int]  # (-1, -1) and then (y_high, x_wide) from ⎋[18T
     row_column: tuple[int, int]  # (-1, -1) and then (row_y, column_x) from ⎋[6N
 
@@ -747,7 +746,6 @@ class KeyboardReader:
         self.kbytearray = bytearray()
         self.kbindex = 0
 
-        self.open_queries = list()
         self.high_wide = (-1, -1)
         self.row_column = (-1, -1)
 
@@ -994,9 +992,19 @@ class KeyboardReader:
         sw = self.screen_writer
         kbytearray = self.kbytearray
         kbindex = self.kbindex
-        open_queries = self.open_queries
 
         encode_start_set = EncodeStartSet
+
+        # Name the Queries, Replies, and Marks that place Input Bytes in context
+
+        assert DSR_5 == "\033[" "5n"  # ⎋[5N
+        assert DSR_0 == "\033[" "0n"  # ⎋[0N
+        assert DSR_6 == "\033[" "6n"  # ⎋[6N
+        assert CPR_Y_X == "\033[" "{};{}R"  # ⎋[{y};{x}⇧R
+        assert XTWINOPS_18 == "\033[" "18t"  # ⎋[18T
+        assert XTWINOPS_8_H_W == "\033[" "8;{};{}t"  # ⎋[8;{h};{w}T
+        assert _START_PASTE_ == "\033[" "200~"  # ⎋[200⇧~
+        assert _END_PASTE_ == "\033[" "201~"  # ⎋[201⇧~
 
         # Read more Key Bytes only when needed
 
@@ -1005,51 +1013,50 @@ class KeyboardReader:
         # Fetch 1 Key Byte to start with
 
         kbyte = ts.read_one_kbyte_if(timeout=timeout)  # fetches one or zero Key Bytes
+        assert len(kbyte) == 1, (kbyte,)
         kbytearray.extend(kbyte)
 
-        query_index = len(kbytearray)
+        # Plan to fetch Key Packs till next ⎋[0N, if the Key Packs might be multipack or multibyte
 
-        # Plan to fetch Key Packs till next ⎋[0N, if the Key Packs might be multibyte or multiple
-
+        removables = list()
         if kbyte in encode_start_set:
-            query = "\033[5n"
-            sw.swrite(query)
-            open_queries.append(query)
+            removables.append("\033[5n")  # ⎋[5N
+
+        # removables.append("\033[6n") # ⎋[6N  # todo4:
+        # removables.append("\033[18t") # ⎋[18T  # todo4:
+
+        for removable in removables:
+            sw.swrite(removable)
 
         # Fetch Key Packs till next Reply, if Query asked
 
-        queries: list[str] = list()
-        replies: list[str] = list()
-
-        while open_queries:
+        queries = list()
+        replies = list()
+        while removables:
 
             # Fetch 1 Key Byte
 
             kbyte = ts.read_one_kbyte_if(timeout=timeout)  # fetches one or zero Key Bytes
+            assert len(kbyte) == 1, (kbyte,)
             kbytearray.extend(kbyte)
 
-            # Don't take ⎋[0N as End-of-Input when immediately after explicit ⎋[200~ Start-of-Paste
-
-            if kbytearray[kbindex:] == b"\033[200~":
-                query_index = len(kbytearray) + 1
-
-            # Do take ⎋[0N as End-of-Input when received after sending ⎋[5 to ask for it
-
-            query = "\033[5n"
+            # Take ⎋[0N as Reply to ⎋[5N
 
             reply = "\033[0n"
             reply_encode = reply.encode()
             n = len(reply_encode)
 
             assert reply_encode, reply_encode  # because truthy .open_querys
-            if kbytearray[query_index:].endswith(reply_encode):
+            if kbytearray.endswith(reply_encode):
+                replies.append(reply)
+
                 del kbytearray[-n:]
 
-                assert open_queries == [query], (open_queries, query)
-                open_queries.remove(query)
-
+                query = "\033[5n"
                 queries.append(query)
-                replies.append(reply)
+
+                assert query in removables, (query, removables)
+                removables.remove(query)
 
         # Succeed
 
