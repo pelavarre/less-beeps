@@ -33,6 +33,7 @@ import collections
 import collections.abc  # .abc is not .collections.abc
 import dataclasses
 import difflib
+import itertools
 import math
 import os
 import pdb
@@ -1105,6 +1106,31 @@ class KeyboardReader:
                     self.high_wide = (y_high, x_wide)  # replaces
 
                     continue
+
+        # If two or more Arrows keyed in at once
+
+        kbytes = bytes(kbytearray[kbindex:])
+        if len(kbytes) >= (2 * 3):
+            index = 0
+            while index < len(kbytes):
+                arrow = kbytes[index:][:3]
+                if arrow not in (b"\033[A", b"\033[B", b"\033[C", b"\033[D"):
+                    break
+                index += 3
+
+            assert index <= len(kbytes), (index, len(kbytes), kbytes)
+            if index == len(kbytes):
+
+                # Compress the Run Lengths of Repeated Arrows
+
+                decode = kbytes.decode()
+                arrow_list = [decode[_:][:3] for _ in range(0, len(decode), 3)]
+                compressed = "".join(
+                    f"\033[{len(list(g))}{k[-1]}" for k, g in itertools.groupby(arrow_list)
+                )
+
+                del kbytearray[kbindex:]
+                kbytearray.extend(compressed.encode())
 
         # Succeed
 
