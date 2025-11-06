@@ -64,10 +64,8 @@ if not __debug__:
 class Flags:
 
     apple: bool = sys.platform == "darwin"  # flags.apple
-    google: bool = bool(os.environ.get("CLOUD_SHELL", default_eq_None))  # flags.google
-    terminal: bool = (
-        os.environ.get("TERM_PROGRAM", default_eq_None) == "Apple_Terminal"
-    )  # flags.terminal
+    google: bool = bool(os.environ.get("CLOUD_SHELL", ""))  # flags.google
+    terminal: bool = os.environ.get("TERM_PROGRAM", "") == "Apple_Terminal"  # flags.terminal
 
     portrait: bool = False  # flags.portrait, for when lots more high than wide
     barefoot: bool = False  # flags.barefoot, for when no rows beneath a Southern Keyboard
@@ -816,7 +814,9 @@ class KeyboardReader:
 
         # Fill with Key Packs, else quit now
 
-        kqa_tuple: tuple[tuple[str, str], ...] = tuple()
+        kqa_tuple: tuple[tuple[str, str], ...]
+        kqa_tuple = tuple()
+
         if kpindex >= len(kpacks):
             kqa_tuple = self._fill_kpacks_(timeout=timeout)
             if kpindex >= len(kpacks):
@@ -934,7 +934,8 @@ class KeyboardReader:
 
         # Fill with Bytes, else quit now
 
-        kqa_tuple: tuple[tuple[str, str], ...] = tuple()
+        kqa_tuple: tuple[tuple[str, str], ...]
+        kqa_tuple = tuple()
         if kbindex >= len(kbytearray):
             kqa_tuple = self._fill_kbytearray_(timeout)
             if kbindex >= len(kbytearray):
@@ -1003,8 +1004,6 @@ class KeyboardReader:
         assert CPR_Y_X == "\033[" "{};{}R"  # ⎋[{y};{x}⇧R
         assert XTWINOPS_18 == "\033[" "18t"  # ⎋[18T
         assert XTWINOPS_8_H_W == "\033[" "8;{};{}t"  # ⎋[8;{h};{w}T
-        assert _START_PASTE_ == "\033[" "200~"  # ⎋[200⇧~
-        assert _END_PASTE_ == "\033[" "201~"  # ⎋[201⇧~
 
         # Read more Key Bytes only when needed
 
@@ -1022,8 +1021,8 @@ class KeyboardReader:
         if kbyte in encode_start_set:
             removables.append("\033[5n")  # ⎋[5N
 
-        # removables.append("\033[6n") # ⎋[6N  # todo4:
-        # removables.append("\033[18t") # ⎋[18T  # todo4:
+        removables.append("\033[6n")  # ⎋[6N  # hangs at ⌃J
+        removables.append("\033[18t")  # ⎋[18T
 
         for removable in removables:
             sw.swrite(removable)
@@ -1038,25 +1037,74 @@ class KeyboardReader:
 
             kbyte = ts.read_one_kbyte_if(timeout=timeout)  # fetches one or zero Key Bytes
             assert len(kbyte) == 1, (kbyte,)
+
             kbytearray.extend(kbyte)
+            kbytes = bytes(kbytearray[kbindex:])
 
-            # Take ⎋[0N as Reply to ⎋[5N
+            # sw.sprint(f"1 SQUIRREL {kbytes=} {removables=}")
 
+            # Take ⎋[0N as the Reply to one ⎋[5N
+
+            query = "\033[5n"
             reply = "\033[0n"
-            reply_encode = reply.encode()
-            n = len(reply_encode)
 
-            assert reply_encode, reply_encode  # because truthy .open_querys
-            if kbytearray.endswith(reply_encode):
-                replies.append(reply)
+            dsr0_match = re.match(rb"^.*(\033\[0n)$", string=kbytes, flags=re.DOTALL)
+            if dsr0_match:
+                if query in removables:
+                    n = len(dsr0_match.group(1))
+                    del kbytearray[-n:]
+                    removables.remove(query)
 
-                del kbytearray[-n:]
+                    queries.append(query)
+                    replies.append(reply)
 
-                query = "\033[5n"
-                queries.append(query)
+                    continue
 
-                assert query in removables, (query, removables)
-                removables.remove(query)
+            # Take ⎋[ ⇧R as the Reply to one ⎋[6N
+
+            query = "\033[6n"
+
+            yx_match = re.match(rb"^.*(\033\[([0-9]+);([0-9]+)R)$", string=kbytes, flags=re.DOTALL)
+            if yx_match:
+                if query in removables:
+                    n = len(yx_match.group(1))
+                    del kbytearray[-n:]
+                    removables.remove(query)
+
+                    # Publish the Y Row & X Column
+
+                    y_row = int(yx_match.group(2))
+                    x_column = int(yx_match.group(3))
+
+                    assert y_row >= 1, (y_row,)
+                    assert x_column >= 1, (x_column,)
+
+                    self.row_column = (y_row, x_column)  # replaces
+
+                    continue
+
+            # Take ⎋[8 T as the Reply to one ⎋[18T
+
+            query = "\033[18t"
+
+            hw_match = re.match(rb"^.*(\033\[8;([0-9]+);([0-9]+)t)$", string=kbytes, flags=re.DOTALL)
+            if hw_match:
+                if query in removables:
+                    n = len(hw_match.group(1))
+                    del kbytearray[-n:]
+                    removables.remove(query)
+
+                    # Publish the Y High & X Wide
+
+                    y_high = int(hw_match.group(2))
+                    x_wide = int(hw_match.group(3))
+
+                    assert y_high >= 5, (y_high,)  # todo: less high than Apple macOS Terminal
+                    assert x_wide >= 20, (x_wide,)  # todo: less wide than Apple macOS Terminal
+
+                    self.high_wide = (y_high, x_wide)  # replaces
+
+                    continue
 
         # Succeed
 
@@ -1416,7 +1464,7 @@ class KeyMix:
     # and also .to_csi_ints_if and .to_csi_shift_m6_ints_if
     #
 
-    def __init__(self, kbytes: bytes, kqa_tuple: tuple[tuple[str, str], ...] = ()) -> None:
+    def __init__(self, kbytes: bytes, kqa_tuple: tuple[tuple[str, str], ...] = tuple()) -> None:
 
         # Collect
 
