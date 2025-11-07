@@ -6,17 +6,18 @@
 
 1 ) There may be more than nine games, or less than one
 
-2 ) You can press any of of the classic ⌃C ⌃D ⌃Z ⌃\ to quit, you don't have to choose
+2 ) You can press any of the classic ⌃C ⌃D ⌃Z ⌃\ to quit, you don't have to choose
 
 3 ) You can press ⌃Q to close ⌃V ⌃V, you can press ⌃V to close ⌃Q ⌃Q
 
-And yes indeed, our .md Markdown Sourcefiles do have more words in them,
+And our .md Markdown Sourcefiles do have more words in them,
 found inside each of their invisible \<\!-- --\> Html tags
 
 ## Easter Eggs we have coded and named
 
-Two
+Three
 
+    --egg=leaper  # tap to move cursor, especially the ⌥ option/alt click
     --egg=native  # loops your Keyboard to Screen with no friendly distortions
     --egg=sigint  # for ⌃C to work (and for ⌃J to come across as ⌃M ⌃J)
 

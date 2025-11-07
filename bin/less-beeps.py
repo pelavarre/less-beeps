@@ -19,7 +19,7 @@ examples:
   bin/@
   ./bin/less-beeps.py --yolo
   ./bin/less-beeps.py --egg=native --egg=sigint  # emulations off, but ⌃C to quit
-  ./bin/less-beeps.py --egg=leaper  # tap to move cursor
+  ./bin/less-beeps.py --egg=leaper  # tap to move cursor, especially the ⌥ option/alt click
 """
 
 # code reviewed by People, Black, Flake8, Mypy-Strict, & Pylance-Standard
@@ -58,19 +58,20 @@ if not __debug__:
 
 
 #
-# Describe the enclosing Shell in its Terminal Window Pane
+# Choose a personality
 #
 
 
 @dataclasses.dataclass(order=True)  # , frozen=True)
 class Flags:
+    """Choose a personality"""
 
     apple: bool = sys.platform == "darwin"  # flags.apple
     google: bool = bool(os.environ.get("CLOUD_SHELL", ""))  # flags.google
     terminal: bool = os.environ.get("TERM_PROGRAM", "") == "Apple_Terminal"  # flags.terminal
 
     portrait: bool = False  # flags.portrait, for when lots more high than wide
-    barefoot: bool = False  # flags.barefoot, for when no rows beneath a Southern Keyboard
+    barefoot: bool = False  # flags.barefoot, for when rows not-hidden beneath a Southern Keyboard
 
     leaper: bool = False  # flags.leaper, for tap to move cursor
     native: bool | None = None  # flags.native, for don't make this Terminal feel friendlier
@@ -176,7 +177,7 @@ def _try_less_beeps_() -> None:
 
 
 class TerminalStudio:
-    """Run from the Shell Command Line, and launch the Py Repl vs uncaught Exceptions"""
+    """Run inside 1 Terminal Window Pane, till Quit"""
 
     stdio: typing.TextIO
     fileno: int
@@ -279,6 +280,22 @@ class TerminalStudio:
 
         # todo: try termios.TCSAFLUSH to discard Input at exit
 
+    @staticmethod
+    def breakpoint() -> None:
+        """Redefine \n as \r\n for breakpoint'ing"""
+
+        ts = TerminalStudio.selves[-1]
+
+        ts.__exit__()  # no need to pass in:  *sys.exc_info()
+
+        breakpoint()  # Pdb likes:  where, up, down, ts = None, continue
+        pass  # Pdb likes:  where, up, down, ts = None, continue
+
+        if ts:
+            ts.__exit__()
+
+        # todo: does each Breakpoint disturb ⌃C SigInt ?
+
     #
     # Fetch from Keyboard
     #
@@ -336,7 +353,7 @@ class TerminalStudio:
             else:
                 sw.sprint("Close your Terminal Window Pane to quit")
                 sw.sprint("Press Return to agree, press Spacebar to disagree")
-                kmix = kr.read_one_key_mix()
+                kmix = kr.read_one_key_mix()  # todo5: retire .read_one_key_mix
                 if kmix.kface != "⏎":  # such as "␢"
                     sys.exit(1)
 
@@ -435,13 +452,14 @@ class TerminalStudio:
             if kmix.kcaps in ("⌃Q", "⌃V"):
                 break
 
-        # todo5: stop disturbing the ⎋7 Alt Cursor
+        # todo4: stop disturbing the ⎋7 Alt Cursor
 
         # todo1: celebrate how our ⇥ Tab and ⇧⇥ ⇧Tab do speed up and snap-to-grid the → and ←
         # todo1: livelocks less wild in Keyboard/ Screen loopback
 
-        # todo4: bind Delete differently while Inserting
-        # todo4: dream up ways to take text as text
+        # todo5: bind Delete differently while Inserting
+        # todo5: dream up ways to take text as text
+        # todo5: vertical paste
 
     def kmixes_to_leap_kmix(self, kmixes: list[KeyMix]) -> KeyMix:
         """Convert Arrow Burst to a Mouse Click Release"""
@@ -502,14 +520,14 @@ class TerminalStudio:
         # Fabricate a Touch Tap Release or Mouse Click Release
 
         f = int("0b01000", base=0)  # f = 0b⌃⌥⇧00
-        kbytes = f"\033[<{f};{x};{y}m".encode()
+        kencode = f"\033[<{f};{x};{y}m".encode()
 
         query = "\033[5n"
         reply = "\033[0n"
         kqa = (query, reply)
         kqa_tuple = (kqa,)
 
-        leap_kmix = KeyMix(kbytes, kqa_tuple=kqa_tuple)
+        leap_kmix = KeyMix(kencode, kqa_tuple=kqa_tuple)
         assert leap_kmix, (leap_kmix,)
 
         # Succeed
@@ -545,18 +563,18 @@ class TerminalStudio:
 
             # Loop-back the Key Pack if closed, and not a Mouse Click Release or Press
 
-            kbytes = kpack.to_kbytes()
+            kencode = kpack.to_kbytes()
             neck_ = bytes(kpack.neck)
             tail_ = bytes(kpack.tail)
 
             if kpack.closed:
 
-                if kbytes.startswith(b"\033[M"):
+                if kencode.startswith(b"\033[M"):
                     pass  # sw.swrite("⎋[⇧M{cb}{cx}{cy} Click")  # Release or Press
                 elif neck_.startswith(b"<") and (tail_ in (b"m", b"M")):
                     pass  # sw.swrite("⎋[<{f};{x};{y}m Click")  # Release or Press
                 else:
-                    kdecode = kbytes.decode()
+                    kdecode = kencode.decode()
 
                     # Emulate macOS ⎋D and macOS ⎋L
                     # in terms of more popular ⎋E and ⎋[⇧H
@@ -686,9 +704,9 @@ class TerminalStudio:
 
         # Drain the Keyboard Bytes fetched ahead
 
-        kbytes = bytes(kbytearray[kr.kbindex :])
-        if kbytes:  # todo: empty except when Exception unhandled?
-            sw.sprint(kbytes)
+        kencode = bytes(kbytearray[kr.kbindex :])
+        if kencode:  # todo: empty except when Exception unhandled?
+            sw.sprint(kencode)
             sw.sprint()
 
         sw.sprint("bye")
@@ -791,7 +809,7 @@ class TerminalStudio:
 
         return True
 
-        # todo: take ⌃A ⌃S ⌃D ⌃F as second player arrows
+        # todo5: take ⌃A ⌃S ⌃D ⌃F as second player arrows
 
         # todo3: take ⌃S ⌃Q as --egg=xoff
 
@@ -818,7 +836,7 @@ class TerminalStudio:
 
         f = x = y = -1
 
-        (kintsmark, kints) = KeyMix.to_csi_shift_m6_ints_if(kencode)  # todo3: .kencode vs .kbytes
+        (kintsmark, kints) = KeyMix.to_csi_shift_m6_ints_if(kbytes=kencode)
         assert bool(kintsmark) == bool(kints), (kintsmark, kints, kencode)
         if kintsmark:
             assert kintsmark == b"M", (kintsmark, kencode)
@@ -849,8 +867,6 @@ class TerminalStudio:
         sw.swrite(f"\033[{y};{x}H")
 
         return True
-
-        # todo6: solve .answer_leap_kmix for 6 Character Mouse Report's
 
 
 @dataclasses.dataclass(order=True)  # , frozen=True)
@@ -926,7 +942,7 @@ class KeyboardReader:
         # Fetch some Key Mixes, else timeout and return an empty List
 
         if kmindex >= len(kmixes):
-            self._fill_kmixes_(timeout=None)
+            self._demand_kmixes_(timeout=None)
             if kmindex >= len(kmixes):
                 return list()
 
@@ -955,7 +971,7 @@ class KeyboardReader:
         # Fetch one truthy Key Mix, else timeout and return a falsey empty Key Mix
 
         if kmindex >= len(kmixes):
-            self._fill_kmixes_(timeout=timeout)
+            self._demand_kmixes_(timeout=timeout)
             if kmindex >= len(kmixes):
                 empty_kmix = KeyMix()
                 return empty_kmix
@@ -967,8 +983,8 @@ class KeyboardReader:
 
         return kmix
 
-    def _fill_kmixes_(self, timeout: float | None) -> None:
-        """Read enough Key Packs to close the next Key Mix"""
+    def _demand_kmixes_(self, timeout: float | None) -> None:
+        """Fetch some Key Mixes of closed Key Packs"""
 
         kmixes = self.kmixes
         kmindex = self.kmindex
@@ -988,7 +1004,7 @@ class KeyboardReader:
         kqa_tuple = tuple()
 
         if kpindex >= len(kpacks):
-            kqa_tuple = self._fill_kpacks_(timeout=timeout)
+            kqa_tuple = self._demand_kpacks_(timeout=timeout)
             if kpindex >= len(kpacks):
                 return
 
@@ -996,6 +1012,8 @@ class KeyboardReader:
 
         while kpindex < len(kpacks):
             kpack = kpacks[kpindex]
+            assert kpack.closed, (kpack.closed, kpack)
+
             self.kpindex += 1
             kpindex = self.kpindex  # replaces
 
@@ -1008,13 +1026,11 @@ class KeyboardReader:
             except UnicodeDecodeError:
                 kdecode = ""
 
-            kmix = KeyMix(kbytes=kencode, kqa_tuple=kqa_tuple)
-
             # Take up 1 or the 1st of 2 Key Mixes from 1 or 2 Key Packs
-
-            kmixes.append(kmix)
-
             # Take up 2 Key Mixes from 1 Key Pack, when sent by an Option/Alt ⌥ Accent E plus J or ⇧J
+
+            kmix = KeyMix(kencode, kqa_tuple=kqa_tuple)
+            kmixes.append(kmix)
 
             if kencode in (b"j\xcc\x81", b"J\xcc\x81"):
                 combined_kcaps = "J́" if kencode == b"j\xcc\x81" else "⇧J́"
@@ -1022,36 +1038,38 @@ class KeyboardReader:
                 assert kmix.kcaps == combined_kcaps, (kmix.kcaps, kdecode, kencode)
                 kmix.kcaps = "⌥E"
 
-                option_e_j_kmix = KeyMix()
-                assert not option_e_j_kmix.kface, (option_e_j_kmix.kface, kencode)
-                assert not option_e_j_kmix.kcaps, (option_e_j_kmix.kcaps, kencode)
-                option_e_j_kcaps = "J" if kencode == b"j\xcc\x81" else "⇧J"
-                assert len(option_e_j_kcaps) in (1, 2), (
-                    len(option_e_j_kcaps),
-                    option_e_j_kcaps,
-                    kencode,
-                )
-                option_e_j_kmix.kcaps = option_e_j_kcaps
+                e_j_kmix = KeyMix()
+                assert not e_j_kmix.kface, (e_j_kmix.kface, kencode)
+                assert not e_j_kmix.kcaps, (e_j_kmix.kcaps, kencode)
+                e_j_kcaps = "J" if kencode == b"j\xcc\x81" else "⇧J"
+                assert len(e_j_kcaps) in (1, 2), (len(e_j_kcaps), e_j_kcaps, kencode)
+                e_j_kmix.kcaps = e_j_kcaps
 
-                kmixes.append(option_e_j_kmix)
+                kmixes.append(e_j_kmix)
+
                 continue
 
             # Take up 2 Key Mixes from 1 Key Pack, when sent by an Option/Alt ⌥ Accent Key
 
-            option_accent_key_mix_pair = kdecode in option_ktext_by_kt.keys()
+            accent_key_mix_pair = kdecode in option_ktext_by_kt.keys()
             if kdecode and (kdecode[0] == "`") and (kdecode[1:]):
-                option_accent_key_mix_pair = True
+                assert len(kdecode) == 2, (kdecode, kencode)
+                accent_key_mix_pair = True
 
-            if option_accent_key_mix_pair:
-                assert kdecode, (kdecode, kencode)  # option_ktext or ``
-                assert not kmix.kface, (kmix.kface, kdecode, kencode)  # option_ktext or ``
+            if accent_key_mix_pair:
+                assert kdecode, (kdecode, kencode)  # ktext or `` or `P etc
+                assert not kmix.kface, (kmix.kface, kdecode, kencode)
 
                 if kdecode.startswith("`"):
+
                     ktext = "⌥`"
                     assert kmix.kcaps.startswith("`"), (kmix.kcaps, kdecode, kencode)
                     kcaps_list = [ktext, kmix.kcaps[1:]]
+
                     kmix.kcaps = ktext
+
                 else:
+
                     assert len(kdecode) == 1, (kdecode, kencode)
                     ktext = option_ktext_by_kt[kdecode]
                     kcaps_list = ktext.split()
@@ -1063,6 +1081,7 @@ class KeyboardReader:
                         if kcaps_0.startswith("⌥⇧"):  # (kcaps_0 == "⌥`") is already ok
                             assert kcaps_0.count("⇧") == 1, (kcaps_0, kencode)  # '⌥⇧E'
                             alt_kcaps_0 = kcaps_0.replace("⌥⇧", "⌥")  # '⌥E'
+
                             kmix.kcaps = alt_kcaps_0
 
                 # Patch up the 1st Key Face of the 2 Key Mixes
@@ -1075,18 +1094,18 @@ class KeyboardReader:
 
                     # Patch up the 2nd Key Face of the 2 Key Mixes
 
-                    option_accent_kmix = KeyMix()
+                    accent_kmix = KeyMix()
+                    assert not accent_kmix.kface, (accent_kmix.kface, kencode)
+                    assert not accent_kmix.kcaps, accent_kmix.kcaps
 
-                    assert not kmix.kface, (kmix.kface, kencode)  # because kbytes=b""
-                    assert not option_accent_kmix.kcaps, option_accent_kmix.kcaps
+                    accent_kmix.kcaps = kcaps_list[-1]  # 'I'
 
-                    option_accent_kmix.kcaps = kcaps_list[-1]  # 'I'
+                    kmixes.append(accent_kmix)
 
-                    kmixes.append(option_accent_kmix)
                     continue
 
-    def _fill_kpacks_(self, timeout: float | None) -> tuple[tuple[str, str], ...]:
-        """Read enough Key Bytes to close the next Key Pack"""
+    def _demand_kpacks_(self, timeout: float | None) -> tuple[tuple[str, str], ...]:
+        """Fetch some closed Key Packs of Keyboard Bytes"""
 
         kpacks = self.kpacks
         kpindex = self.kpindex
@@ -1105,7 +1124,7 @@ class KeyboardReader:
         kqa_tuple: tuple[tuple[str, str], ...]
         kqa_tuple = tuple()
         if kbindex >= len(kbytearray):
-            kqa_tuple = self._fill_kbytearray_(timeout)
+            kqa_tuple = self._demand_kbytearray_(timeout)
             if kbindex >= len(kbytearray):
                 assert not kqa_tuple, (kqa_tuple,)
                 return kqa_tuple
@@ -1119,6 +1138,9 @@ class KeyboardReader:
             # Append Bytes till Key Pack closes
 
             extra = kpack.take_one_kbyte_if(kbyte)
+            if extra:
+                assert kpack.closed, (kpack.closed, extra, kpack, kbyte)
+
             if not extra:
                 self.kbindex += 1
                 kbindex = self.kbindex  # replaces
@@ -1135,6 +1157,7 @@ class KeyboardReader:
             text = kpack.text
             if len(kpacks) == kpindex:
                 if text and (text in option_kt_join):  # '∂' for ⌥D
+                    kpack.close()
                     kpacks.append(kpack)
                     kpack = KeyPack(b"")
                     continue
@@ -1142,6 +1165,7 @@ class KeyboardReader:
         # Take the last of the Bytes arriving all at once as a Key Pack
 
         if kpack:
+            kpack.close()
             kpacks.append(kpack)
 
         # Succeed
@@ -1150,8 +1174,8 @@ class KeyboardReader:
 
         # todo2: test ⎋[⇧M Csi Mouse Report then ⎋[⇧Z etc with ⎋[5n and ⎋[0n
 
-    def _fill_kbytearray_(self, timeout: float | None) -> tuple[tuple[str, str], ...]:
-        """Fetch Bytes into Self"""
+    def _demand_kbytearray_(self, timeout: float | None) -> tuple[tuple[str, str], ...]:
+        """Fetch some Bytes from the Keyboard"""
 
         ts = self.terminal_studio
         sw = self.screen_writer
@@ -1177,6 +1201,7 @@ class KeyboardReader:
 
         kbyte = ts.read_one_kbyte_if(timeout=timeout)  # fetches one or zero Key Bytes
         assert len(kbyte) == 1, (kbyte,)
+
         kbytearray.extend(kbyte)
 
         # Plan to fetch Key Packs till next ⎋[0N, if the Key Packs might be multipack or multibyte
@@ -1203,16 +1228,14 @@ class KeyboardReader:
             assert len(kbyte) == 1, (kbyte,)
 
             kbytearray.extend(kbyte)
-            kbytes = bytes(kbytearray[kbindex:])
-
-            # sw.sprint(f"1 SQUIRREL {kbytes=} {removables=}")
+            queried_kbytes = bytes(kbytearray[kbindex:])
 
             # Take ⎋[0N as the Reply to one ⎋[5N
 
             query = "\033[5n"
             reply = "\033[0n"
 
-            dsr0_match = re.match(rb"^.*(\033\[0n)$", string=kbytes, flags=re.DOTALL)
+            dsr0_match = re.match(rb"^.*(\033\[0n)$", string=queried_kbytes, flags=re.DOTALL)
             if dsr0_match:
                 if query in removables:
                     n = len(dsr0_match.group(1))
@@ -1228,7 +1251,9 @@ class KeyboardReader:
 
             query = "\033[6n"
 
-            yx_match = re.match(rb"^.*(\033\[([0-9]+);([0-9]+)R)$", string=kbytes, flags=re.DOTALL)
+            yx_match = re.match(
+                rb"^.*(\033\[([0-9]+);([0-9]+)R)$", string=queried_kbytes, flags=re.DOTALL
+            )
             if yx_match:
                 if query in removables:
                     n = len(yx_match.group(1))
@@ -1251,7 +1276,9 @@ class KeyboardReader:
 
             query = "\033[18t"
 
-            hw_match = re.match(rb"^.*(\033\[8;([0-9]+);([0-9]+)t)$", string=kbytes, flags=re.DOTALL)
+            hw_match = re.match(
+                rb"^.*(\033\[8;([0-9]+);([0-9]+)t)$", string=queried_kbytes, flags=re.DOTALL
+            )
             if hw_match:
                 if query in removables:
                     n = len(hw_match.group(1))
@@ -1272,28 +1299,29 @@ class KeyboardReader:
 
         # If four or more Arrows keyed in at once
 
-        kbytes = bytes(kbytearray[kbindex:])
-        if len(kbytes) >= (4 * 3):  # tested by mashing Arrows Keypad of ← ↑ ↓ →
+        filled_kbytes = bytes(kbytearray[kbindex:])
+
+        if len(filled_kbytes) >= (4 * 3):  # tested by mashing Arrows Keypad of ← ↑ ↓ →
+
             index = 0
-            while index < len(kbytes):
-                arrow = kbytes[index:][:3]
-                if arrow not in (b"\033[A", b"\033[B", b"\033[C", b"\033[D"):
+            while index < len(filled_kbytes):
+                few_kbytes = filled_kbytes[index:][:3]
+                if few_kbytes not in (b"\033[A", b"\033[B", b"\033[C", b"\033[D"):
                     break
                 index += 3
 
-            assert index <= len(kbytes), (index, len(kbytes), kbytes)
-            if index == len(kbytes):
+            # Compress the Run Lengths of Repeated Arrows
 
-                # Compress the Run Lengths of Repeated Arrows
+            assert index <= len(filled_kbytes), (index, len(filled_kbytes), filled_kbytes)
+            if index == len(filled_kbytes):
+                filled_kchars = filled_kbytes.decode()
 
-                decode = kbytes.decode()
-                arrow_list = [decode[_:][:3] for _ in range(0, len(decode), 3)]
-                compressed = "".join(
-                    f"\033[{len(list(g))}{k[-1]}" for k, g in itertools.groupby(arrow_list)
-                )
+                steps = [filled_kchars[_:][:3] for _ in range(0, len(filled_kchars), 3)]
+                runs = list(f"\033[{len(list(g))}{k[-1]}" for k, g in itertools.groupby(steps))
+                alt_filled_kbytes = "".join(runs).encode()
 
                 del kbytearray[kbindex:]
-                kbytearray.extend(compressed.encode())
+                kbytearray.extend(alt_filled_kbytes)
 
         # Succeed
 
@@ -1314,7 +1342,7 @@ _ARGPARSE_3_10_ = (3, 10)  # Ubuntu 2022 Oct/2021 Python 3.10
 
 @dataclasses.dataclass(order=True)  # , frozen=True)
 class ArgDocParser:
-    """Scrape out Prog & Description & Epilog from Doc to form an Argument Parser"""
+    """Scrape Prog & Description & Epilog from Doc to form an ArgParse Argument Parser"""
 
     doc: str  # a copy of parser.format_help()
     add_help: bool  # truthy to define '-h, --help', else not
@@ -1637,10 +1665,10 @@ def excepthook(  # ) -> ...:
 
 @dataclasses.dataclass(order=True)  # , frozen=True)
 class KeyMix:
-    """Bundle one Tap or Click or Keyboard Input"""
+    """Bundle one Input: Tap or Click released or pressed, or a Keyboard Chord pressed"""
 
-    kface: str  # '⏎'  # '<>'
-    kcaps: str  # '⌃M'  # '⌃[[A'
+    kface: str  # ''  # '⏎'  # '↑'
+    kcaps: str  # ''  # '⌃M'  # '⎋[⇧A'
     kpack: KeyPack  # .head .neck .back .stash .tail
     kencode: bytes  # .kpack.to_kbytes()
     kdecode: str  # .decode of .encode, else Empty Str ""
@@ -1654,24 +1682,29 @@ class KeyMix:
     #
 
     def __init__(
-        self, kbytes: bytes = b"", kqa_tuple: tuple[tuple[str, str], ...] = tuple()
+        self, kencode: bytes = b"", kqa_tuple: tuple[tuple[str, str], ...] = tuple()
     ) -> None:
 
         # Collect
 
+        kbytes = kencode
+
         kface = KeyMix.to_kface_if(kbytes)
         kcaps = KeyMix.to_kcaps_if(kbytes)
-        kpack = KeyPack(kbytes)  # maybe .closed, maybe not
 
-        kencode = kbytes
+        kpack = KeyPack(kbytes)  # maybe .closed, maybe not
+        kpack.close()
+
         try:
-            kdecode = kbytes.decode()
+            kdecode = kencode.decode()
         except UnicodeDecodeError:
             kdecode = ""
 
         (kintsmark, kints) = KeyMix.to_csi_ints_if(kbytes)
-        if (not kintsmark) and (not kints):
+        assert bool(kintsmark) == bool(kints), (kintsmark, kints, kbytes)
+        if not kintsmark:
             (kintsmark, kints) = KeyMix.to_csi_shift_m6_ints_if(kbytes)
+            assert bool(kintsmark) == bool(kints), (kintsmark, kints, kbytes)
 
         # Succeed
 
@@ -1689,9 +1722,9 @@ class KeyMix:
     def __bool__(self) -> bool:
 
         kcaps = self.kcaps
-        kpack = self.kpack
+        kencode = self.kencode
 
-        truthy = bool(kcaps) or bool(kpack)
+        truthy = bool(kcaps) or bool(kencode)  # don't care that Closed Key Pack is Truthy
 
         return truthy
 
@@ -1852,23 +1885,23 @@ class KeyMix:
 
         # Fail if not a Csi ⇧M Escape Sequence, closed when full
 
-        kintsmark = b""
-        kints: list[int] = list()
-
-        # TerminalStudio.selves[-1].__exit__()
-        # breakpoint()
+        empty_kintsmark = b""
+        empty_kints: list[int] = list()
 
         if (head != b"\033[M") or not closed:
-            return (kintsmark, kints)
+            return (empty_kintsmark, empty_kints)
 
         assert (not neck) and (not tail), (neck, tail, kbytes)
 
         # Pass back the Ord's of 3 Bytes, no matter if Decodable as Characters
 
         kintsmark = b"M"
+
         if len(back) == 3:
-            kints = list(back)
-            return (kintsmark, kints)
+            assert len(kbytes) == 6 == len(head) + len(back), (kbytes, head, back)
+
+            kints_from_kbytes = list(back)
+            return (kintsmark, kints_from_kbytes)
 
         # Pass back the Ord's of 3 Characters
 
@@ -1877,8 +1910,10 @@ class KeyMix:
         except UnicodeDecodeError:
             assert False, (back, kbytes)
 
-        kints = list(ord(_) for _ in decode)
-        return (kintsmark, kints)
+        assert (len(head) + len(decode)) == 6, (head, decode, kbytes)
+
+        kints_from_kchars = list(ord(_) for _ in decode)
+        return (kintsmark, kints_from_kchars)
 
     #
     # Run slow and quick Self-Test's
@@ -1886,11 +1921,12 @@ class KeyMix:
 
     @staticmethod
     def _try_key_mix_() -> None:
-        """Run slow and quick Self-Test's of Class KeyMix"""
+        """Run slow and quick Self-Test's of this Class"""
 
         # Speak of falsey Key Mixes
 
-        _ = KeyMix()  # < 20us
+        kmix = KeyMix()
+        assert not kmix, (kmix,)
 
         # Try for Key Caps of 6-Byte or 6-Character Mouse-Report
 
@@ -2741,7 +2777,7 @@ class KeyPack:
 
     @staticmethod
     def _try_key_pack_() -> None:
-        """Run slow and quick Self-Test's of Class KeyPack"""
+        """Run slow and quick Self-Test's of this Class"""
 
         KeyPack._try_open_(b"")  # empty
         KeyPack._try_headbook_()
@@ -2894,10 +2930,13 @@ class KeyPack:
         """Require the Pack to reject these Bytes, after closing itself if need be"""
 
         kpack = KeyPack(kbytes)
-        actual_extra = kpack.take_some_kbytes_if(extra)
-        assert actual_extra == extra, (actual_extra, extra, str(kpack))
+        closed = kpack.closed
 
-        assert kpack.closed, (kpack,)
+        returned_extra = kpack.take_some_kbytes_if(extra)
+        assert returned_extra == extra, (returned_extra, extra, str(kpack))
+
+        assert kpack.closed == closed, (kpack.closed, closed, extra, kpack)
+        assert kpack == KeyPack(kbytes), (kpack, KeyPack(kbytes))
 
     @staticmethod
     def _try_open_(*args: str | bytes) -> None:
@@ -2962,11 +3001,16 @@ class KeyPack:
     def take_one_kbyte_if(self, kbyte: bytes) -> bytes:
         """Take in next 1 Byte and return 0 Bytes, else return 1..4 Bytes that don't fit"""
 
+        kbytes = self.to_kbytes()
+        closed = self.closed
+
         self._require_simple_kpack_()
 
         extra = self._take_one_kbyte_if_(kbyte)
+
         if extra:
-            self.close()
+            assert extra.endswith(kbyte), (extra, kbyte, kbytes, self)
+            assert self.closed == closed, (self.closed, closed, extra, kbyte, kbytes, self)
 
         self._require_simple_kpack_()
 
@@ -3119,7 +3163,7 @@ class KeyPack:
         # Reject Unprintable or Undecodable Bytes as Peek
 
         if text:
-            return encode
+            return encode  # returns extra, but doesn't close
 
         # Take Unprintable or Undecodable Bytes as a Closed Alt Head, from outside the Headbook
 
@@ -3156,8 +3200,7 @@ class KeyPack:
         # Reject 1 Esc Byte as a Peek into the next KeyPack
 
         if encode == b"\033":
-            self.closed = True
-            return encode
+            return encode  # returns extra, but doesn't close
 
             # doesn't take ⎋⎋ ⎋⇧O⎋ ⎋[⎋ ⎋]⎋
 
@@ -3204,8 +3247,7 @@ class KeyPack:
         # Decline 2..4 Bytes past 3..5 Bytes of 6 Byte Csi Mouse Report
 
         if len(back_plus) > 3:  # 6..15 Bytes
-            self.closed = True
-            return encode
+            return encode  # returns extra, but doesn't close
 
         # Take 1..3 Bytes into a 6 Byte Csi Mouse Report
 
@@ -3231,8 +3273,7 @@ class KeyPack:
         # Declines 1..4 Bytes of 1 Unprintable or Undecodable Character
 
         if (not decode) or (not decode.isprintable()):
-            self.closed = True
-            return encode
+            return encode  # returns extra, but doesn't close
 
         # Declines 2..4 Bytes of Multibyte Character
 
@@ -3240,8 +3281,7 @@ class KeyPack:
         code = ord(decode)
 
         if not (0x20 <= code <= 0x7F):
-            self.closed = True
-            return encode
+            return encode  # returns extra, but doesn't close
 
         assert len(encode) == 1, (encode, code, self)
 
@@ -3270,8 +3310,7 @@ class KeyPack:
 
         # Decline 1 Byte of any unfitting Character
 
-        self.closed = True
-        return encode
+        return encode  # returns extra, but doesn't close
 
         # todo: accepts unbounded Bytes into a Csi Escape Sequence
 
@@ -3316,13 +3355,12 @@ class KeyPack:
         if back == b"\033":
             if encode == b"\135" == b"\x5d" == b"]":
                 back.clear()
-                self.closed = True
-                return b"\033]"
+                return b"\033]"  # returns extra, but doesn't close
 
         # Declines 1..4 Bytes of 1 Unprintable Character
 
         if (not decode) or (not decode.isprintable()):
-            return encode
+            return encode  # returns extra, but doesn't close
 
         # Accept Printable Bytes into this Osc Sequence
 
@@ -3340,7 +3378,10 @@ class KeyPack:
 
         head = self.head
         back = self.back
+        neck = self.neck
         stash = self.stash
+        tail = self.tail
+
         closed = self.closed
 
         # Close once
@@ -3353,42 +3394,16 @@ class KeyPack:
         # Close a 6-Byte Mouse-Report, if held open in hope of 6 Characters
 
         if head == b"\033[M":
+            assert (not neck) and (not tail), (neck, tail, self)
+
             back_plus = back + stash
             if len(back_plus) == 3:  # if exactly 6 Bytes total
                 back.extend(stash)
                 stash.clear()
 
-            # doesn't call .close_if_csi_shift_m_no_ints
-
         # Require
 
         self._require_simple_kpack_()
-
-    def close_if_csi_shift_m_no_ints(self) -> bool:
-        """Convert to Csi ⎋[⇧M cut short, if now standing open as 3 of 6 Char Mouse Report"""
-
-        head = self.head
-        back = self.back
-        neck = self.neck
-        tail = self.tail
-        closed = self.closed
-
-        if (head == b"\033[M") and (not back) and (not neck) and (not tail):
-            if not closed:
-
-                self.head.clear()
-                self.head.extend(b"\033[")
-                self.tail.extend(b"M")
-
-                self.closed = True
-
-                self._require_simple_kpack_()
-
-                return True
-
-        self._require_simple_kpack_()
-
-        return False
 
 
 BEL = "\a"  # U+0007 Bell
