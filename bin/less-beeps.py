@@ -805,6 +805,7 @@ class TerminalStudio:
         """Leap the Terminal Cursor to come and meet a Touch Tap or Mouse Click Release or Press"""
 
         kpack = kmix.kpack
+        kencode = kmix.kencode
 
         sw = self.screen_writer
 
@@ -817,21 +818,30 @@ class TerminalStudio:
 
         f = x = y = -1
 
-        if kpack.closed:
+        (kintsmark, kints) = KeyMix.to_csi_shift_m6_ints_if(kencode)  # todo3: .kencode vs .kbytes
+        assert bool(kintsmark) == bool(kints), (kintsmark, kints, kencode)
+        if kintsmark:
+            assert kintsmark == b"M", (kintsmark, kencode)
+            assert kints, (kints, kencode)
+
+            (fi, xi, yi) = kints
+
+            f = (fi - 32) if (fi >= 32) else (256 + fi)
+            x = (xi - 32) if (xi >= 33) else (256 + xi)
+            y = (yi - 32) if (yi >= 33) else (256 + yi)
+
+        elif kpack.closed:
             if kpack.head == b"\033[":
                 fm = re.fullmatch(rb"<([0-9]+);([0-9]+);([0-9]+)", string=kpack.neck)
                 if fm:
-                    assert kpack.tail, (kpack.tail, kpack)  # because .closed
+                    backtail = bytes(kpack.back + kpack.tail)
+                    if backtail in (b"M", b"m"):
 
-                    f = int(fm.group(1))
-                    x = int(fm.group(2))
-                    y = int(fm.group(3))
+                        f = int(fm.group(1))
+                        x = int(fm.group(2))
+                        y = int(fm.group(3))
 
         if f < 0:
-            return False
-
-        backtail = bytes(kpack.back + kpack.tail)
-        if backtail not in (b"M", b"m"):
             return False
 
         # Leap the Terminal Cursor to come and meet a Touch Tap or Mouse Click Release
@@ -1845,6 +1855,9 @@ class KeyMix:
         kintsmark = b""
         kints: list[int] = list()
 
+        # TerminalStudio.selves[-1].__exit__()
+        # breakpoint()
+
         if (head != b"\033[M") or not closed:
             return (kintsmark, kints)
 
@@ -1875,7 +1888,19 @@ class KeyMix:
     def _try_key_mix_() -> None:
         """Run slow and quick Self-Test's of Class KeyMix"""
 
+        # Speak of falsey Key Mixes
+
         _ = KeyMix()  # < 20us
+
+        # Try for Key Caps of 6-Byte or 6-Character Mouse-Report
+
+        xx_kcaps = KeyMix.to_kcaps_if(b"\033[M\xff\xff\xff")
+        assert xx_kcaps == "⎋[⇧M:223:223:223", (xx_kcaps,)
+
+        uuuu_uuuu_kcaps = KeyMix.to_kcaps_if("\033[M\U0010ffff\U0010ffff\U0010ffff".encode())
+        assert uuuu_uuuu_kcaps == "⎋[⇧M:1114079;1114079;1114079", (uuuu_uuuu_kcaps,)
+
+        # Try for Key Caps and Key Face at every Unicode Code Point
 
         for code in range(0x11000):
             decode = chr(code)
@@ -1912,8 +1937,32 @@ class KeyMix:
 
         assert KeyMix.KCAP_SEP == " "
 
+        # Say no Keycaps if no Bytes
+
         if not kbytes:
             return ""
+
+        # Say ⎋[⇧M Keycaps when 6 Characters or 6 Bytes start with ⎋[⇧M
+
+        (kintsmark, kints) = KeyMix.to_csi_shift_m6_ints_if(kbytes)
+        assert bool(kintsmark) == bool(kints), (kintsmark, kints, kbytes)
+        if kintsmark:
+            assert kintsmark == b"M", (kintsmark, kbytes)
+            assert kints, (kints, kbytes)
+
+            (fi, xi, yi) = kints
+
+            f = (fi - 32) if (fi >= 32) else (256 + fi)
+            x = (xi - 32) if (xi >= 33) else (256 + xi)
+            y = (yi - 32) if (yi >= 33) else (256 + yi)
+
+            kcaps = f"⎋[⇧M:{f};{x};{y}"
+            if len(kbytes) == 6:
+                kcaps = f"⎋[⇧M:{f}:{x}:{y}"
+
+            return kcaps
+
+        # Say no Keycaps if no Characters
 
         try:
             ktext = kbytes.decode()
@@ -1921,6 +1970,8 @@ class KeyMix:
             return ""
 
         assert ktext, (ktext,)
+
+        # Say 1 Key Cap per Character
 
         kcaps = ""
         for kt in ktext:  # often 'len(ktext) == 1'
@@ -2657,24 +2708,29 @@ class KeyPack:
 
         if head:
             assert not text, (text, head, self)
+            if not any(head.endswith(_) for _ in [b"\033[", b"\033]", b"\033[M"]):
+                assert (not neck) and (not back), (neck, back, head, self)
+            if head == b"\033[M":
+                assert (not neck) and (not tail), (neck, tail, head, self)
+
+        if neck:
+            assert head != b"\033[M", (head,)  # ⎋[M Mouse Report
 
         if neck or back or tail:
             assert head, (head, neck, back, tail, self)
 
-            ends = list()
-            for end in headbook:
-                if head.endswith(end):  # Head End not-found in Headbook by ⎋[⇧M Csi Mouse Report
-                    ends.append(end)
-
-                    start = head.removesuffix(end)
-                    assert start == (len(start) * b"\033"), (start, end, head, self)
-
-            if tail:
-                assert closed, (closed, tail, self)
+            for h_end in headbook:
+                if head.endswith(h_end):  # Head-End not-found in Headbook by ⎋[⇧M Csi Mouse Report
+                    h_start = head.removesuffix(h_end)
+                    assert h_start == (len(h_start) * b"\033"), (h_start, h_end, head, self)
 
         if stash:
             assert not tail, (tail, closed, stash, self)
             assert not closed, (closed, stash, self)
+
+        if tail:
+            assert head != b"\033[M", (head,)  # ⎋[M Mouse Report
+            assert closed, (closed, tail, self)
 
         if closed:
             assert not stash, (stash, closed, self)
@@ -3119,9 +3175,12 @@ class KeyPack:
         """Take Bytes into a Csi Mouse Report of 6 Bytes or 6 Characters"""
 
         head = self.head
+        neck = self.neck
         back = self.back
+        tail = self.tail
 
         assert head == b"\033[M", (head,)  # ⎋[M Mouse Report
+        assert (not neck) and (not tail), (neck, tail, head, self)
         assert len(decode) <= 1, (decode, encode)
 
         # Look into taking as Decodable Characters or as Undecodable Bytes
@@ -3153,6 +3212,7 @@ class KeyPack:
         back.extend(encode)
         if len(back_plus) == 3:
             self.closed = True
+
         return b""
 
         # may take b"\033" into a 6 Byte Csi Mouse Report
