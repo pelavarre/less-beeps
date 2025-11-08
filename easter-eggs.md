@@ -35,6 +35,14 @@ Three
 <!-- --egg=sigtstp  # for ⌃Z to work -->
 <!-- --egg=sigquit  # for ⌃\ to work -->
 
+## Consequences of --egg=sigint
+
+⌃C does dump a full Traceback and launch a (Pdb) Repl
+
+⌃Q works better than ⌃V,
+because you can still press ⌃Q to mean ⌃Q and ⌃Q ⌃Q to mean ⌃Q ⌃Q.
+But you have to press ⌃V ⌃V to mean ⌃V, you have to press ⌃V ⌃V ⌃V ⌃V to mean ⌃V ⌃V
+
 ## Consequences of --egg=native
 
 1 )

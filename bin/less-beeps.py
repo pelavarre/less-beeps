@@ -676,8 +676,9 @@ class TerminalStudio:
                     sw.sprint(mark, kmix, end="")
                 else:
                     sw.sprint(index, mark, kmix, end="")
+                sw.swrite("\n")  # yes the "\n" that can mean scroll up
                 sw.swrite("\0338")
-                sw.swrite("\n")
+                sw.swrite("\033[B")  # not the "\n" that means "\r\n" while --egg=sigint
 
                 if kmix.kcaps in ("⌃C", "⌃D", "⌃Z", "⌃\\"):
                     sw.sprint()
@@ -1690,12 +1691,14 @@ def excepthook(  # ) -> ...:
 
         # consciously doesn't call: with_excepthook(exc_type, exc_value, exc_traceback)
 
-    # Quit now for visible cause, if KeyboardInterrupt
+    # Quit quickly quietly, if KeyboardInterrupt, unless --egg=sigint asked for a full Traceback
 
-    if flags.sigint:
-        if exc_type is KeyboardInterrupt:
+    if exc_type is KeyboardInterrupt:
+        if not flags.sigint:
             with_stderr.write("KeyboardInterrupt\n")
             sys.exit(130)  # 0x80 + signal.SIGINT
+
+    # Quit quickly quietly, if BdbQuit
 
     if exc_type is bdb.BdbQuit:
         with_stderr.write("BdbQuit\n")
@@ -3584,6 +3587,7 @@ if __name__ == "__main__":
 
 # todo: foster todo's
 # todo: my Shell 'dt' is much broke
+# todo: my Zsh accepts ⎋F ⎋B encodings of ⌥→ ⌥← but not iTerm2 ⎋[1;3C ⎋[1;3D
 
 
 # 3456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789
