@@ -758,11 +758,12 @@ class TerminalStudio:
         #
 
         swrite_by_kface = {
-            # "⌫": "\b" "\033[P",  # todo3: overwrite/ insert mode
-            "⌫": "\b",  # Delete
-            "⏎": "\r",  # Return
             "⇥": "\t",  # Tab
             "⇧⇥": "\033[Z",  # ⇧Tab
+            # "⌫": "\b" "\033[P",  # todo3: overwrite/ insert mode
+            # "⌫": "\b",  # Delete  # todo3:
+            "⏎": "\r",  # Return
+            "␢": " ",  # Spacebar
         }
 
         kface = kmix.kface
