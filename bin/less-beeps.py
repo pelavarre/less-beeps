@@ -431,6 +431,8 @@ class TerminalStudio:
                     if not ok:
                         break
 
+                    # todo5: different rules for what repeat .count <= 0 means here, and there
+
                 # Take the Key Mix as something to trace, if not meaningful
 
                 if not ok:
@@ -614,6 +616,8 @@ class TerminalStudio:
                     else:  # writes 0 or more repeats if preceded by Non-Negative Int
                         for _ in range(count):
                             sw.swrite(swrite)
+
+                    # todo5: different rules for what repeat .count <= 0 means here, and there
 
                 kbindex = -1
 
@@ -1268,6 +1272,14 @@ class KeyboardReader:
             kbytearray.extend(kbyte)
             queried_kbytes = bytes(kbytearray[kbindex:])
 
+            # # Flush the Arrows early  # todo: via --egg=
+            #
+            # few_kbytes = queried_kbytes[-3:]
+            # if few_kbytes in (b"\033[A", b"\033[B", b"\033[C", b"\033[D"):
+            #     ts = self.terminal_studio
+            #     sw.swrite(few_kbytes.decode())
+            #     ts.stdio.flush()
+
             # Take ⎋[0N as the Reply to one ⎋[5N
 
             query = "\033[5n"
@@ -1376,8 +1388,46 @@ class KeyboardReader:
         alt_kbytes = "".join(runs).encode()
 
         # Succeed
+        # self.steps_swrite(steps)
 
         return alt_kbytes  # b'\033[1A' b'\033[2D' b'\033[1A'
+
+    def steps_swrite(self, steps: list[str]) -> None:  # todo: test, else delete
+        """Write each Step to the Terminal Screen"""
+
+        high_wide = self.high_wide
+        row_column = self.row_column
+
+        (h, w) = high_wide
+        (y, x) = row_column
+
+        sw = self.screen_writer
+        for step in steps:
+            sw.swrite(step)
+
+            if step == "\033[A":
+                y -= 1
+            elif step == "\033[B":
+                y += 1
+            elif step == "\033[C":
+                x += 1
+                if x > w:
+                    sw.swrite("\033[32100D")  # aka '\r'
+                    sw.swrite("\033[B")
+                    x -= w
+                    y += 1
+            elif step == "\033[D":
+                x -= 1
+                if x < 1:
+                    sw.swrite("\033[32100C")
+                    sw.swrite("\033[A")
+                    x += w
+                    y -= 1
+            else:
+                assert False, (step,)
+
+            assert 1 <= y <= h, (y, h, row_column, high_wide, steps)
+            assert 1 <= x <= w, (x, w, row_column, high_wide, steps)
 
     # todo2: launch an app of many Keyboard Viewers:  plain, ⎋, ⌃, ⌥, ⇧, ⎋⌃, etc etc
     # todo2: how about one Keyboard Viewer at a time
