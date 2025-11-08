@@ -35,6 +35,7 @@ import collections.abc  # .abc is not .collections.abc
 import dataclasses
 import difflib
 import itertools
+import json
 import math
 import os
 import pdb
@@ -47,9 +48,13 @@ import textwrap
 import tty  # for tty.setraw and tty.setcbreak
 import types
 import typing
+import urllib.parse
 
 
 _: object  # blocks Mypy from narrowing the Datatype of '_ =' at first mention
+
+_ = json, urllib.parse  # imports only needed inside of breakpoints, etc
+
 
 default_eq_None = None  # shoves back on Dict Get refusing the explicit ', default=' syntax
 
@@ -77,7 +82,6 @@ class Flags:
     native: bool | None = None  # flags.native, for don't make this Terminal feel friendlier
     sigint: bool | None = None  # flags.sigint, for ⌃C to work
     # sigtstp: bool | None = None  # flags.sigtstp, for ⌃Z to work  # todo2:
-    # sigquit: bool | None = None  # flags.sigquit, for ⌃\ to work  # todo2:
 
 
 flags = Flags()
@@ -348,7 +352,7 @@ class TerminalStudio:
         sw = self.screen_writer
 
         if not flags.native:
-            sw.sprint("⌃D to quit, Fn F1 for more help, or ⌥-Click far from the Cursor")
+            sw.sprint("⌃C to quit, Fn F1 for more help, or ⌥-Click far from the Cursor")
         else:
             if flags.sigint:
                 sw.sprint("⌃C to quit, and expect ⌃J to imply ⌃M")
@@ -360,7 +364,7 @@ class TerminalStudio:
                     sys.exit(1)
 
     def chat_awhile(self) -> None:
-        r"""Loop and don't quit till one of ⌃C ⌃D ⌃Z ⌃\ """
+        r"""Loop and don't quit till one of ⌃C ⌃Z ⌃\ """
 
         sw = self.screen_writer
 
@@ -441,9 +445,9 @@ class TerminalStudio:
                     else:
                         sw.sprint("", kmix.kencode, end=" ")
 
-                # Exit at any of ⌃C ⌃D ⌃Z ⌃\
+                # Exit at any of ⌃C ⌃Z ⌃\
 
-                if kmix.kcaps in ("⌃C", "⌃D", "⌃Z", "⌃\\"):
+                if kmix.kcaps in ("⌃C", "⌃Z", "⌃\\"):
                     sw.sprint()
                     sys.exit()
 
@@ -658,7 +662,7 @@ class TerminalStudio:
         sw.swrite("\0338")
 
         # Read and print the Key Mixes of one Keyboard Chord,
-        # except quit early at any of ⌃C ⌃D ⌃Z ⌃\
+        # except quit early at any of ⌃C ⌃Z ⌃\
 
         lock_once = False
         mark = entry_kcaps
@@ -678,7 +682,7 @@ class TerminalStudio:
                 sw.swrite("\0338")
                 sw.swrite("\033[B")  # not the "\n" that means "\r\n" while --egg=sigint
 
-                if kmix.kcaps in ("⌃C", "⌃D", "⌃Z", "⌃\\"):
+                if kmix.kcaps in ("⌃C", "⌃Z", "⌃\\"):
                     sw.sprint()
                     sys.exit()
 
@@ -801,9 +805,10 @@ class TerminalStudio:
 
         sw = self.screen_writer
 
-        # Take ⌃H ⌃J ⌃K ⌃L as Arrows from the First Player
+        # Take ⌃ Keys as Arrows from the First and Second Players
 
         arrows_by_kcaps = {"⌃H": "←", "⌃J": "↓", "⌃K": "↑", "⌃L": "→"}
+        arrows_by_kcaps |= {"⌃A": "←", "⌃S": "↓", "⌃D": "↑", "⌃F": "→"}
 
         alt_kface = kmix.kface
         if kcaps in arrows_by_kcaps.keys():
@@ -832,13 +837,9 @@ class TerminalStudio:
 
         return True
 
-        # todo5: take ⌃A ⌃S ⌃D ⌃F as second player arrows
-
         # todo3: take ⌃S ⌃Q as --egg=xoff
 
-        # todo: offer classic ⌃C as --egg=sigint
         # todo: offer classic ⌃Z as --egg=sigtstp
-        # todo: offer classic ⌃\ as --egg=sigquit
 
         # todo: offer test of timeout=None timing out at ⌃D as --egg=eot
 
@@ -3588,6 +3589,7 @@ if __name__ == "__main__":
 # todo: foster todo's
 # todo: my Shell 'dt' is much broke
 # todo: my Zsh accepts ⎋F ⎋B encodings of ⌥→ ⌥← but not iTerm2 ⎋[1;3C ⎋[1;3D
+# todo: my Git Log Decorate chooses horribly bright & low-contrast Colors for iTerm2 Lightmode
 
 
 # 3456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789

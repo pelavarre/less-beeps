@@ -17,7 +17,7 @@ Python running in one Tab of a macOS iTerm2 Window hung the whole Window
 
 1 ) There may be more than nine games, or less than one
 
-2 ) You can press any of the classic ⌃C ⌃D ⌃Z ⌃\ to quit, you don't have to choose
+2 ) You can press any of the classic ⌃C ⌃Z ⌃\ to quit, you don't have to choose
 
 3 ) You can press ⌃Q to close ⌃V ⌃V, you can press ⌃V to close ⌃Q ⌃Q
 
@@ -30,18 +30,23 @@ Three
 
     --egg=leaper  # tap to move cursor, especially the ⌥ option/alt click
     --egg=native  # loops your Keyboard to Screen with no friendly distortions
-    --egg=sigint  # for ⌃C to work (and for ⌃J to come across as ⌃M ⌃J)
+    --egg=sigint  # for ⌃C and ⌃\ to work (and for ⌃J to write like ⌃M ⌃J)
 
 <!-- --egg=sigtstp  # for ⌃Z to work -->
-<!-- --egg=sigquit  # for ⌃\ to work -->
 
 ## Consequences of --egg=sigint
 
-⌃C does dump a full Traceback and launch a (Pdb) Repl
+⌃C does dump a full Traceback and launch a (Pdb) Repl,
+except that ⌃V ⌃C works like ⌃C ordinarily does
 
 ⌃Q works better than ⌃V,
-because you can still press ⌃Q to mean ⌃Q and ⌃Q ⌃Q to mean ⌃Q ⌃Q.
-But you have to press ⌃V ⌃V to mean ⌃V, you have to press ⌃V ⌃V ⌃V ⌃V to mean ⌃V ⌃V
+because you can still press ⌃Q to send the Key Encoding of ⌃Q, and
+Q ⌃Q to send the Key Encoding of ⌃Q ⌃Q
+
+⌃V forces you to press two Keys to send each one Key Encoding.
+Like you have to press ⌃V ⌃V to send ⌃V, and
+you have to press ⌃V ⌃V ⌃V ⌃V to send ⌃V ⌃V,
+and you have to press ⌃V ⌃C to send ⌃C
 
 ## Consequences of --egg=native
 
