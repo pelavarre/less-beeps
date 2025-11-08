@@ -1173,19 +1173,17 @@ class KeyboardReader:
             # Append Bytes till Key Pack closes
 
             extra = kpack.take_one_kbyte_if(kbyte)
-            if extra:
-                assert kpack.closed, (kpack.closed, extra, kpack, kbyte)
-
             if not extra:
                 self.kbindex += 1
                 kbindex = self.kbindex  # replaces
 
-            if kpack.closed:
+            if kpack.closed or extra:
+                kpack.close()
+
                 kpacks.append(kpack)
                 kpack = KeyPack(b"")
-                continue
 
-            assert not extra, (extra, kpack, kbyte)
+                continue
 
             # Take the Key Pack early, if Text is an ⌥ Option/Alt Key Pack
 

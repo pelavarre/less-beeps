@@ -2,6 +2,17 @@
 
 ## Easter Eggs we have coded but not named
 
+### Beware
+
+This work is experimental, and Python in the Terminal is a sharp scalpel
+
+Please do show up prepared for when software goes wrong in its usual ways.
+In particular, you can lose your whole Terminal Window, not just one Tab or Pane of the Window.
+And we can imagine you could lose more than one Tab of a Browser, if you're running Python there
+
+This last happened to us near to 12n Fri 7/Nov.
+Python running in one Tab of a macOS iTerm2 Window hung the whole Window
+
 ### 3+ Eggs
 
 1 ) There may be more than nine games, or less than one
