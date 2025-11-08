@@ -97,9 +97,11 @@ def main() -> None:
     shell_args_take_in(args=sys.argv[1:], parser=parser)
 
     with TerminalStudio() as ts:
-        ts.speak_first()
-        ts.chat_awhile()
-        ts.stop_chatting()
+        try:
+            ts.speak_first()
+            ts.chat_awhile()
+        finally:
+            ts.stop_chatting()
 
 
 def arg_doc_to_parser(doc: str) -> ArgDocParser:
@@ -474,6 +476,8 @@ class TerminalStudio:
 
         # Take up each Key Mix, in order
 
+        pn_arrows = list(_.kencode for _ in kmixes)
+
         for kmix in kmixes:
             kpack = kmix.kpack
 
@@ -494,6 +498,9 @@ class TerminalStudio:
 
             # Accept a Run-Length Compression of an Arrow
 
+            assert 1 <= y <= h, (y, x, h, w)  # true here because true far above
+            assert 1 <= x <= w, (y, x, h, w)  # ditto
+
             if backtail == b"A":  # ↑
                 y -= pn
             elif backtail == b"B":  # ↓
@@ -505,17 +512,25 @@ class TerminalStudio:
             else:
                 return KeyMix()
 
-            # Wrap around Screen Edges (unlike the classic ⎋[ ⇧A ⇧B ⇧C ⇧D)
+            assert 1 <= y <= h, (y, x, h, w, kr.row_column, pn_arrows)  # Pn Arrows don't wrap Y
+
+            # Wrap around the Left/ Right Screen Edges (unlike the classic ⎋[⇧C and ⎋[⇧D)
+
+            assert 1 <= y <= h, (y, x, h, w, kr.row_column, pn_arrows)
 
             while x < 1:
                 x += w
                 y -= 1
 
+                assert 1 <= y <= h, (y, x, h, w, kr.row_column, pn_arrows)
+
             while x > w:
                 x -= w
                 y += 1
 
-            assert 1 <= y <= h, (y, x, h, w)
+                assert 1 <= y <= h, (y, x, h, w, kr.row_column, pn_arrows)
+
+            assert 1 <= y <= h, (y, x, h, w, kr.row_column, pn_arrows)
 
         # Fabricate a Touch Tap Release or Mouse Click Release
 
@@ -696,9 +711,14 @@ class TerminalStudio:
 
         kbytearray = kr.kbytearray
 
+        sw.sprint("bye")
+
         # Drain the Keyboard Buffer
 
+        draining = False
         while self.kbhit(timeout=0.100):
+            draining = True
+
             km = kr.read_one_key_mix()
             sw.sprint(km)
 
@@ -706,10 +726,13 @@ class TerminalStudio:
 
         kencode = bytes(kbytearray[kr.kbindex :])
         if kencode:  # todo: empty except when Exception unhandled?
+            draining = True
+
             sw.sprint(kencode)
             sw.sprint()
 
-        sw.sprint("bye")
+        if draining:
+            sw.sprint("drained")
 
         # todo2: revive the Apps at 'git checkout main' App's
 
