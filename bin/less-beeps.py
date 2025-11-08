@@ -1359,17 +1359,10 @@ class KeyboardReader:
 
         # Don't transcode anything but a run of Arrows, each without Pn
 
-        index = 0
-        while index < len(kbytes):
+        for index in range(0, len(kbytes), 3):
             few_kbytes = kbytes[index:][:3]
             if few_kbytes not in (b"\033[A", b"\033[B", b"\033[C", b"\033[D"):
-                break
-            index += 3
-
-        assert index <= len(kbytes), (index, len(kbytes), kbytes)
-
-        if index == len(kbytes):
-            return b""
+                return b""
 
         # Transcode to an explicit Pn >= 1 per Arrow,
         # no matter if Byte Length rises because encoding enough Pn = 1
@@ -2982,6 +2975,12 @@ class KeyPack:
 
         KeyPack._try_extra_(b"\x1b[", extra=b"\xf4\x8f\xff")
         KeyPack._try_extra_(b"\x1b]", extra=b"\xf4\x8f\xff")
+
+        # Try some commonly recurring choices
+
+        assert _END_PASTE_ == "\033[" "201~"
+
+        KeyPack._try_close_(b"\x1b[", b"201", b"~")
 
     @staticmethod
     def _try_extra_(kbytes: bytes, extra: bytes) -> None:
