@@ -764,8 +764,8 @@ class TerminalStudio:
         swrite_by_kface = {
             "⇥": "\t",  # Tab
             "⇧⇥": "\033[Z",  # ⇧Tab
-            # "⌫": "\b" "\033[P",  # todo3: overwrite/ insert mode
-            # "⌫": "\b",  # Delete  # todo3:
+            # "⌫": "\b" "\033[P",  # todo5: overwrite/ insert mode
+            # "⌫": "\b",  # Delete  # todo5:
             "⏎": "\r",  # Return
             "␢": " ",  # Spacebar
         }

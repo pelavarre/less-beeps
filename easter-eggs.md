@@ -39,10 +39,18 @@ Three
 ⌃C does dump a full Traceback and launch a (Pdb) Repl,
 except that ⌃V ⌃C works like ⌃C ordinarily does
 
+At Google Cloud Shell,
+⌃Q and ⌃S become XOn and xOff.
+You won't see anything change on Screen after you press ⌃S,
+not until you press ⌃Q.
+But ⌃V works fine, just as if you didn't give the Code your --egg=sigint
+
+At macOS Terminal, and at macOS iTerm2,
 ⌃Q works better than ⌃V,
 because you can still press ⌃Q to send the Key Encoding of ⌃Q, and
 Q ⌃Q to send the Key Encoding of ⌃Q ⌃Q
 
+At macOS Terminal, and at macOS iTerm2,
 ⌃V forces you to press two Keys to send each one Key Encoding.
 Like you have to press ⌃V ⌃V to send ⌃V, and
 you have to press ⌃V ⌃V ⌃V ⌃V to send ⌃V ⌃V,
@@ -101,6 +109,10 @@ Look for sad surprises away from a macOS Terminal
 + Don't expect Google Cloud Shell to stop stealing ⇥ Tab, although ⌃I works
 + Don't expect Google Cloud Shell to stop stealing ⌃M, although ⏎ Return works
 + Don't expect ⌃- to mean ⌃-, because Google Cloud Shell forces you to press ⌃⇧_ instead
+
+Except Google Cloud Shell does sometimes mystically choose to pop up and say
+> The tab key is being redirected to the terminal. <br>
+> Press ctrl+m to enable page navigation with the tab key. <br>
 
 Look for sad surprises away from a macOS iTerm2
 
