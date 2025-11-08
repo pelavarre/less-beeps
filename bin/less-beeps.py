@@ -594,10 +594,10 @@ class TerminalStudio:
 
                     swrite = kdecode
                     if not flags.native:
-                        if kdecode == "\033D":
-                            swrite = "\033E"  # as if ⌃M ⌃J
-                        elif kdecode == "\033l":
-                            swrite = "\033[H"  # moves to Northwest Screen Corner
+                        if kdecode == "\033D":  # ⎋⇧D
+                            swrite = "\033E"  # ⎋⇧E as if ⌃M ⌃J
+                        elif kdecode == "\033l":  # ⎋L
+                            swrite = "\033[H"  # as if ⎋[H leap to the far Northwest
 
                     # Write the Bytes of the Key Pack, but back at the ⎋ Esc
 
@@ -777,7 +777,7 @@ class TerminalStudio:
             "⌃G": "\a",  # rings Bell
             "⎋7": "\0337",  # checkpoints Screen Cursor
             "⎋8": "\0338",  # reverts Screen Cursor
-            "⎋C": "\033c",  # moves to Northwest Screen Corner, wipes Screen
+            "⎋C": "\033c",  # leaps to far Northwest, wipes Screen
             "⎋⇧E": "\033E",  # as if ⌃M ⌃J
             "⎋⇧M": "\033M",  # as if ↑
         }
@@ -2171,6 +2171,8 @@ class KeyMix:
                 kc = "⌃^"
         elif ko == 0x1F:  # Apple ⌃- doesn't come through as  (0x2D ^ 0x40)
             kc = "⌃-"  # Apple ⌃-  and ⌃⇧_ both do come through as (0x5F ^ 0x40)
+            if flags.google:
+                kc = "⌃⇧_"
         elif ko == 0x7F:
             kc = "⌃⇧?"  # ⌫  # Delete
         else:

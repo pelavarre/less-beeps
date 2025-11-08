@@ -77,26 +77,37 @@ Look for choices held in common, as minimum standards
 
 Look for happy surprises at a macOS Terminal
 
-+ Do expect ⎋L to leap into the far Northwest of a macOS Terminal,
-+ Do expect ⇧Fn← to leap into the far Northwest of a macOS Terminal,
++ Do expect ⎋L to leap into the far Northwest
++ Do expect ⇧Fn← to leap into the far Northwest,
     because there that comes in coded as ⎋[⇧H
-+ Do expect ⇧Fn→ to go Far West and a bit North across a macOS Terminal,
++ Do expect ⇧Fn→ to go Far West and a bit North,
     because there that comes in coded as ⎋[⇧F,
 
-Look for sad surprises
+Look for sad surprises at a macOS Terminal
 
 + Don't expect ⌥← and ⌥→ to move the Cursor around a macOS Terminal,
     because there they come in coded for Emacs as ⎋B and ⎋F
+
+Look for sad surprises away from a macOS Terminal
+
 + Don't expect ⎋⇧D to include the ⌃M
-    like it does at a macOS Terminal
-+ Don't expect ⎋L to work
-    away from the macOS Terminal
-+ Don't expect ⌃⇧^ and ⌃^ to work
-    away from macOS iTerm2,
-    for the macOS Terminal takes only the one and the Google Cloud Shell takes only the other
-+ Don't expect ⌃⇧? to work
-    away from the macOS iTerm2,
-    for the macOS Terminal beeps at it and the Google Cloud Shell disappears it
++ Don't expect ⎋L to mean anything
++ Don't expect Google Cloud Shell to stop ⌃B for TMux, where ⌃B ⌃B means ⌃B
++ Don't expect Google Cloud Shell to stop stealing ⇥ Tab, although ⌃I works
++ Don't expect Google Cloud Shell to stop stealing ⌃M, although ⏎ Return works
++ Don't expect ⌃- to mean ⌃-, because Google Cloud Shell forces you to press ⌃⇧_ instead
+
+Look for sad surprises away from a macOS iTerm2
+
++ Don't expect both ⌃⇧^ and ⌃^ to mean ⌃⇧^,
+    for the macOS Terminal takes only the one and
+    the Google Cloud Shell takes only the other
++ Don't expect ⌃⇧? to mean ⌫ Delete,
+    for the macOS Terminal beeps at it, and
+        the Google Cloud Shell disappears it
++ Don't expect ⌃= to mean =,
+    for the macOS Terminal beeps at it, and
+        the Google Cloud Shell disappears it
 
 Please do tell us which surprises are worth mentioning here?
 
