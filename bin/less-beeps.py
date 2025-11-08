@@ -479,22 +479,20 @@ class TerminalStudio:
         pn_arrows = list(_.kencode for _ in kmixes)
 
         for kmix in kmixes:
-            kpack = kmix.kpack
+            kpack = KeyPack(kmix.kencode)  # much like kmix.kpack but maybe not .closed
 
             pn = -1
 
-            if kpack.closed:
-                if kpack.head == b"\033[":
+            backtail = bytes(kpack.back + kpack.tail)
+            if kpack.head == b"\033[":
+                if backtail in (b"A", b"B", b"C", b"D"):
                     fm = re.fullmatch(rb"[0-9]+", string=kpack.neck)
                     if fm:
-                        assert kpack.tail, (kpack.tail, kpack)  # because .closed
 
                         pn = int(kpack.neck)
 
             if pn < 0:
                 return KeyMix()
-
-            backtail = bytes(kpack.back + kpack.tail)
 
             # Accept a Run-Length Compression of an Arrow
 
