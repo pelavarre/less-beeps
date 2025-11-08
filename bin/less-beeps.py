@@ -462,7 +462,7 @@ class TerminalStudio:
         # todo5: vertical paste
 
     def kmixes_to_leap_kmix(self, kmixes: list[KeyMix]) -> KeyMix:
-        """Convert Arrow Burst to a Mouse Click Release"""
+        """Convert Burst of Pn Arrows to a Mouse Click Release"""
 
         kr = self.keyboard_reader
 
@@ -916,6 +916,10 @@ class KeyboardReader:
     high_wide: tuple[int, int]  # (-1, -1) and then (y_high, x_wide) from ⎋[18T
     row_column: tuple[int, int]  # (-1, -1) and then (row_y, column_x) from ⎋[6N
 
+    #
+    #
+    #
+
     def __init__(self, terminal_studio: TerminalStudio, screen_writer: ScreenWriter) -> None:
 
         self.terminal_studio = terminal_studio
@@ -982,6 +986,10 @@ class KeyboardReader:
         self.kmindex += 1
 
         return kmix
+
+    #
+    #
+    #
 
     def _demand_kmixes_(self, timeout: float | None) -> None:
         """Fetch some Key Mixes of closed Key Packs"""
@@ -1104,6 +1112,10 @@ class KeyboardReader:
 
                     continue
 
+    #
+    #
+    #
+
     def _demand_kpacks_(self, timeout: float | None) -> tuple[tuple[str, str], ...]:
         """Fetch some closed Key Packs of Keyboard Bytes"""
 
@@ -1173,6 +1185,10 @@ class KeyboardReader:
         return kqa_tuple
 
         # todo2: test ⎋[⇧M Csi Mouse Report then ⎋[⇧Z etc with ⎋[5n and ⎋[0n
+
+    #
+    #
+    #
 
     def _demand_kbytearray_(self, timeout: float | None) -> tuple[tuple[str, str], ...]:
         """Fetch some Bytes from the Keyboard"""
@@ -1297,39 +1313,59 @@ class KeyboardReader:
 
                     continue
 
-        # If four or more Arrows keyed in at once
+        # Transcode a Burst of Arrows into Pn Arrows, if enough arrived at once
 
         filled_kbytes = bytes(kbytearray[kbindex:])
 
-        if len(filled_kbytes) >= (4 * 3):  # tested by mashing Arrows Keypad of ← ↑ ↓ →
-
-            index = 0
-            while index < len(filled_kbytes):
-                few_kbytes = filled_kbytes[index:][:3]
-                if few_kbytes not in (b"\033[A", b"\033[B", b"\033[C", b"\033[D"):
-                    break
-                index += 3
-
-            # Compress the Run Lengths of Repeated Arrows
-
-            assert index <= len(filled_kbytes), (index, len(filled_kbytes), filled_kbytes)
-            if index == len(filled_kbytes):
-                filled_kchars = filled_kbytes.decode()
-
-                steps = [filled_kchars[_:][:3] for _ in range(0, len(filled_kchars), 3)]
-                runs = list(f"\033[{len(list(g))}{k[-1]}" for k, g in itertools.groupby(steps))
-                alt_filled_kbytes = "".join(runs).encode()
-
-                del kbytearray[kbindex:]
-                kbytearray.extend(alt_filled_kbytes)
+        alt_filled_kbytes = self._transcode_arrows_if_(filled_kbytes)
+        if alt_filled_kbytes:
+            del kbytearray[kbindex:]
+            kbytearray.extend(alt_filled_kbytes)
 
         # Succeed
 
         kqa_tuple = tuple(zip(queries, replies))  # maybe empty
         return kqa_tuple
 
-        # todo2: launch an app of many Keyboard Viewers:  plain, ⎋, ⌃, ⌥, ⇧, ⎋⌃, etc etc
-        # todo2: how about one Keyboard Viewer at a time
+    def _transcode_arrows_if_(self, kbytes: bytes) -> bytes:
+        """Transcode a Burst of Arrows into Pn Arrows, if enough arrived at once"""
+
+        # Don't transcode if too short
+
+        if len(kbytes) < (4 * 3):
+            return b""
+
+            # ⌃V ⌃V shows Runs of >= 3 Arrows come easily from mashing Keypad of ← ↑ ↓ →
+
+        # Don't transcode anything but a run of Arrows, each without Pn
+
+        index = 0
+        while index < len(kbytes):
+            few_kbytes = kbytes[index:][:3]
+            if few_kbytes not in (b"\033[A", b"\033[B", b"\033[C", b"\033[D"):
+                break
+            index += 3
+
+        assert index <= len(kbytes), (index, len(kbytes), kbytes)
+
+        if index == len(kbytes):
+            return b""
+
+        # Transcode to an explicit Pn >= 1 per Arrow,
+        # no matter if Byte Length rises because encoding enough Pn = 1
+
+        kdecode = kbytes.decode()
+
+        steps = [kdecode[_:][:3] for _ in range(0, len(kdecode), 3)]
+        runs = list(f"\033[{len(list(g))}{k[-1]}" for k, g in itertools.groupby(steps))
+        alt_kbytes = "".join(runs).encode()
+
+        # Succeed
+
+        return alt_kbytes  # b'\033[1A' b'\033[2D' b'\033[1A'
+
+    # todo2: launch an app of many Keyboard Viewers:  plain, ⎋, ⌃, ⌥, ⇧, ⎋⌃, etc etc
+    # todo2: how about one Keyboard Viewer at a time
 
 
 #
