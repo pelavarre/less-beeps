@@ -171,7 +171,7 @@ def shell_args_take_in(args: list[str], parser: ArgDocParser) -> None:
                 arg_doc_parser.parser.print_usage()
                 sys.exit(2)  # exits 2 for bad Arg
 
-        # todo4: somehow mix ⌃Q and ⌃V into --egg=native
+        # todo4: some new --egg to add ⌃Q and ⌃V into --egg=native ?
 
 
 def _try_less_beeps_() -> None:
@@ -444,37 +444,10 @@ class TerminalStudio:
 
                 # Write straight through transparently, when given --egg=native
 
-                # if not hasattr(self, "triggers"):
-                #     triggers: list[str] = list()
-                #     self.triggers = triggers
-                # triggers = self.triggers
-
                 if flags.native:
                     kdecode = kmix.kdecode
                     if kdecode:  # not the second half of ⌥E E etc
-
-                        sw.swrite(kdecode)
-
-                        # self.stdio.write(kdecode)
-                        # self.stdio.flush()
-
-                        # fakes = "\033[H"
-                        # sw.swrite(fakes[len(triggers)])
-
-                        # sw.swrite("\033")
-                        # self.stdio.flush()
-                        # sw.swrite("[")
-                        # self.stdio.flush()
-                        # sw.swrite("H")
-                        # self.stdio.flush()
-
-                        # sw.swrite("\033[H" + str(len(triggers)))
-
-                        # sw.swrite(repr(kdecode))  # # todo: --egg for this variation?
-
-                        # triggers.append(kdecode)
-                        # assert len(triggers) < 3, (triggers,)
-
+                        sw.swrite(kdecode)  # todo: some new --egg for tracing native loopback?
                     continue
 
                 # Snoop a Python Int Literal, if present
@@ -845,8 +818,8 @@ class TerminalStudio:
             sw.swrite(kdecode)
             return True
 
-            # sw.swrite("<<" + kdecode + ">>")  # todo: --egg for this variation?
-            # sw.swrite(kdecode.upper())  # todo: --egg for this variation?
+            # sw.swrite("<<" + kdecode + ">>"))  # todo: some new --egg for tracing text loopback?
+            # sw.swrite(kdecode.upper())  # todo: some new --egg for tracing text loopback?
 
         return False
 
@@ -1421,12 +1394,12 @@ class KeyboardReader:
         # Plan to fetch Key Packs till next ⎋[0N, if the Key Packs might be multipack or multibyte
 
         removables = list()
-        if kbyte in encode_start_set:
+        if kbyte in encode_start_set:  # todo: some new --egg to try ⎋[5N more often?
             removables.append("\033[5n")  # ⎋[5N
 
         if not flags.native:
-            removables.append("\033[6n")  # ⎋[6N  # hangs at ⌃J
             removables.append("\033[18t")  # ⎋[18T
+            removables.append("\033[6n")  # ⎋[6N  # todo5: what did 'hangs at ⌃J' mean?
 
         for removable in removables:
             sw.swrite(removable)
@@ -1445,7 +1418,7 @@ class KeyboardReader:
             kbytearray.extend(kbyte)
             queried_kbytes = bytes(kbytearray[kbindex:])
 
-            # Flush the Arrows early  # todo: via --egg=
+            # Flush the Arrows early  # todo: some new --egg to try flags.mousing?
 
             if flags.mousing:
                 few_kbytes = queried_kbytes[-3:]
@@ -1459,72 +1432,43 @@ class KeyboardReader:
             query = "\033[5n"
             reply = "\033[0n"
 
-            dsr0_match = re.match(rb"^.*(\033\[0n)$", string=queried_kbytes, flags=re.DOTALL)
-            if dsr0_match:
-                if query in removables:
+            if query in removables:
+                dsr0_match = re.match(rb"^.*(\033\[0n)$", string=queried_kbytes, flags=re.DOTALL)
+                if dsr0_match:
+                    removables.remove(query)
+
                     n = len(dsr0_match.group(1))
                     del kbytearray[-n:]
-                    removables.remove(query)
 
                     queries.append(query)
                     replies.append(reply)
 
                     continue
 
-            # todo5: comment here
+            # Take one ⎋[8 T as the Reply to one ⎋[18T
 
-            if flags.native:
+            if self._remove_h_w_reply_if_(removables):
                 continue
 
-            # Take one ⎋[ ⇧R as the Reply to one ⎋[6N  # todo5: extract as Def Self
+            # Take one ⎋[ ⇧R as the Reply to one ⎋[6N
 
-            query = "\033[6n"
+            if self._remove_y_x_reply_if_(removables):
+                continue
 
-            yx_match = re.match(
-                rb"^.*(\033\[([0-9]+);([0-9]+)R)$", string=queried_kbytes, flags=re.DOTALL
-            )
-            if yx_match:
-                if query in removables:
-                    n = len(yx_match.group(1))
-                    del kbytearray[-n:]
-                    removables.remove(query)
+        # Assert (Y, X) found inside the [(1, 1), (H, W)] Rectangle of the Screen
 
-                    # Publish the Y Row & X Column
+        high_wide = self.high_wide
+        row_column = self.row_column
 
-                    y_row = int(yx_match.group(2))
-                    x_column = int(yx_match.group(3))
+        assert bool(high_wide) == bool(row_column), (high_wide, row_column)
 
-                    assert y_row >= 1, (y_row,)
-                    assert x_column >= 1, (x_column,)
+        if row_column:
 
-                    self.row_column = (y_row, x_column)  # replaces
+            (y, x) = row_column
+            (h, w) = high_wide
 
-                    continue
-
-            # Take one ⎋[8 T as the Reply to one ⎋[18T  # todo5: extract as Def Self
-
-            query = "\033[18t"
-
-            hw_match = re.match(
-                rb"^.*(\033\[8;([0-9]+);([0-9]+)t)$", string=queried_kbytes, flags=re.DOTALL
-            )
-            if hw_match:
-                if query in removables:
-                    n = len(hw_match.group(1))
-                    del kbytearray[-n:]
-                    removables.remove(query)
-
-                    # Publish the Y High & X Wide
-
-                    y_high = int(hw_match.group(2))
-                    x_wide = int(hw_match.group(3))
-
-                    assert y_high >= 5, (y_high,)  # todo: less high than Apple macOS Terminal
-                    assert x_wide >= 20, (x_wide,)  # todo: less wide than Apple macOS Terminal
-
-                    self.high_wide = (y_high, x_wide)  # replaces
-
-                    continue
+            assert 1 <= y <= h, (y, x, h, w)
+            assert 1 <= x <= w, (y, x, h, w)
 
         # Transcode a Burst of Arrows into Pn Arrows, if enough arrived at once
 
@@ -1540,6 +1484,88 @@ class KeyboardReader:
 
         kqa_tuple = tuple(zip(queries, replies))  # maybe empty
         return kqa_tuple
+
+    def _remove_h_w_reply_if_(self, removables: list[str]) -> bool:
+        """Take one ⎋[8 T as the Reply to one ⎋[18T"""
+
+        kbindex = self.kbindex
+        kbytearray = self.kbytearray
+
+        kbytes = bytes(kbytearray[kbindex:])
+
+        # Give up if Query not written lately
+
+        query = "\033[18t"
+        if query not in removables:
+            return False
+
+        # Give up if Reply not yet read
+
+        m = re.match(rb"^.*(\033\[8;([0-9]+);([0-9]+)t)$", string=kbytes, flags=re.DOTALL)
+        if not m:
+            return False
+
+        # Remove the H W Reply
+
+        removables.remove(query)
+
+        n = len(m.group(1))
+        del kbytearray[-n:]
+
+        # Publish the Y High & X Wide
+
+        y_high = int(m.group(2))
+        x_wide = int(m.group(3))
+
+        assert y_high >= 5, (y_high,)  # todo: less high than Apple macOS Terminal
+        assert x_wide >= 20, (x_wide,)  # todo: less wide than Apple macOS Terminal
+
+        self.high_wide = (y_high, x_wide)  # replaces
+
+        # Succeed
+
+        return True
+
+    def _remove_y_x_reply_if_(self, removables: list[str]) -> bool:
+        """Take one ⎋[ ⇧R as the Reply to one ⎋[6N"""
+
+        kbindex = self.kbindex
+        kbytearray = self.kbytearray
+
+        kbytes = bytes(kbytearray[kbindex:])
+
+        # Give up if Query not written lately
+
+        query = "\033[6n"
+        if query not in removables:
+            return False
+
+        # Give up if Reply not yet read
+
+        m = re.match(rb"^.*(\033\[([0-9]+);([0-9]+)R)$", string=kbytes, flags=re.DOTALL)
+        if not m:
+            return False
+
+        # Remove the Y X Reply
+
+        removables.remove(query)
+
+        n = len(m.group(1))
+        del kbytearray[-n:]
+
+        # Publish the Y Row & X Column
+
+        y_row = int(m.group(2))
+        x_column = int(m.group(3))
+
+        assert y_row >= 1, (y_row,)
+        assert x_column >= 1, (x_column,)
+
+        self.row_column = (y_row, x_column)  # replaces
+
+        # Succeed
+
+        return True
 
     def _transcode_arrows_if_(self, kbytes: bytes) -> bytes:
         """Transcode a Burst of Arrows into Pn Arrows, if enough arrived at once"""
