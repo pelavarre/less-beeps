@@ -229,6 +229,10 @@ class TerminalStudio:
         fileno = self.fileno
         tcgetattr = self.tcgetattr
 
+        kr = self.keyboard_reader
+
+        assert DSR_0 == "\033[" "0n"
+        assert DSR_5 == "\033[" "5n"
         assert _SM_BRACKETED_PASTE_ == "\033[" "?2004h"
 
         # Enter once
@@ -252,9 +256,22 @@ class TerminalStudio:
         else:
             tty.setcbreak(fileno, when=termios.TCSADRAIN)  # todo: .when defaults to .TCSAFLUSH
 
-        # Ask for Bracketed Paste, as if Unbracketed Paste given by default
+        # Writes after entry
 
         stdio.write("\033[" "?2004h")
+
+        # Fetch Terminal Width x Height, and Terminal Cursor Y X,
+        # before first Read of Tap/ Click/ Keyboard
+
+        assert kr.high_wide == (-1, -1), (kr.high_wide,)
+        assert kr.row_column == (-1, -1), (kr.row_column,)
+
+        stdio.write("\033[" "5n")
+
+        kmixes = kr.read_some_key_mixes()
+        assert len(kmixes) == 1, (kmixes,)
+        kmix = kmixes[-1]
+        assert kmix.kencode == b"\033[0n", (kmix.kencode,)
 
         # Succeed
 
@@ -276,7 +293,7 @@ class TerminalStudio:
         if not tcgetattr:
             return
 
-        # Ask for Unbracketed Paste, as if Bracketed Paste asked for by .__enter__ etc
+        # Writes before exit
 
         stdio.write("\033[" "?2004l")
 
