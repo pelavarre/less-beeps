@@ -171,6 +171,8 @@ def shell_args_take_in(args: list[str], parser: ArgDocParser) -> None:
                 arg_doc_parser.parser.print_usage()
                 sys.exit(2)  # exits 2 for bad Arg
 
+        # todo4: somehow mix ⌃Q and ⌃V into --egg=native
+
 
 def _try_less_beeps_() -> None:
     """Run slow and quick Self-Test's of Less-Beeps·Py"""
@@ -263,22 +265,24 @@ class TerminalStudio:
 
         # Writes after entry
 
-        stdio.write("\033[" "?2004h")
+        if not flags.native:
+            stdio.write("\033[" "?2004h")
 
         # Query Terminal Before first Read of Tap/ Click/ Keyboard
 
         assert not kr.high_wide, (kr.high_wide,)
         assert not kr.row_column, (kr.row_column,)
 
-        stdio.write("\033[" "5n")
+        if not flags.native:
+            stdio.write("\033[" "5n")
 
-        kmixes = kr.read_some_key_mixes()
-        assert len(kmixes) == 1, (kmixes,)
-        kmix = kmixes[-1]
-        assert kmix.kencode == b"\033[0n", (kmix.kencode,)
+            kmixes = kr.read_some_key_mixes()
+            assert len(kmixes) == 1, (kmixes,)
+            kmix = kmixes[-1]
+            assert kmix.kencode == b"\033[0n", (kmix.kencode,)
 
-        assert kr.high_wide, (kr.high_wide,)
-        assert kr.row_column, (kr.row_column,)
+            assert kr.high_wide, (kr.high_wide,)
+            assert kr.row_column, (kr.row_column,)
 
         # Succeed
 
@@ -404,19 +408,20 @@ class TerminalStudio:
             self.loop_back()
             self.trace_key_mixes()
 
-    def loop_back(self) -> None:
+    def loop_back(self) -> None:  # noqa  # todo5:
         """Loop-back the Keyboard to Screen"""
 
         kr = self.keyboard_reader
         sw = self.screen_writer
 
-        kbindex = -1
+        esc_kbindex = -1
         while True:
 
             # Loop-back the Bytes at the ⎋ Esc and forget the ⎋ Esc, or don't
 
-            if kbindex >= 0:
-                kbindex = self.loop_back_kbindex(kbindex)
+            if esc_kbindex >= 0:
+                assert not flags.native, (flags.native, flags)
+                esc_kbindex = self.loop_back_esc_kbindex(esc_kbindex)
 
             # Fetch more Key Mixes
 
@@ -425,9 +430,10 @@ class TerminalStudio:
             kmixes = kr.read_some_key_mixes()
             assert kmixes, (kmixes,)  # because .read_some_key_mixes chooses timeout=None
 
-            leap_kmix = self.kmixes_to_leap_kmix(kmixes)
-            if leap_kmix:
-                kmixes = [leap_kmix]
+            if not flags.native:
+                leap_kmix = self.kmixes_to_leap_kmix(kmixes)
+                if leap_kmix:
+                    kmixes = [leap_kmix]
 
             # Take up each Key Mix, in order
 
@@ -438,10 +444,37 @@ class TerminalStudio:
 
                 # Write straight through transparently, when given --egg=native
 
+                # if not hasattr(self, "triggers"):
+                #     triggers: list[str] = list()
+                #     self.triggers = triggers
+                # triggers = self.triggers
+
                 if flags.native:
                     kdecode = kmix.kdecode
-                    assert kdecode, (kdecode, kmix)
-                    sw.swrite(kdecode)
+                    if kdecode:  # not the second half of ⌥E E etc
+
+                        sw.swrite(kdecode)
+
+                        # self.stdio.write(kdecode)
+                        # self.stdio.flush()
+
+                        # fakes = "\033[H"
+                        # sw.swrite(fakes[len(triggers)])
+
+                        # sw.swrite("\033")
+                        # self.stdio.flush()
+                        # sw.swrite("[")
+                        # self.stdio.flush()
+                        # sw.swrite("H")
+                        # self.stdio.flush()
+
+                        # sw.swrite("\033[H" + str(len(triggers)))
+
+                        # sw.swrite(repr(kdecode))  # # todo: --egg for this variation?
+
+                        # triggers.append(kdecode)
+                        # assert len(triggers) < 3, (triggers,)
+
                     continue
 
                 # Snoop a Python Int Literal, if present
@@ -452,21 +485,23 @@ class TerminalStudio:
                 # Take the Key Mix as a Repeated Instruction, if meaningful
 
                 ok = False
-                for _ in range(count):
 
-                    ok = False
+                ok = ok or self.answer_printable_kdecode(kmix.kdecode)
 
-                    ok = ok or self.answer_pasted_kmix(kmix)
-                    ok = ok or self.answer_controls_kmix(kmix)
-                    ok = ok or self.answer_arrows_kmix(kmix)
-                    ok = ok or self.answer_leap_kmix(kmix)
+                if not ok:
+                    for _ in range(count):  # todo5: ⌃U to repeat texts, ⌃U ... ⌃U for digits
 
-                    ok = ok or self.answer_printable_kdecode(kmix.kdecode)
+                        ok = False
 
-                    if not ok:
-                        break
+                        ok = ok or self.answer_pasted_kmix(kmix)
+                        ok = ok or self.answer_controls_kmix(kmix)
+                        ok = ok or self.answer_arrows_kmix(kmix)
+                        ok = ok or self.answer_leap_kmix(kmix)
 
-                    # todo5: different rules for what repeat .count <= 0 means here, and there
+                        if not ok:
+                            break
+
+                        # todo5: different rules for what repeat .count <= 0 means here, and there
 
                 # Take the Key Mix as something to trace, if not meaningful
 
@@ -474,7 +509,7 @@ class TerminalStudio:
                     if kmix.kface == "⎋":
                         sw.swrite("\0337")
                         sw.sprint(kmix.kface, end="")
-                        kbindex = kr.kbindex - 1
+                        esc_kbindex = kr.kbindex - 1
                     elif kmix.kface:
                         sw.sprint("", kmix.kface, end=" ")
                     elif kmix.kcaps:
@@ -489,6 +524,9 @@ class TerminalStudio:
                     sys.exit()
 
             assert kmix is not empty_kmix, (kmix, empty_kmix)
+
+            if flags.native:
+                continue
 
             # Stop looping back at ⌃Q or ⌃V
 
@@ -586,10 +624,10 @@ class TerminalStudio:
 
         return leap_kmix
 
-    def loop_back_kbindex(self, kbindex: int) -> int:
+    def loop_back_esc_kbindex(self, esc_kbindex: int) -> int:  # noqa  # todo5:
         """Loop-back the Bytes at the ⎋ Esc and return -1, else return .kbindex unchanged"""
 
-        assert kbindex >= 0, (kbindex,)
+        assert esc_kbindex >= 0, (esc_kbindex,)
 
         kr = self.keyboard_reader
         kbytearray = kr.kbytearray
@@ -607,8 +645,8 @@ class TerminalStudio:
         # Snoop a Python Int Literal, if present behind the ⎋ Esc
         # Snoop a single Key Pack, if present at the ⎋ Esc
 
-        count = self.kbindex_to_count_if(kbindex)
-        end_kbytearray = kbytearray[kbindex:]
+        count = self.kbindex_to_count_if(esc_kbindex)
+        end_kbytearray = kbytearray[esc_kbindex:]
 
         kpack = KeyPack(b"")
         extra = b""
@@ -629,13 +667,17 @@ class TerminalStudio:
 
             if kpack.closed:
 
+                loopbacking = False
                 if kencode in (b"\033[200~", b"\033[201~"):
-                    pass
+                    loopbacking = True  # unneeded, and mostly harmless
                 elif kencode.startswith(b"\033[M"):
                     pass  # sw.swrite("⎋[⇧M{cb}{cx}{cy} Click")  # Release or Press
                 elif neck_.startswith(b"<") and (tail_ in (b"m", b"M")):
                     pass  # sw.swrite("⎋[<{f};{x};{y}m Click")  # Release or Press
                 else:
+                    loopbacking = True
+
+                if loopbacking:
                     kdecode = kencode.decode()
 
                     # Emulate macOS ⎋D and macOS ⎋L
@@ -646,7 +688,7 @@ class TerminalStudio:
                         if kdecode == "\033c":  # ⎋C
                             swrite = "\033[H" "\033[2J"  # as if ⎋[⇧H ⎋[2⇧J screen-erase
                         elif kdecode == "\033D":  # ⎋⇧D
-                            swrite = "\033E"  # ⎋⇧E as if ⌃M ⌃J
+                            swrite = "\033E"  # ⎋⇧E as if ⌃M ⌃J  # todo: prefer "\r\n"?
                         elif kdecode == "\033l":  # ⎋L
                             swrite = "\033[H"  # as if ⎋[⇧H leap to the far Northwest
 
@@ -666,9 +708,9 @@ class TerminalStudio:
 
                     # todo5: different rules for what repeat .count <= 0 means here, and there
 
-                kbindex = -1
+                esc_kbindex = -1
 
-        return kbindex
+        return esc_kbindex
 
     def kbindex_to_count_if(self, kbindex: int) -> int | None:
         """Snoop a Python Int Literal out of a glance back into our Key Log of Bytes"""
@@ -1382,8 +1424,9 @@ class KeyboardReader:
         if kbyte in encode_start_set:
             removables.append("\033[5n")  # ⎋[5N
 
-        removables.append("\033[6n")  # ⎋[6N  # hangs at ⌃J
-        removables.append("\033[18t")  # ⎋[18T
+        if not flags.native:
+            removables.append("\033[6n")  # ⎋[6N  # hangs at ⌃J
+            removables.append("\033[18t")  # ⎋[18T
 
         for removable in removables:
             sw.swrite(removable)
@@ -1428,7 +1471,12 @@ class KeyboardReader:
 
                     continue
 
-            # Take ⎋[ ⇧R as the Reply to one ⎋[6N
+            # todo5: comment here
+
+            if flags.native:
+                continue
+
+            # Take one ⎋[ ⇧R as the Reply to one ⎋[6N  # todo5: extract as Def Self
 
             query = "\033[6n"
 
@@ -1453,7 +1501,7 @@ class KeyboardReader:
 
                     continue
 
-            # Take ⎋[8 T as the Reply to one ⎋[18T
+            # Take one ⎋[8 T as the Reply to one ⎋[18T  # todo5: extract as Def Self
 
             query = "\033[18t"
 
@@ -1484,8 +1532,9 @@ class KeyboardReader:
 
         alt_filled_kbytes = self._transcode_arrows_if_(filled_kbytes)
         if alt_filled_kbytes:
-            del kbytearray[kbindex:]
-            kbytearray.extend(alt_filled_kbytes)
+            if not flags.native:
+                del kbytearray[kbindex:]
+                kbytearray.extend(alt_filled_kbytes)
 
         # Succeed
 

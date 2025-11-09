@@ -60,11 +60,16 @@ and you have to press ⌃V ⌃C to send ⌃C
 
 1 )
 
-Expect most of your shifted Keyboard Chords won't reply visibly
-
 We stop working to make your Terminal feel friendlier.
 We stop working to limit what you can type out on the Keyboard
 
+Expect most of your shifted Keyboard Chords won't reply visibly
+
+Expect your ⌘V Paste will come as itself,
+    no longer started by ⎋[200⇧~ and ended by ⎋[200⇧~
+
++ Press ⎋C to do more than ⎋[⇧H ⎋[2⇧J screen-erase,
+    more like a Shell Terminal 'reset'
 + Press ⌃H to do the work of ← but by writing ⌃H to do it,
     not by writing ⎋[⇧D like ← does
 + Press ⌃J above the Southernmost Row to do the work of ↓ but by writing ⌃J to do it,
@@ -76,7 +81,7 @@ We stop working to limit what you can type out on the Keyboard
 + Put ⏎ into Paste to write only b'\r' Carriage Return (CR),
     not to also step down
 + Press any of ← ↑ → ↓ to move the Cursor off of the Gameboard,
-    not only inside
+    not only move the Cursor around inside the Gameboard
 
 And so on and on and on
 
@@ -147,7 +152,7 @@ The famous Esc ⎋ Byte Pairs are ⎋ 7 8 C L ⇧D ⇧E ⇧M
 
     ⎋7 cursor-checkpoint  ⎋8 cursor-revert (defaults to Y 1 X 1)
     ⎋C screen-erase  ⎋L row-column-leap
-    ⎋⇧D \r+↓ else \r+\n  ⎋⇧E \r+↓ else \r+\n  ⎋⇧M ↑ else scroll+↑
+    ⎋⇧D \r+↓ else \r+\n  ⎋⇧E \r+↓ else \r+\n  ⎋⇧M ↑ else north-row-delete+↑
 
 The famous Csi ⎋[ Sequences are ⎋[ ⇧ @ ABCDE GHIJKLM P ST Z and ⎋[ D H LMN Q T
 
@@ -158,7 +163,7 @@ The famous Csi ⎋[ Sequences are ⎋[ ⇧ @ ABCDE GHIJKLM P ST Z and ⎋[ D H L
     ⎋[1⇧M rows-delete  ⎋[⇧L rows-insert  ⎋[⇧P chars-delete  ⎋[⇧@ chars-insert
     ⎋[⇧J after-erase  ⎋[1⇧J before-erase  ⎋[2⇧J screen-erase  ⎋[3⇧J scrollback-erase
     ⎋[⇧K row-tail-erase  ⎋[1⇧K row-head-erase  ⎋[2⇧K row-erase
-    ⎋[⇧T scrolls-down  ⎋[⇧S scrolls-up
+    ⎋[⇧T south-rows-delete  ⎋[⇧S north-rows-delete
 
     ⎋[4H insert  ⎋[4L replace  ⎋[6 Q bar  ⎋[4 Q skid  ⎋[ Q unstyled
 
