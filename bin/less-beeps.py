@@ -81,7 +81,7 @@ class Flags:
     leaper: bool = False  # flags.leaper, for Tap to move Cursor
     native: bool | None = None  # flags.native, for don't make this Terminal feel friendlier
     sigint: bool | None = None  # flags.sigint, for ⌃C to work
-    # sigtstp: bool | None = None  # flags.sigtstp, for ⌃Z to work  # todo2:
+    # sigtstp: bool | None = None  # flags.sigtstp  # todo2: or ⌃Z to work without ⌃C ⌃\ working
 
     mousing: bool = False  # flags.mousing, for ⌥-Click to work differently
 
@@ -171,7 +171,7 @@ def shell_args_take_in(args: list[str], parser: ArgDocParser) -> None:
                 arg_doc_parser.parser.print_usage()
                 sys.exit(2)  # exits 2 for bad Arg
 
-        # todo4: some new --egg to add ⌃Q and ⌃V into --egg=native ?
+        # todo3: some new --egg to add ⌃Q and ⌃V into --egg=native ?
 
 
 def _try_less_beeps_() -> None:
@@ -230,7 +230,7 @@ class TerminalStudio:
         self.keyboard_reader = kr
         self.paste_row_column = tuple()
 
-    def __enter__(self) -> TerminalStudio:
+    def __enter__(self) -> TerminalStudio:  # todo3: re-enter after --egg=sigint ⌃Z sigtstp
 
         stdio = self.stdio
         fileno = self.fileno
@@ -355,7 +355,7 @@ class TerminalStudio:
         fd = fileno
         length = 1
 
-        kbyte = os.read(fd, length)
+        kbyte = os.read(fd, length)  # todo3: test with ⌃D after ⌃Z fg, as if no __enter__
         assert kbyte, (kbyte,)  # because .tcgetattr
         assert len(kbyte) == 1, (kbyte,)  # because .length == 1
 
@@ -408,7 +408,7 @@ class TerminalStudio:
             self.loop_back()
             self.trace_key_mixes()
 
-    def loop_back(self) -> None:  # noqa  # todo5:
+    def loop_back(self) -> None:  # noqa  # todo5: too complex (18
         """Loop-back the Keyboard to Screen"""
 
         kr = self.keyboard_reader
@@ -517,12 +517,7 @@ class TerminalStudio:
         """Convert Burst of Pn Arrows to a Mouse Click Release"""
 
         kr = self.keyboard_reader
-
-        (h, w) = kr.high_wide
-        (y, x) = kr.row_column
-
-        assert 1 <= y <= h, (y, x, h, w)
-        assert 1 <= x <= w, (y, x, h, w)
+        (y, x, h, w) = kr.recollect_y_x_h_w()
 
         # Take up each Key Mix, in order
 
@@ -597,7 +592,7 @@ class TerminalStudio:
 
         return leap_kmix
 
-    def loop_back_esc_kbindex(self, esc_kbindex: int) -> int:  # noqa  # todo5:
+    def loop_back_esc_kbindex(self, esc_kbindex: int) -> int:  # noqa  # todo5: too complex (16
         """Loop-back the Bytes at the ⎋ Esc and return -1, else return .kbindex unchanged"""
 
         assert esc_kbindex >= 0, (esc_kbindex,)
@@ -812,10 +807,30 @@ class TerminalStudio:
     def answer_printable_kdecode(self, kdecode: str) -> bool:
         """Loop Printable Key Bytes to Screen"""
 
+        paste_row_column = self.paste_row_column
+        kr = self.keyboard_reader
         sw = self.screen_writer
 
         if kdecode and kdecode.isprintable():
-            sw.swrite(kdecode)
+
+            if not paste_row_column:
+
+                sw.swrite(kdecode)
+
+            else:  # ⎋[201⇧~ knows 'sw.swrite(kdecode)' ran only if KR Y X changes
+
+                (y, x, h, w) = kr.recollect_y_x_h_w()
+
+                sw.swrite(kdecode)
+
+                x += len(kdecode)
+                while x > w:
+                    x -= w
+                    y += 1
+                    y = min(max(1, y), h)
+
+                kr.row_column = (y, x)  # replaces
+
             return True
 
             # sw.swrite("<<" + kdecode + ">>"))  # todo: some new --egg for tracing text loopback?
@@ -830,19 +845,19 @@ class TerminalStudio:
 
         kr = self.keyboard_reader
         row_column = kr.row_column
+        paste_row_column = self.paste_row_column
 
         assert _START_PASTE_ == "\033[" "200~"
         assert _END_PASTE_ == "\033[" "201~"
 
         # Answer differently between ⎋[200⇧ and ⎋[201⇧
 
-        paste_row_column = self.paste_row_column
         if not paste_row_column:
             if kmix.kdecode != "\033[200~":
                 return False
-            paste_row_column = row_column
 
-            self.paste_row_column = paste_row_column  # replaces
+            self.paste_row_column = row_column  # replaces
+            paste_row_column = self.paste_row_column  # resamples
 
         # Show Start of Paste
 
@@ -854,9 +869,19 @@ class TerminalStudio:
         # Show End of Paste
 
         if kmix.kdecode == "\033[201~":
+
+            if row_column != paste_row_column:
+                self.swrite_pasted_crlf()
+
+                row_column = kr.row_column  # resamples
+                paste_row_column = self.paste_row_column  # resamples
+
+                assert row_column == paste_row_column, (row_column, paste_row_column)
+
             sw.sprint(kmix.kcaps, end="")
             self.swrite_pasted_crlf()
             self.paste_row_column = tuple()  # replaces
+
             return True
 
         # Limit Carriage-Return of Pasted Line-Break to no more West than Paste Column
@@ -872,19 +897,23 @@ class TerminalStudio:
         # todo3: turn off the wrap of key release or paste across the Eastmost column
 
     def swrite_pasted_crlf(self) -> None:
+        """Leap to Westmost column of Paste, step South, and delete Northmost Row if need be"""
 
         kr = self.keyboard_reader
+        paste_row_column = self.paste_row_column
         sw = self.screen_writer
-        y, x = self.paste_row_column
 
-        h, w = kr.high_wide
+        assert CUP_Y_X == "\033[" "{};{}H"
+
+        # Find Paste on Screen
+
+        (y, x) = self.paste_row_column
+        (_, _, h, w) = kr.recollect_y_x_h_w()
 
         assert 1 <= y <= h, (y, x, h, w)
         assert 1 <= x <= w, (y, x, h, w)
 
-        assert CUP_Y_X == "\033[" "{};{}H"
-
-        #
+        # Calculate next Y X and delete Northmost Row if need be and go there
 
         y += 1
         y = min(max(1, y), h)
@@ -895,13 +924,13 @@ class TerminalStudio:
         assert 1 <= y <= h, (y, x, h, w)
         assert 1 <= x <= w, (y, x, h, w)
 
+        # Say we've gone there, and say we'll write the next Row of Paste there
+
         kr.row_column = (y, x)  # replaces
-
-        #
-
         self.paste_row_column = (y, x)  # replaces
 
         # todo: why not def 'sw_swrite_crlf_as_pasted' inside 'def answer_pasted_kmix'?
+        # todo: something complex about .y and/or .h "not bound"?
 
     def answer_controls_kmix(self, kmix: KeyMix) -> bool:
         """Loop basic Control Sequences to Screen"""
@@ -988,7 +1017,7 @@ class TerminalStudio:
 
         # todo3: take ⌃S ⌃Q as --egg=xoff
 
-        # todo: offer classic ⌃Z as --egg=sigtstp
+        # todo2: --egg=sigtstp for ⌃Z to work without ⌃C ⌃\ working
 
         # todo: offer test of timeout=None timing out at ⌃D as --egg=eot
 
@@ -1109,6 +1138,27 @@ class KeyboardReader:
 
         self.high_wide = tuple()
         self.row_column = tuple()
+
+    def recollect_y_x_h_w(self) -> tuple[int, ...]:
+        """Fetch the Terminal Cursor Row & Column and its Window Pane Rows & Columns Size"""
+
+        high_wide = self.high_wide
+        row_column = self.row_column
+
+        assert bool(high_wide) == bool(row_column), (high_wide, row_column)
+
+        if not row_column:
+            return tuple()
+
+        (h, w) = self.high_wide
+        (y, x) = self.row_column
+
+        assert 1 <= y <= h, (y, x, h, w)
+        assert 1 <= x <= w, (y, x, h, w)
+
+        return (y, x, h, w)
+
+        # macOS Terminal and Python .get_terminal_size speak of Columns x Rows
 
     def read_some_key_mixes(self) -> list[KeyMix]:
         """Read all the Key Mixes that came together, minus whatever has already been read"""
@@ -1285,6 +1335,8 @@ class KeyboardReader:
 
                     continue
 
+        # todo5: split our overlarge 'def _demand_kmixes_' into two or more Def's
+
     #
     #
     #
@@ -1395,6 +1447,7 @@ class KeyboardReader:
 
         removables = list()
         if kbyte in encode_start_set:  # todo: some new --egg to try ⎋[5N more often?
+            # if True:
             removables.append("\033[5n")  # ⎋[5N
 
         if not flags.native:
@@ -1408,6 +1461,8 @@ class KeyboardReader:
 
         queries = list()
         replies = list()
+
+        self.recollect_y_x_h_w()
         while removables:
 
             # Fetch 1 Key Byte
@@ -1455,20 +1510,7 @@ class KeyboardReader:
             if self._remove_y_x_reply_if_(removables):
                 continue
 
-        # Assert (Y, X) found inside the [(1, 1), (H, W)] Rectangle of the Screen
-
-        high_wide = self.high_wide
-        row_column = self.row_column
-
-        assert bool(high_wide) == bool(row_column), (high_wide, row_column)
-
-        if row_column:
-
-            (y, x) = row_column
-            (h, w) = high_wide
-
-            assert 1 <= y <= h, (y, x, h, w)
-            assert 1 <= x <= w, (y, x, h, w)
+        self.recollect_y_x_h_w()
 
         # Transcode a Burst of Arrows into Pn Arrows, if enough arrived at once
 

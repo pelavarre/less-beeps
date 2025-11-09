@@ -30,9 +30,9 @@ Three
 
     --egg=leaper  # for tap to move cursor, especially the ⌥ option/alt click
     --egg=native  # loops your Keyboard to Screen with no friendly distortions
-    --egg=sigint  # for ⌃C and ⌃\ to work (and for ⌃J to write like ⌃M ⌃J)
+    --egg=sigint  # for ⌃C ⌃Z ⌃\ to work (and for ⌃J to write like ⌃M ⌃J)
 
-<!-- --egg=sigtstp  # for ⌃Z to work -->
+<!-- --egg=sigtstp  # for ⌃Z to work without ⌃C and ⌃\ working -->
 
 ## Consequences of --egg=sigint
 
@@ -66,7 +66,8 @@ We stop working to limit what you can type out on the Keyboard
 Expect most of your shifted Keyboard Chords won't reply visibly
 
 Expect your ⌘V Paste will come as itself,
-    no longer started by ⎋[200⇧~ and ended by ⎋[200⇧~
+    no longer as started by ⎋[200⇧~ and as ended by ⎋[200⇧~,
+        unless you first paste in ⎋[⇧?2004H yourself
 
 + Press ⎋C to do more than ⎋[⇧H ⎋[2⇧J screen-erase,
     more like a Shell Terminal 'reset'
