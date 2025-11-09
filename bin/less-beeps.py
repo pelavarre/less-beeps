@@ -197,7 +197,9 @@ class TerminalStudio:
     tcgetattr: list[int | list[bytes | int]]  # replaced by .__enter__
 
     screen_writer: ScreenWriter
+
     keyboard_reader: KeyboardReader
+    paste_row_column: tuple[int, ...]
 
     selves: list[TerminalStudio] = list()
 
@@ -220,8 +222,11 @@ class TerminalStudio:
         self.stdio = stdio
         self.fileno = fileno
         self.tcgetattr = list()  # replaced by .__enter__
+
         self.screen_writer = sw
+
         self.keyboard_reader = kr
+        self.paste_row_column = tuple()
 
     def __enter__(self) -> TerminalStudio:
 
@@ -260,11 +265,10 @@ class TerminalStudio:
 
         stdio.write("\033[" "?2004h")
 
-        # Fetch Terminal Width x Height, and Terminal Cursor Y X,
-        # before first Read of Tap/ Click/ Keyboard
+        # Query Terminal Before first Read of Tap/ Click/ Keyboard
 
-        assert kr.high_wide == (-1, -1), (kr.high_wide,)
-        assert kr.row_column == (-1, -1), (kr.row_column,)
+        assert not kr.high_wide, (kr.high_wide,)
+        assert not kr.row_column, (kr.row_column,)
 
         stdio.write("\033[" "5n")
 
@@ -272,6 +276,9 @@ class TerminalStudio:
         assert len(kmixes) == 1, (kmixes,)
         kmix = kmixes[-1]
         assert kmix.kencode == b"\033[0n", (kmix.kencode,)
+
+        assert kr.high_wide, (kr.high_wide,)
+        assert kr.row_column, (kr.row_column,)
 
         # Succeed
 
@@ -448,9 +455,13 @@ class TerminalStudio:
                 for _ in range(count):
 
                     ok = False
+
+                    ok = ok or self.answer_pasted_kmix(kmix)
                     ok = ok or self.answer_controls_kmix(kmix)
                     ok = ok or self.answer_arrows_kmix(kmix)
                     ok = ok or self.answer_leap_kmix(kmix)
+
+                    ok = ok or self.answer_printable_kdecode(kmix.kdecode)
 
                     if not ok:
                         break
@@ -490,8 +501,6 @@ class TerminalStudio:
         # todo1: livelocks less wild in Keyboard/ Screen loopback
 
         # todo5: bind Delete differently while Inserting
-        # todo5: dream up ways to take text as text
-        # todo5: vertical paste
 
     def kmixes_to_leap_kmix(self, kmixes: list[KeyMix]) -> KeyMix:
         """Convert Burst of Pn Arrows to a Mouse Click Release"""
@@ -587,6 +596,14 @@ class TerminalStudio:
 
         sw = self.screen_writer
 
+        # todo: assert names for "\033M", "\033[" "<{};{};{}" "M", "\033[" "<{};{};{}" "m"
+
+        assert CUP_Y_X == "\033[" "{};{}H"
+        assert ED_P == "\x1b" "[" "{}J"
+
+        assert _START_PASTE_ == "\033[" "200~"
+        assert _END_PASTE_ == "\033[" "201~"
+
         # Snoop a Python Int Literal, if present behind the ⎋ Esc
         # Snoop a single Key Pack, if present at the ⎋ Esc
 
@@ -612,7 +629,9 @@ class TerminalStudio:
 
             if kpack.closed:
 
-                if kencode.startswith(b"\033[M"):
+                if kencode in (b"\033[200~", b"\033[201~"):
+                    pass
+                elif kencode.startswith(b"\033[M"):
                     pass  # sw.swrite("⎋[⇧M{cb}{cx}{cy} Click")  # Release or Press
                 elif neck_.startswith(b"<") and (tail_ in (b"m", b"M")):
                     pass  # sw.swrite("⎋[<{f};{x};{y}m Click")  # Release or Press
@@ -624,10 +643,14 @@ class TerminalStudio:
 
                     swrite = kdecode
                     if not flags.native:
-                        if kdecode == "\033D":  # ⎋⇧D
+                        if kdecode == "\033c":  # ⎋C
+                            swrite = "\033[H" "\033[2J"  # as if ⎋[⇧H ⎋[2⇧J screen-erase
+                        elif kdecode == "\033D":  # ⎋⇧D
                             swrite = "\033E"  # ⎋⇧E as if ⌃M ⌃J
                         elif kdecode == "\033l":  # ⎋L
-                            swrite = "\033[H"  # as if ⎋[H leap to the far Northwest
+                            swrite = "\033[H"  # as if ⎋[⇧H leap to the far Northwest
+
+                        # ⎋[⇧H ⎋[2⇧J more popular than ⎋[⇧J ⎋[⇧H etc
 
                     # Write the Bytes of the Key Pack, but back at the ⎋ Esc
 
@@ -771,16 +794,99 @@ class TerminalStudio:
     # Choose Outputs for each Input
     #
 
-    # def answer_printable_kdecode(self, kdecode: str) -> bool:
-    #     """Loop Printable Key Bytes to Screen"""
-    #
-    #     sw = self.screen_writer
-    #
-    #     if kdecode and kdecode.isprintable():
-    #         sw.swrite(kdecode)
-    #         return True
-    #
-    #     return False
+    def answer_printable_kdecode(self, kdecode: str) -> bool:
+        """Loop Printable Key Bytes to Screen"""
+
+        sw = self.screen_writer
+
+        if kdecode and kdecode.isprintable():
+            sw.swrite(kdecode)
+            return True
+
+            # sw.swrite("<<" + kdecode + ">>")  # todo: --egg for this variation?
+            # sw.swrite(kdecode.upper())  # todo: --egg for this variation?
+
+        return False
+
+    def answer_pasted_kmix(self, kmix: KeyMix) -> bool:
+        """Loop back Pasted Key Mixes into vertical jagged Screen Rows"""
+
+        sw = self.screen_writer
+
+        kr = self.keyboard_reader
+        row_column = kr.row_column
+
+        assert _START_PASTE_ == "\033[" "200~"
+        assert _END_PASTE_ == "\033[" "201~"
+
+        # Answer differently between ⎋[200⇧ and ⎋[201⇧
+
+        paste_row_column = self.paste_row_column
+        if not paste_row_column:
+            if kmix.kdecode != "\033[200~":
+                return False
+            paste_row_column = row_column
+
+            self.paste_row_column = paste_row_column  # replaces
+
+        # Show Start of Paste
+
+        if kmix.kdecode == "\033[200~":  # todo: but are they balanced?
+            sw.sprint(kmix.kcaps, end="")
+            self.swrite_pasted_crlf()
+            return True
+
+        # Show End of Paste
+
+        if kmix.kdecode == "\033[201~":
+            sw.sprint(kmix.kcaps, end="")
+            self.swrite_pasted_crlf()
+            self.paste_row_column = tuple()  # replaces
+            return True
+
+        # Limit Carriage-Return of Pasted Line-Break to no more West than Paste Column
+
+        if kmix.kdecode == "\r":
+            self.swrite_pasted_crlf()
+            return True
+
+        # Else say meaning not yet found
+
+        return False
+
+        # todo3: turn off the wrap of key release or paste across the Eastmost column
+
+    def swrite_pasted_crlf(self) -> None:
+
+        kr = self.keyboard_reader
+        sw = self.screen_writer
+        y, x = self.paste_row_column
+
+        h, w = kr.high_wide
+
+        assert 1 <= y <= h, (y, x, h, w)
+        assert 1 <= x <= w, (y, x, h, w)
+
+        assert CUP_Y_X == "\033[" "{};{}H"
+
+        #
+
+        y += 1
+        y = min(max(1, y), h)
+
+        sw.swrite("\r\n")
+        sw.swrite(f"\033[{y};{x}H")
+
+        assert 1 <= y <= h, (y, x, h, w)
+        assert 1 <= x <= w, (y, x, h, w)
+
+        kr.row_column = (y, x)  # replaces
+
+        #
+
+        self.paste_row_column = (y, x)  # replaces
+
+        # todo: why not def 'sw_swrite_crlf_as_pasted' inside 'def answer_pasted_kmix'?
 
     def answer_controls_kmix(self, kmix: KeyMix) -> bool:
         """Loop basic Control Sequences to Screen"""
@@ -965,8 +1071,8 @@ class KeyboardReader:
     kbytearray: bytearray  # Bytes fetched from Stdio
     kbindex: int  # count of Bytes returned
 
-    high_wide: tuple[int, int]  # (-1, -1) and then (y_high, x_wide) from ⎋[18T
-    row_column: tuple[int, int]  # (-1, -1) and then (row_y, column_x) from ⎋[6N
+    high_wide: tuple[int, ...]  # () and then (y_high, x_wide) from ⎋[18T
+    row_column: tuple[int, ...]  # () and then (row_y, column_x) from ⎋[6N
 
     #
     #
@@ -986,8 +1092,8 @@ class KeyboardReader:
         self.kbytearray = bytearray()
         self.kbindex = 0
 
-        self.high_wide = (-1, -1)
-        self.row_column = (-1, -1)
+        self.high_wide = tuple()
+        self.row_column = tuple()
 
     def read_some_key_mixes(self) -> list[KeyMix]:
         """Read all the Key Mixes that came together, minus whatever has already been read"""
@@ -3578,6 +3684,7 @@ OSC = "\033]"  # 01/11 05/13 Operating System Command
 ST = "\033\134"  # 05/11 05/12 String Terminator
 
 CUP_Y_X = "\033[" "{};{}H"  # Csi 04/08 [Choose] Cursor Position
+ED_P = "\x1b" "[" "{}J"  # CSI 04/10 Erase in Display  # 0 Tail # 1 Head # 2 Rows # 3 Scrollback
 
 DCH_X = "\033[" "{}" "P"  # Csi 05/00 Delete Character
 
