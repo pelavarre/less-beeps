@@ -78,13 +78,20 @@ class Flags:
     portrait: bool = False  # flags.portrait, for when lots more high than wide
     barefoot: bool = False  # flags.barefoot, for when rows not-hidden beneath a Southern Keyboard
 
-    leaper: bool = False  # flags.leaper, for tap to move cursor
+    leaper: bool = False  # flags.leaper, for Tap to move Cursor
     native: bool | None = None  # flags.native, for don't make this Terminal feel friendlier
     sigint: bool | None = None  # flags.sigint, for ⌃C to work
     # sigtstp: bool | None = None  # flags.sigtstp, for ⌃Z to work  # todo2:
 
+    mousing: bool = False  # flags.mousing, for ⌥-Click to work differently
+
+    breakpointing: bool = False  # flags.breakpointing
+
 
 flags = Flags()
+
+# flags.breakpointing = True
+# flags.mousing = True
 
 
 #
@@ -520,21 +527,21 @@ class TerminalStudio:
 
             # Wrap around the Left/ Right Screen Edges (unlike the classic ⎋[⇧C and ⎋[⇧D)
 
-            assert 1 <= y <= h, (y, x, h, w, kr.row_column, pn_arrows)
+            assert 1 <= y <= h, (y, x, h, w, kr.row_column, pn_arrows)  # y = min(max(1, y), h)
 
             while x < 1:
                 x += w
                 y -= 1
 
-                assert 1 <= y <= h, (y, x, h, w, kr.row_column, pn_arrows)
+                assert 1 <= y <= h, (y, x, h, w, kr.row_column, pn_arrows)  # y = min(max(1, y), h)
 
             while x > w:
                 x -= w
                 y += 1
 
-                assert 1 <= y <= h, (y, x, h, w, kr.row_column, pn_arrows)
+                assert 1 <= y <= h, (y, x, h, w, kr.row_column, pn_arrows)  # y = min(max(1, y), h)
 
-            assert 1 <= y <= h, (y, x, h, w, kr.row_column, pn_arrows)
+            assert 1 <= y <= h, (y, x, h, w, kr.row_column, pn_arrows)  # y = min(max(1, y), h)
 
         # Fabricate a Touch Tap Release or Mouse Click Release
 
@@ -1272,13 +1279,14 @@ class KeyboardReader:
             kbytearray.extend(kbyte)
             queried_kbytes = bytes(kbytearray[kbindex:])
 
-            # # Flush the Arrows early  # todo: via --egg=
-            #
-            # few_kbytes = queried_kbytes[-3:]
-            # if few_kbytes in (b"\033[A", b"\033[B", b"\033[C", b"\033[D"):
-            #     ts = self.terminal_studio
-            #     sw.swrite(few_kbytes.decode())
-            #     ts.stdio.flush()
+            # Flush the Arrows early  # todo: via --egg=
+
+            if flags.mousing:
+                few_kbytes = queried_kbytes[-3:]
+                if few_kbytes in (b"\033[A", b"\033[B", b"\033[C", b"\033[D"):
+                    ts = self.terminal_studio
+                    self.swrite_arrow(few_kbytes.decode())
+                    ts.stdio.flush()
 
             # Take ⎋[0N as the Reply to one ⎋[5N
 
@@ -1388,11 +1396,16 @@ class KeyboardReader:
         alt_kbytes = "".join(runs).encode()
 
         # Succeed
-        # self.steps_swrite(steps)
 
         return alt_kbytes  # b'\033[1A' b'\033[2D' b'\033[1A'
 
-    def steps_swrite(self, steps: list[str]) -> None:  # todo: test, else delete
+    def swrite_arrow(self, arrow: str) -> None:  # todo: test, else delete
+        """Write an Arrow to the Terminal Screen"""
+
+        (y, x) = self.steps_swrite([arrow])
+        self.row_column = (y, x)  # replaces
+
+    def steps_swrite(self, steps: list[str]) -> tuple[int, int]:  # todo: test, else delete
         """Write each Step to the Terminal Screen"""
 
         high_wide = self.high_wide
@@ -1401,33 +1414,54 @@ class KeyboardReader:
         (h, w) = high_wide
         (y, x) = row_column
 
+        assert 1 <= y <= h, (y, h, row_column, high_wide)
+        assert 1 <= x <= w, (x, w, row_column, high_wide)
+
         sw = self.screen_writer
         for step in steps:
+
             sw.swrite(step)
 
             if step == "\033[A":
+
                 y -= 1
+                y = min(max(1, y), h)
+
             elif step == "\033[B":
+
                 y += 1
+                y = min(max(1, y), h)
+
             elif step == "\033[C":
+
                 x += 1
                 if x > w:
                     sw.swrite("\033[32100D")  # aka '\r'
                     sw.swrite("\033[B")
                     x -= w
                     y += 1
+
+                y = min(max(1, y), h)
+
             elif step == "\033[D":
+
                 x -= 1
                 if x < 1:
                     sw.swrite("\033[32100C")
                     sw.swrite("\033[A")
                     x += w
                     y -= 1
+
+                y = min(max(1, y), h)
+
             else:
+
                 assert False, (step,)
 
             assert 1 <= y <= h, (y, h, row_column, high_wide, steps)
             assert 1 <= x <= w, (x, w, row_column, high_wide, steps)
+
+        return (y, x)
 
     # todo2: launch an app of many Keyboard Viewers:  plain, ⎋, ⌃, ⌥, ⇧, ⎋⌃, etc etc
     # todo2: how about one Keyboard Viewer at a time
