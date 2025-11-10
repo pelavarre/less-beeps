@@ -199,6 +199,7 @@ class TerminalStudio:
     tcgetattr: list[int | list[bytes | int]]  # replaced by .__enter__
 
     screen_writer: ScreenWriter
+    inserting: bool  # truthy while inserting, else replacing
 
     keyboard_reader: KeyboardReader
     paste_row_column: tuple[int, ...]
@@ -226,6 +227,7 @@ class TerminalStudio:
         self.tcgetattr = list()  # replaced by .__enter__
 
         self.screen_writer = sw
+        self.inserting = False
 
         self.keyboard_reader = kr
         self.paste_row_column = tuple()
@@ -241,6 +243,7 @@ class TerminalStudio:
         assert DSR_0 == "\033[" "0n"
         assert DSR_5 == "\033[" "5n"
         assert _SM_BRACKETED_PASTE_ == "\033[" "?2004h"
+        assert RM_IRM == "\x1b" "[" "4l"
 
         # Enter once
 
@@ -266,7 +269,8 @@ class TerminalStudio:
         # Writes after entry
 
         if not flags.native:
-            stdio.write("\033[" "?2004h")
+            stdio.write("\033[" "?2004h")  # asks for Start/ End Paste Marks, after entry
+            stdio.write("\033[" "4l")  # ask for Replacing, not Inserting, after entry
 
         # Query Terminal Before first Read of Tap/ Click/ Keyboard
 
@@ -277,7 +281,7 @@ class TerminalStudio:
             stdio.write("\033[" "5n")
 
             kmixes = kr.read_some_key_mixes()
-            assert len(kmixes) == 1, (kmixes,)
+            assert len(kmixes) == 1, (kmixes,)  # todo5: drain before?
             kmix = kmixes[-1]
             assert kmix.kencode == b"\033[0n", (kmix.kencode,)
 
@@ -306,7 +310,9 @@ class TerminalStudio:
 
         # Writes before exit
 
-        stdio.write("\033[" "?2004l")
+        if not flags.native:
+            stdio.write("\033[" "?2004l")  # asks for no Start/ End Paste Marks, after exit
+            stdio.write("\033[" "4l")  # ask for Replacing, not Inserting, after exit
 
         # Flush Output, drain Input, and change Input Mode
 
@@ -533,8 +539,6 @@ class TerminalStudio:
         # todo1: celebrate how our ⇥ Tab and ⇧⇥ ⇧Tab do speed up and snap-to-grid the → and ←
         # todo1: livelocks less wild in Keyboard/ Screen loopback
 
-        # todo5: bind Delete differently while Inserting
-
     def kmixes_to_leap_kmix(self, kmixes: list[KeyMix]) -> KeyMix:
         """Convert Burst of Pn Arrows to a Mouse Click Release"""
 
@@ -701,6 +705,7 @@ class TerminalStudio:
             if weak_int > 0:  # todo3: synch the two chunks of Code defining Repeat Count
                 for _ in range(weak_int):
                     sw.swrite(swrite)
+                    self._announce_inserting_replacing_if_(swrite)
             else:
 
                 # Write the Py Repr of Bytes if repeating negatively
@@ -708,6 +713,35 @@ class TerminalStudio:
                 sw.swrite(repr(swrite))
 
         return -1
+
+    def _announce_inserting_replacing_if_(self, swrite: str) -> bool:
+        """Announce ⎋[ 4 H written for Inserting, or ⎋[ 4 L written for Replacing"""
+
+        kbytes = swrite.encode()
+        sw = self.screen_writer
+        sw.sprint(f"1 SQUIRREL {kbytes=}")
+
+        try:
+            (kintsmark, kints) = KeyMix.to_csi_ints_if(kbytes)
+        except ValueError:
+            return False
+
+        sw.sprint(f"2 SQUIRREL {kintsmark=}")
+        sw.sprint(f"3 SQUIRREL {kints=}")
+
+        if kintsmark not in (b"h", b"l"):
+            return False
+
+        if 4 not in kints:
+            return False
+
+        if kintsmark == b"h":
+            self.inserting = True
+        else:
+            assert kintsmark == b"l", (kintsmark,)
+            self.inserting = False
+
+        return True
 
     def kbindex_to_strong_weak_ints(self, kbindex: int) -> tuple[int, int]:
         """Glance into our Key Log of Bytes and say it ends with a Python Int Literal, or not"""
@@ -947,6 +981,8 @@ class TerminalStudio:
 
             sw.sprint(kmix.kcaps, end="")
             self.swrite_pasted_crlf()
+            self.swrite_pasted_crlf()  # twice
+
             self.paste_row_column = tuple()  # replaces
 
             return True
@@ -1002,6 +1038,7 @@ class TerminalStudio:
     def answer_controls_kmix(self, kmix: KeyMix) -> bool:
         """Loop basic Control Sequences to Screen"""
 
+        kr = self.keyboard_reader
         sw = self.screen_writer
 
         #
@@ -1009,11 +1046,14 @@ class TerminalStudio:
         swrite_by_kface = {
             "⇥": "\t",  # Tab
             "⇧⇥": "\033[Z",  # ⇧Tab
-            # "⌫": "\b" "\033[P",  # todo5: overwrite/ insert mode
-            # "⌫": "\b",  # Delete  # todo5:
-            "⏎": "\r",  # Return
+            "⏎": "\r\n",  # Return
             "␢": " ",  # Spacebar
         }
+
+        if self.inserting:
+            swrite_by_kface["⌫"] = "\b" "\033[P"  # Delete in Inserting Mode
+        else:
+            swrite_by_kface["⌫"] = "\b" " " "\b"  # Delete in Replacing Mode
 
         kface = kmix.kface
         if kface in swrite_by_kface.keys():
@@ -1514,12 +1554,11 @@ class KeyboardReader:
 
         removables = list()
         if kbyte in encode_start_set:  # todo: some new --egg to try ⎋[5N more often?
-            # if True:
             removables.append("\033[5n")  # ⎋[5N
 
         if not flags.native:
             removables.append("\033[18t")  # ⎋[18T
-            removables.append("\033[6n")  # ⎋[6N  # todo5: what did 'hangs at ⌃J' mean?
+            removables.append("\033[6n")  # ⎋[6N
 
         for removable in removables:
             sw.swrite(removable)
@@ -1611,7 +1650,7 @@ class KeyboardReader:
         # Give up if Reply not yet read
 
         m = re.match(rb"^.*(\033\[8;([0-9]+);([0-9]+)t)$", string=kbytes, flags=re.DOTALL)
-        if not m:
+        if not m:  # todo: stop duplicating rfind '\033' so often
             return False
 
         # Remove the H W Reply
@@ -1652,7 +1691,7 @@ class KeyboardReader:
         # Give up if Reply not yet read
 
         m = re.match(rb"^.*(\033\[([0-9]+);([0-9]+)R)$", string=kbytes, flags=re.DOTALL)
-        if not m:
+        if not m:  # todo: stop duplicating rfind '\033' so often
             return False
 
         # Remove the Y X Reply
@@ -3867,11 +3906,15 @@ CSI = "\033["  # 01/11 05/11 Control Sequence Introducer
 OSC = "\033]"  # 01/11 05/13 Operating System Command
 ST = "\033\134"  # 05/11 05/12 String Terminator
 
+
 CUP_Y_X = "\033[" "{};{}H"  # Csi 04/08 [Choose] Cursor Position
 ED_P = "\x1b" "[" "{}J"  # CSI 04/10 Erase in Display  # 0 Tail # 1 Head # 2 Rows # 3 Scrollback
 
 DCH_X = "\033[" "{}" "P"  # Csi 05/00 Delete Character
 
+
+SM_IRM = "\x1b" "[" "4h"  # CSI 06/08 4 Set Mode Insert, not Replace
+RM_IRM = "\x1b" "[" "4l"  # CSI 06/12 4 Reset Mode Replace, not Insert
 
 DSR_5 = "\033[" "5n"  # Csi 06/14 [Request] Device Status Report  # Ps 5 Request DSR_0
 DSR_0 = "\033[" "0n"  # Csi 06/14 [Response] Device Status Report  # Ps 0 Response Ready
