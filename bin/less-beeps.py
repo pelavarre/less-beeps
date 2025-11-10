@@ -476,8 +476,9 @@ class TerminalStudio:
 
                 ok = False
 
-                if strong_int == 1:
-                    ok = ok or self.answer_printable_kmix(kmix)
+                if esc_kbindex < 0:
+                    if strong_int == 1:
+                        ok = ok or self.answer_printable_kmix(kmix)
 
                 if not ok:
                     if weak_int > 0:  # todo3: Repeat Count 0 of a bound Key Mix Sequence
@@ -485,8 +486,9 @@ class TerminalStudio:
 
                             ok = False
 
-                            if strong_int != 1:
-                                ok = ok or self.answer_printable_kmix(kmix)
+                            if esc_kbindex < 0:
+                                if strong_int != 1:
+                                    ok = ok or self.answer_printable_kmix(kmix)
 
                             ok = ok or self.answer_pasted_kmix(kmix)
                             ok = ok or self.answer_controls_kmix(kmix)
@@ -718,16 +720,11 @@ class TerminalStudio:
         """Announce ⎋[ 4 H written for Inserting, or ⎋[ 4 L written for Replacing"""
 
         kbytes = swrite.encode()
-        sw = self.screen_writer
-        sw.sprint(f"1 SQUIRREL {kbytes=}")
 
         try:
             (kintsmark, kints) = KeyMix.to_csi_ints_if(kbytes)
         except ValueError:
             return False
-
-        sw.sprint(f"2 SQUIRREL {kintsmark=}")
-        sw.sprint(f"3 SQUIRREL {kints=}")
 
         if kintsmark not in (b"h", b"l"):
             return False
@@ -1038,7 +1035,6 @@ class TerminalStudio:
     def answer_controls_kmix(self, kmix: KeyMix) -> bool:
         """Loop basic Control Sequences to Screen"""
 
-        kr = self.keyboard_reader
         sw = self.screen_writer
 
         #
