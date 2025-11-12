@@ -476,9 +476,11 @@ class TerminalStudio:
 
                 ok = False
 
-                if esc_kbindex < 0:
+                if esc_kbindex < 0:  # printables only repeat when far from ⎋ Esc and cued strongly
                     if strong_int == 1:
                         ok = ok or self.answer_printable_kmix(kmix)
+
+                        # todo2: not wrong, but not obviously correct either  : -(
 
                 if not ok:
                     if weak_int > 0:  # todo3: Repeat Count 0 of a bound Key Mix Sequence
