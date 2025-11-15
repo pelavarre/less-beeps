@@ -405,55 +405,54 @@ class TerminalStudio:
 
         assert DECSC == "\x1b" "7"
 
-        esc_kbindex = -1
-        esc_esc_kbindex = -1
+        slow_kbytearray = bytearray()
         while True:
 
             # Loop-back the Bytes at the ⎋ Esc and forget the ⎋ Esc, or don't
 
-            kmixes_kbindex = kr.kbindex
-            assert kmixes_kbindex >= 0, (kmixes_kbindex,)
-
-            if esc_esc_kbindex >= 0:
-                if esc_kbindex == esc_esc_kbindex:
-                    kmixes_kbindex = -1
-
-            if esc_kbindex >= 0:
+            if slow_kbytearray:
                 assert not flags.native, (flags.native, flags)
-                esc_kbindex = self.loop_back_esc_kbindex(esc_kbindex, kmixes_kbindex=kmixes_kbindex)
-                if esc_kbindex < 0:
-                    esc_esc_kbindex = kr.kbindex
-
-                kmixes_kbindex = -1
+                self.slow_kbytearray_loop_back_and_clear_if(slow_kbytearray)
 
             # Fetch more Key Mixes
 
-            kmixes = kr.read_some_key_mixes()
-            assert kmixes, (kmixes,)  # because .read_some_key_mixes chooses timeout=None
+            fresh_kmixes = kr.read_some_key_mixes()
+            assert fresh_kmixes, (fresh_kmixes,)  # because .read_some_key_mixes runs timeout=None
 
-            if not flags.native:
-                leap_kmix = self.kmixes_to_leap_kmix(kmixes)
-                if leap_kmix:
-                    kmixes = [leap_kmix]
+            # Write straight through transparently, when given --egg=native
+
+            if flags.native:
+                slow_kbytearray.clear()  # todo: rarely needed
+                for kmix in fresh_kmixes:
+                    kdecode = kmix.kdecode  # maybe emptuy
+                    sw.swrite(kdecode)  # todo: some new --egg for tracing native loopback?
+                continue
+
+            # Convert Burst of Pn Arrows to a Mouse Click Release
+
+            kmixes = list(fresh_kmixes)  # because 'copied is better than aliased'
+            leap_kmix = self.kmixes_to_leap_kmix(fresh_kmixes)
+            if leap_kmix:
+                kmixes = [leap_kmix]
 
             # Take up each Key Mix, in order
 
-            empty_kmix = KeyMix()
+            kmix = KeyMix()  # else Pylance Standard wrongly fears .kmix unbound
 
-            kmix = empty_kmix
-            for kmix in kmixes:
+            for kmix_index, kmix in enumerate(kmixes):
+                kmix_rindex = -len(kmixes) + kmix_index
+                assert kmix, (kmix, kmix_index, kmix_rindex)
 
-                # Write straight through transparently, when given --egg=native
+                # Hide away the out-of-band Replies to out-of-band Queries
 
-                if flags.native:
-                    kdecode = kmix.kdecode
-                    if kdecode:  # not the second half of ⌥E E etc
-                        sw.swrite(kdecode)  # todo: some new --egg for tracing native loopback?
+                if not self.kmix_for_loop_back(kmix, kmix_rindex=kmix_rindex):
                     continue
+
+                    # todo6: Stop losing the inband Replies to inband Queries
 
                 # Snoop a Python Int Literal, if weakly present or strongly present
 
-                (strong_int, weak_int) = self.kbindex_to_strong_weak_ints(kmixes_kbindex)
+                (strong_int, weak_int) = self.slow_kbytearray_to_strong_weak_ints(slow_kbytearray)
                 if strong_int != 1:
                     assert weak_int == strong_int, (weak_int, strong_int)
 
@@ -461,11 +460,12 @@ class TerminalStudio:
 
                 ok = False
 
-                if esc_kbindex < 0:  # printables only repeat when far from ⎋ Esc and cued strongly
-                    if strong_int == 1:
-                        ok = ok or self.answer_printable_kmix(kmix)
+                if strong_int == 1:
+                    ok = ok or self.answer_printable_kmix(kmix)
+                    if ok:
+                        slow_kbytearray.extend(kmix.kencode)
 
-                        # todo2: not wrong, but not obviously correct either  : -(
+                    # printables don't repeat when cued weakly, or not cued
 
                 if not ok:
                     if weak_int > 0:  # todo3: Repeat Count 0 of a bound Key Mix Sequence
@@ -473,9 +473,10 @@ class TerminalStudio:
 
                             ok = False
 
-                            if esc_kbindex < 0:
-                                if strong_int != 1:
-                                    ok = ok or self.answer_printable_kmix(kmix)
+                            if strong_int != 1:
+                                ok = ok or self.answer_printable_kmix(kmix)
+
+                                # printables do repeat when cued strongly
 
                             ok = ok or self.answer_pasted_kmix(kmix)
                             ok = ok or self.answer_controls_kmix(kmix)
@@ -485,32 +486,23 @@ class TerminalStudio:
                             if not ok:
                                 break
 
-                # Drop the DSR_0 ⎋[0N close of each DSR_5 ⎋[5N Frame
+                # Collect the meaningless Key-Release Bytes that follow ⎋ Esc
 
                 if not ok:
-                    if not kmix.kface:
-                        if kmix.kcaps == "⎋[0N":
-                            continue
-
-                # Else take the Key Mix as an Input of no immediate clear meaning
-
-                if not ok:
-
+                    if slow_kbytearray:
+                        slow_kbytearray.extend(kmix.kencode)
                     if kmix.kface == "⎋":
+                        sw.swrite("\0337")  # drops a pin where the ⎋ Esc came in
+                        slow_kbytearray.clear()
+                        slow_kbytearray.extend(kmix.kencode)
 
-                        sw.swrite("\0337")
-                        sw.sprint(kmix.kface, end="")
-                        if esc_kbindex < 0:
-                            esc_kbindex = kr.kbindex - 1
-                        else:
-                            esc_kbindex = kr.kbindex - 1
-                            esc_esc_kbindex = esc_kbindex
+                # Take the Key Mix as an Input of no immediate clear meaning
 
-                    elif kmix.kface:
+                if not ok:
+                    if kmix.kface:
                         sw.sprint(kmix.kface, end="")
                     elif kmix.kcaps:
                         sw.sprint(kmix.kcaps, end="")
-
                     else:
                         sw.sprint(kmix.kencode, end="")
 
@@ -519,11 +511,6 @@ class TerminalStudio:
                 if kmix.kcaps in ("⌃C", "⌃Z", "⌃\\"):
                     sw.sprint()
                     sys.exit()
-
-            assert kmix is not empty_kmix, (kmix, empty_kmix)
-
-            if flags.native:
-                continue
 
             # Stop looping back at ⌃Q or ⌃V
 
@@ -534,6 +521,112 @@ class TerminalStudio:
 
         # todo1: celebrate how our ⇥ Tab and ⇧⇥ ⇧Tab do speed up and snap-to-grid the → and ←
         # todo1: livelocks less wild in Keyboard/ Screen loopback
+
+    def slow_kbytearray_loop_back_and_clear_if(self, slow_kbytearray: bytearray) -> None:
+        """Loop-back Key Bytes logged at the ⎋ Esc and return -1, else return .kbindex unchanged"""
+
+        sw = self.screen_writer
+
+        # todo: assert names for "\033M", "\033[" "<{};{};{}" "M", "\033[" "<{};{};{}" "m"
+
+        assert DECRC == "\x1b" "8"
+
+        assert CUP_Y_X == "\033[" "{};{}H"
+        assert ED_P == "\x1b" "[" "{}J"
+
+        assert _START_PASTE_ == "\033[" "200~"
+        assert _END_PASTE_ == "\033[" "201~"
+
+        # Snoop a Python Int Literal, if weakly present or strongly present, behind the ⎋ Esc
+
+        (strong_int, weak_int) = self.slow_kbytearray_to_strong_weak_ints(slow_kbytearray)
+        if strong_int != 1:
+            assert weak_int == strong_int, (weak_int, strong_int)
+
+        # Snoop a Key Pack if present, at the ⎋ Esc
+
+        kpack = KeyPack(b"")
+        extra = b""
+
+        esc_rfind = slow_kbytearray.rfind(b"\033")
+        if esc_rfind < 0:
+            return
+
+        end_kbytearray = slow_kbytearray[esc_rfind:]
+        for kord in end_kbytearray:
+            kbyte = bytes([kord])
+
+            extra = kpack.take_one_kbyte_if(kbyte)
+            if extra:
+                return
+
+        # Loop-back the Key Pack if closed, and not a Mouse Click Release or Press
+
+        kencode = kpack.to_kbytes()
+        neck_ = bytes(kpack.neck)
+        tail_ = bytes(kpack.tail)
+
+        if not kpack.closed:
+            return
+
+        if kencode.startswith(b"\033[M"):
+            return  # sw.swrite("⎋[⇧M{cb}{cx}{cy} Click")  # Release or Press
+        elif neck_.startswith(b"<") and (tail_ in (b"m", b"M")):
+            return  # sw.swrite("⎋[<{f};{x};{y}m Click")  # Release or Press
+
+        # Take and clear the slow-to-arrive Key Pack
+
+        slow_kbytearray.clear()
+
+        # Write like macOS ⎋C, but cut down to no more than ⎋[⇧H ⎋[2⇧J screen-erase
+        # Write like macOS ⎋D and ⎋L, but in terms of ⎋E and ⎋[⇧H
+
+        kdecode = kencode.decode()
+
+        swrite = kdecode
+        if not flags.native:
+            if kdecode == "\033c":  # ⎋C
+                swrite = "\033[H" "\033[2J"  # as if ⎋[⇧H ⎋[2⇧J screen-erase
+            elif kdecode == "\033D":  # ⎋⇧D
+                swrite = "\033E"  # ⎋⇧E as if ⌃M ⌃J  # todo: prefer "\r\n"?
+            elif kdecode == "\033l":  # ⎋L
+                swrite = "\033[H"  # as if ⎋[⇧H leap to the far Northwest
+
+            # ⎋[⇧H ⎋[2⇧J more popular than ⎋[⇧J ⎋[⇧H etc
+
+        # Write at the ⎋ Esc, not beyond the Key Pack
+
+        sw.swrite("\0338")
+
+        # Write the Bytes if repeating non-negative'ly
+        # Write the Py Repr of Bytes if repeating negatively
+
+        if weak_int > 0:  # todo3: synch the two chunks of Code defining Repeat Count
+            for _ in range(weak_int):
+                sw.swrite(swrite)
+                self._announce_inserting_replacing_if_(swrite)
+        else:
+            sw.swrite(repr(swrite))
+
+        # todo: loops back both of (b"\033[200~", b"\033[201~") into sw.write, mostly harmlessly
+
+    #
+    # todo6: shuffle Def's of Class TerminalStudio into a more meaningful arrangement
+    #
+
+    def kmix_for_loop_back(self, kmix: KeyMix, kmix_rindex: int) -> bool:
+        """Say if the Key Mix is not for Loop Back to answer"""
+
+        # Take the DSR_0 ⎋[0N close of each DSR_5 ⎋[5N Frame
+
+        if kmix_rindex == -1:
+            if kmix.kcaps == "⎋[0N":
+                assert not kmix.kface, (kmix.kface, kmix.kcaps, kmix)
+                return False
+
+        # Else don't take the Key Mix
+
+        return True
 
     def kmixes_to_leap_kmix(self, kmixes: list[KeyMix]) -> KeyMix:
         """Convert Burst of Pn Arrows to a Mouse Click Release"""
@@ -617,104 +710,6 @@ class TerminalStudio:
 
         return leap_kmix
 
-    def loop_back_esc_kbindex(  # noqa  # todo5: too complex (16
-        self, esc_kbindex: int, kmixes_kbindex: int
-    ) -> int:
-        """Loop-back Key Bytes logged at the ⎋ Esc and return -1, else return .kbindex unchanged"""
-
-        assert esc_kbindex >= 0, (esc_kbindex,)
-
-        kr = self.keyboard_reader
-        kbytearray = kr.kbytearray
-
-        sw = self.screen_writer
-
-        # todo: assert names for "\033M", "\033[" "<{};{};{}" "M", "\033[" "<{};{};{}" "m"
-
-        assert DECRC == "\x1b" "8"
-
-        assert CUP_Y_X == "\033[" "{};{}H"
-        assert ED_P == "\x1b" "[" "{}J"
-
-        assert _START_PASTE_ == "\033[" "200~"
-        assert _END_PASTE_ == "\033[" "201~"
-
-        # Snoop a Python Int Literal, if weakly present or strongly present, behind the ⎋ Esc
-
-        if kmixes_kbindex < 0:
-            (strong_int, weak_int) = (1, 1)
-        else:
-            (strong_int, weak_int) = self.kbindex_to_strong_weak_ints(esc_kbindex)
-            if strong_int != 1:
-                assert weak_int == strong_int, (weak_int, strong_int)
-
-        # Snoop a Key Pack if present, at the ⎋ Esc
-
-        kpack = KeyPack(b"")
-        extra = b""
-
-        end_kbytearray = kbytearray[esc_kbindex:]
-        for kord in end_kbytearray:
-            kbyte = bytes([kord])
-
-            extra = kpack.take_one_kbyte_if(kbyte)
-            if extra:
-                return -1
-
-        # Loop-back the Key Pack if closed, and not a Mouse Click Release or Press
-
-        kencode = kpack.to_kbytes()
-        neck_ = bytes(kpack.neck)
-        tail_ = bytes(kpack.tail)
-
-        if not kpack.closed:
-            return esc_kbindex
-
-        loopbacking = False
-        if kencode in (b"\033[200~", b"\033[201~"):
-            loopbacking = True  # unneeded, and mostly harmless
-        elif kencode.startswith(b"\033[M"):
-            pass  # sw.swrite("⎋[⇧M{cb}{cx}{cy} Click")  # Release or Press
-        elif neck_.startswith(b"<") and (tail_ in (b"m", b"M")):
-            pass  # sw.swrite("⎋[<{f};{x};{y}m Click")  # Release or Press
-        else:
-            loopbacking = True
-
-        if loopbacking:
-            kdecode = kencode.decode()
-
-            # Write like macOS ⎋C, but cut down to no more than ⎋[⇧H ⎋[2⇧J screen-erase
-            # Write like macOS ⎋D and ⎋L, but in terms of ⎋E and ⎋[⇧H
-
-            swrite = kdecode
-            if not flags.native:
-                if kdecode == "\033c":  # ⎋C
-                    swrite = "\033[H" "\033[2J"  # as if ⎋[⇧H ⎋[2⇧J screen-erase
-                elif kdecode == "\033D":  # ⎋⇧D
-                    swrite = "\033E"  # ⎋⇧E as if ⌃M ⌃J  # todo: prefer "\r\n"?
-                elif kdecode == "\033l":  # ⎋L
-                    swrite = "\033[H"  # as if ⎋[⇧H leap to the far Northwest
-
-                # ⎋[⇧H ⎋[2⇧J more popular than ⎋[⇧J ⎋[⇧H etc
-
-            # Write at the ⎋ Esc, not beyond the Key Pack
-
-            sw.swrite("\0338")
-
-            # Write the Bytes if repeating non-negative'ly
-
-            if weak_int > 0:  # todo3: synch the two chunks of Code defining Repeat Count
-                for _ in range(weak_int):
-                    sw.swrite(swrite)
-                    self._announce_inserting_replacing_if_(swrite)
-            else:
-
-                # Write the Py Repr of Bytes if repeating negatively
-
-                sw.swrite(repr(swrite))
-
-        return -1
-
     def _announce_inserting_replacing_if_(self, swrite: str) -> bool:
         """Announce ⎋[ 4 H written for Inserting, or ⎋[ 4 L written for Replacing"""
 
@@ -739,20 +734,17 @@ class TerminalStudio:
 
         return True
 
-    def kbindex_to_strong_weak_ints(self, kbindex: int) -> tuple[int, int]:
+    def slow_kbytearray_to_strong_weak_ints(self, kbytearray: bytearray) -> tuple[int, int]:
         """Glance into our Key Log of Bytes and say it ends with a Python Int Literal, or not"""
 
-        if kbindex < 0:
+        if not kbytearray:
             return (1, 1)
-
-        kr = self.keyboard_reader
-        kbytearray = kr.kbytearray
 
         # Look at the End of the Key Log, inside ⌃U ... ⌃U or not
 
-        indexed_kba = kbytearray[:kbindex]
+        indexed_kba = bytearray(kbytearray)  # because 'better copied than aliased'
 
-        past_kba = bytearray(indexed_kba)  # because 'better copied than aliased'
+        past_kba = indexed_kba
         if indexed_kba.endswith(b"\x15"):  # ⌃U  # of Emacs Repeat Count tradition
             indexed_kba_minus = past_kba[:-1]
             rfind = indexed_kba_minus.rfind(b"\x15")  # ⌃U
@@ -836,8 +828,8 @@ class TerminalStudio:
                 frame = " ⎋[0N"  # replied to ⎋[5N
 
             for index, kmix in enumerate(framed_kmixes):
-                rindex = len(kmixes) - 1 - index
-                str_kmix = f"SQUIRREL {kmix}{frame}" if (rindex == -1) else str(kmix)
+                rindex = -len(framed_kmixes) + index
+                str_kmix = f"{kmix}{frame}" if (rindex == -1) else str(kmix)
 
                 sw.swrite("\0337")
 
@@ -1396,9 +1388,19 @@ class KeyboardReader:
 
         kpack = KeyPack(b"")
         while kbindex < len(kbytearray):
-            kbyte = bytes(kbytearray[kbindex:][:1])
+            kbytes = bytes(kbytearray[kbindex:])
+
+            # Do-not take a closing ⎋[0N DSR_0 reply to ⎋[5N DSR_5 into the previous Key Pack
+
+            if kbytes == b"\033[0n":
+                if kpack:
+                    kpack.close()
+                    kpacks.append(kpack)
+                    kpack = KeyPack(b"")
 
             # Append Bytes till Key Pack closes
+
+            kbyte = kbytes[:1]
 
             extra = kpack.take_one_kbyte_if(kbyte)
             if not extra:
