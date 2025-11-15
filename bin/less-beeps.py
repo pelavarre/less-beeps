@@ -485,6 +485,13 @@ class TerminalStudio:
                             if not ok:
                                 break
 
+                # Drop the DSR_0 ⎋[0N close of each DSR_5 ⎋[5N Frame
+
+                if not ok:
+                    if not kmix.kface:
+                        if kmix.kcaps == "⎋[0N":
+                            continue
+
                 # Else take the Key Mix as an Input of no immediate clear meaning
 
                 if not ok:
@@ -1429,14 +1436,14 @@ class KeyboardReader:
         # Transcode a Burst of Arrows into Pn Arrows
 
         young_kpacks = kpacks[kpindex:]
-        younger_kpacks = self._transcode_kframe_if_(young_kpacks)
+        younger_kpacks = self._transcode_kframe_of_kpacks_if_(young_kpacks)
         if younger_kpacks:
             del kpacks[kpindex:]
             kpacks.extend(younger_kpacks)
 
         # todo2: test ⎋[⇧M Csi Mouse Report then ⎋[⇧Z etc with ⎋[5n and ⎋[0n
 
-    def _transcode_kframe_if_(self, kpacks: list[KeyPack]) -> tuple[KeyPack, ...]:
+    def _transcode_kframe_of_kpacks_if_(self, kpacks: list[KeyPack]) -> tuple[KeyPack, ...]:
         """Transcode a Burst of Arrows into Pn Arrows, if enough arrived at once"""
 
         assert DSR_0 == "\033[" "0n"  # ⎋[0N
