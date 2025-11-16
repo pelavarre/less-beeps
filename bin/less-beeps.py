@@ -9,7 +9,7 @@ options:
   -h, --help   show this help message and exit
   -y, --yolo   do what's popular now (can also be spelled as '--')
   -f, --force  ask fewer questions (launches slowly enough to complete self-test's)
-  --egg EGG    toss in an Easter Egg, such as 'leaper' or 'native' or 'sigint'
+  --egg EGG    toss in an Easter Egg, such as 'native' or 'sigint'
 
 notes:
   travels as a single .py file, now that a million words isn't many words
@@ -19,7 +19,6 @@ examples:
   bin/@
   ./bin/less-beeps.py --yolo
   ./bin/less-beeps.py --egg=native --egg=sigint  # emulations off, but ⌃C to quit
-  ./bin/less-beeps.py --egg=leaper  # tap to move cursor, especially the ⌥ option/alt click
 """
 
 # code reviewed by People, Black, Flake8, Mypy-Strict, & Pylance-Standard
@@ -78,7 +77,6 @@ class Flags:
     portrait: bool = False  # flags.portrait, for when lots more high than wide
     barefoot: bool = False  # flags.barefoot, for when rows not-hidden beneath a Southern Keyboard
 
-    leaper: bool = False  # flags.leaper, for Tap to move Cursor
     native: bool | None = None  # flags.native, for don't make this Terminal feel friendlier
     sigint: bool | None = None  # flags.sigint, for ⌃C to work
     # sigtstp: bool | None = None  # flags.sigtstp  # todo2: or ⌃Z to work without ⌃C ⌃\ working
@@ -121,7 +119,7 @@ def arg_doc_to_parser(doc: str) -> ArgDocParser:
 
     yolo_help = "do what's popular now (can also be spelled as '--')"
     force_help = "ask fewer questions (launches slowly enough to complete self-test's)"
-    egg_help = "toss in an Easter Egg, such as 'leaper' or 'native' or 'sigint'"
+    egg_help = "toss in an Easter Egg, such as 'native' or 'sigint'"
 
     parser.add_argument("-y", "--yolo", action="count", help=yolo_help)
     parser.add_argument("-f", "--force", action="count", help=force_help)
@@ -152,9 +150,7 @@ def shell_args_take_in(args: list[str], parser: ArgDocParser) -> None:
         egg_texts = egg_text.split(",")
         for egg in egg_texts:
 
-            if egg and "leaper".startswith(egg):
-                flags.leaper = True
-            elif egg and "native".startswith(egg):
+            if egg and "native".startswith(egg):
                 flags.native = True
             elif egg and "sigint".startswith(egg):
                 flags.sigint = True
@@ -443,7 +439,7 @@ class TerminalStudio:
 
             if slow_kbytearray:
                 assert not flags.native, (flags.native, flags)
-                self.slow_kbytearray_loop_back_and_clear_if(slow_kbytearray)
+                self.slow_kbytearray_clear_after_eval_if(slow_kbytearray)
 
             # Fetch more Key Mixes
 
@@ -473,7 +469,9 @@ class TerminalStudio:
                 inband_kmixes.append(kmix)
 
                 # todo6: Stop losing the inband Replies to inband Queries
-                # todo: not so very secret silent for the out-of-band Replies
+                # todo: less silence over out-of-band Replies
+
+                # todo7: Renumber the todo's so the todo: and todo9: are the never real
 
             if not inband_kmixes:
                 continue
@@ -489,13 +487,14 @@ class TerminalStudio:
 
             kmix = KeyMix()  # else Pylance Standard wrongly fears .kmix unbound
 
+            slow_kbytes = bytes(slow_kbytearray)
             for kmix_index, kmix in enumerate(kmixes):
                 kmix_rindex = -len(kmixes) + kmix_index
                 assert kmix, (kmix, kmix_index, kmix_rindex)
 
                 # Snoop a Python Int Literal, if weakly present or strongly present
 
-                (strong_int, weak_int) = self.slow_kbytearray_to_strong_weak_ints(slow_kbytearray)
+                (strong_int, weak_int) = self.slow_kbytes_to_strong_weak_ints(slow_kbytes)
                 if strong_int != 1:
                     assert weak_int == strong_int, (weak_int, strong_int)
 
@@ -537,7 +536,7 @@ class TerminalStudio:
                         slow_kbytearray.clear()
 
                 if not ok:
-                    ok = ok or self.answer_leap_kmix(kmix)
+                    ok = ok or self.answer_leap_kmix(kmix, weak_int=weak_int)
                     if ok:
                         slow_kbytearray.clear()
 
@@ -586,59 +585,127 @@ class TerminalStudio:
         # todo1: celebrate how our ⇥ Tab and ⇧⇥ ⇧Tab do speed up and snap-to-grid the → and ←
         # todo1: livelocks less wild in Keyboard/ Screen loopback
 
-    def slow_kbytearray_loop_back_and_clear_if(self, slow_kbytearray: bytearray) -> None:
-        """Loop-back Key Bytes logged at the ⎋ Esc and return -1, else return .kbindex unchanged"""
+    def slow_kbytearray_clear_after_eval_if(self, slow_kbytearray: bytearray) -> None:
+        """Loop back the Key Bytes after the ⎋ Esc and forget them, else don't"""
 
-        sw = self.screen_writer
+        slow_kbytes = bytes(slow_kbytearray)
+        (kpack, strong_int, weak_int) = self.slow_kbytes_to_truthy_kpack_if(slow_kbytes)
+        if kpack:
+            self.slow_kbytearray_clear_after_if(
+                slow_kbytearray, kpack=kpack, strong_int=strong_int, weak_int=weak_int
+            )
 
-        # todo: assert names for "\033M", "\033[" "<{};{};{}" "M", "\033[" "<{};{};{}" "m"
+    def slow_kbytes_to_truthy_kpack_if(self, slow_kbytes: bytes) -> tuple[KeyPack, int, int]:
+        """Discover a Slow Key Pack at the Esc, else return empty"""
 
-        assert DECRC == "\x1b" "8"
+        assert DL_Y == "\033[" "{}M"
 
-        assert CUP_Y_X == "\033[" "{};{}H"
-        assert ED_P == "\x1b" "[" "{}J"
-
-        assert _START_PASTE_ == "\033[" "200~"
-        assert _END_PASTE_ == "\033[" "201~"
-
-        # Snoop a Key Pack if present, at the ⎋ Esc
+        # Collect the Bytes of one incomplete or complete Key Pack
 
         kpack = KeyPack(b"")
         extra = b""
 
-        esc_rfind = slow_kbytearray.rfind(b"\033")
+        esc_rfind = slow_kbytes.rfind(b"\033")
         if esc_rfind < 0:
-            return
+            return (KeyPack(b""), -1, -1)
 
-        end_kbytearray = slow_kbytearray[esc_rfind:]
+        end_kbytearray = slow_kbytes[esc_rfind:]
         for kord in end_kbytearray:
             kbyte = bytes([kord])
 
             extra = kpack.take_one_kbyte_if(kbyte)
             if extra:
-                return
+                return (KeyPack(b""), -1, -1)
 
         # Snoop a Python Int Literal, if weakly present or strongly present, behind the ⎋ Esc
 
-        upto_esc_kbytearray = slow_kbytearray[:esc_rfind]
+        upto_esc_kbytes = slow_kbytes[:esc_rfind]
 
-        (strong_int, weak_int) = self.slow_kbytearray_to_strong_weak_ints(upto_esc_kbytearray)
+        (strong_int, weak_int) = self.slow_kbytes_to_strong_weak_ints(upto_esc_kbytes)
         if strong_int != 1:
             assert weak_int == strong_int, (weak_int, strong_int)
 
-        # Loop-back the Key Pack if closed, and not a Mouse Click Release or Press
+        # Resolve the ambiguities of ⇧M after ⎋
 
         kencode = kpack.to_kbytes()
-        neck_ = bytes(kpack.neck)
-        tail_ = bytes(kpack.tail)
+        if kencode == b"\033[M":  # DL_Y without Pn
+            if weak_int > 0:
+                kpack.close()
+        else:
+            (kintsmark, kints) = KeyMix.to_csi_shift_m6_ints_if(kbytes=kencode)
+            if kintsmark:
+                kpack.close()
+
+        # Give up if still not closed
 
         if not kpack.closed:
-            return
+            return (KeyPack(b""), -1, -1)
 
-        if kencode.startswith(b"\033[M"):
-            return  # sw.swrite("⎋[⇧M{cb}{cx}{cy} Click")  # Release or Press
-        elif neck_.startswith(b"<") and (tail_ in (b"m", b"M")):
-            return  # sw.swrite("⎋[<{f};{x};{y}m Click")  # Release or Press
+        # Succeed
+
+        return (kpack, strong_int, weak_int)
+
+    def slow_kbytearray_clear_after_if(
+        self, slow_kbytearray: bytearray, kpack: KeyPack, strong_int: int, weak_int: int
+    ) -> None:
+        """Eval or loop back the Slow Key Pack at the Esc, else return empty"""
+
+        kencode = kpack.to_kbytes()
+
+        sw = self.screen_writer
+
+        # todo: assert names for "\033[" "<{};{};{}" "M", "\033[" "<{};{};{}" "m"
+
+        assert DECRC == "\x1b" "8"
+
+        assert CUP_Y_X == "\033[" "{};{}H"
+        assert ED_P == "\x1b" "[" "{}J"
+        assert DL_Y == "\033[" "{}M"
+
+        assert _START_PASTE_ == "\033[" "200~"
+        assert _END_PASTE_ == "\033[" "201~"
+
+        #
+        # Go ahead and emulate the Key Packs that don't loop back reasonably well
+        #
+
+        # Emulate Tap or Mouse Press or Release
+
+        leap_kencode = KeyMix.kencode_to_leap_if(kencode)
+        leap_kdecode = leap_kencode.decode()
+        if leap_kdecode:
+            if weak_int > 0:
+
+                leap_kmix = KeyMix(kencode)
+                ok = self.answer_leap_kmix(leap_kmix, weak_int=weak_int)
+
+                assert ok, (ok, leap_kmix)
+                return
+
+                # doesn't loop back and doesn't repeat, if Tap or Mouse Press or Release
+
+        kdecode = kencode.decode()
+        if weak_int <= 0:
+            if leap_kdecode:
+
+                (kintsmark, kints) = KeyMix.to_csi_shift_m6_ints_if(kbytes=kencode)
+                if kintsmark:
+                    assert kintsmark in (b"::", b":;"), (kintsmark, kencode)
+                    (b, x, y) = kints
+                    if kintsmark == b"::":
+                        kdecode = f"⎋[⇧M:{bin(b)}:{x}:{y}"  # '⎋[⇧M:0b11:80:25'
+                    else:
+                        kdecode = f"⎋[⇧M:{bin(b)};{x};{y}"  # '⎋[⇧M:0b11;80;25'
+                else:
+                    fm = re.fullmatch(r"..<([0-9]+);([0-9]+);([0-9]+)(.)", string=leap_kdecode)
+                    assert fm, (fm, leap_kdecode, kencode)
+
+                    f = int(fm.group(1))
+                    x = int(fm.group(2))
+                    y = int(fm.group(3))
+                    backtail = fm.group(4)
+
+                    kdecode = f"⎋[<{f};{x};{y}{backtail}"  # '⎋[<8;80;25m'
 
         # Take and clear the slow-to-arrive Key Pack
 
@@ -646,8 +713,6 @@ class TerminalStudio:
 
         # Write like macOS ⎋C, but cut down to no more than ⎋[⇧H ⎋[2⇧J screen-erase
         # Write like macOS ⎋D and ⎋L, but in terms of ⎋E and ⎋[⇧H
-
-        kdecode = kencode.decode()
 
         swrite = kdecode
         if not flags.native:
@@ -660,6 +725,9 @@ class TerminalStudio:
 
             # ⎋[⇧H ⎋[2⇧J more popular than ⎋[⇧J ⎋[⇧H etc
 
+            # todo6: comment what works without emulation?
+            # todo6: does ⎋⇧M work for our all Terminals under test? does ⎋C never clear scrollback?
+
         # Write at the ⎋ Esc, not beyond the Key Pack
 
         sw.swrite("\033" "8")
@@ -667,12 +735,12 @@ class TerminalStudio:
         # Write the Bytes if repeating non-negative'ly
         # Write the Py Repr of Bytes if repeating negatively
 
-        if weak_int > 0:  # todo3: synch the two chunks of Code defining Repeat Count
+        if weak_int <= 0:  # todo3: synch the two chunks of Code defining Repeat Count
+            sw.swrite(repr(swrite))
+        else:
             for _ in range(weak_int):
                 sw.swrite(swrite)
                 self._announce_inserting_replacing_if_(swrite)
-        else:
-            sw.swrite(repr(swrite))
 
         # todo: loops back both of (b"\033[200~", b"\033[201~") into sw.write, mostly harmlessly
 
@@ -832,22 +900,22 @@ class TerminalStudio:
 
         return True
 
-    def slow_kbytearray_to_strong_weak_ints(self, kbytearray: bytearray) -> tuple[int, int]:
+    def slow_kbytes_to_strong_weak_ints(self, kbytes: bytes) -> tuple[int, int]:
         """Glance into our Key Log of Bytes and say it ends with a Python Int Literal, or not"""
 
-        if not kbytearray:
+        if not kbytes:
             return (1, 1)
 
         # Look at the End of the Key Log, inside ⌃U ... ⌃U or not
 
-        indexed_kba = bytearray(kbytearray)  # because 'better copied than aliased'
+        indexed_kbytes = bytearray(kbytes)  # because 'better copied than aliased'
 
-        past_kba = indexed_kba
-        if indexed_kba.endswith(b"\x15"):  # ⌃U  # of Emacs Repeat Count tradition
-            indexed_kba_minus = past_kba[:-1]
-            rfind = indexed_kba_minus.rfind(b"\x15")  # ⌃U
+        past_kbytes = indexed_kbytes
+        if indexed_kbytes.endswith(b"\x15"):  # ⌃U  # of Emacs Repeat Count tradition
+            indexed_kbytes_minus = past_kbytes[:-1]
+            rfind = indexed_kbytes_minus.rfind(b"\x15")  # ⌃U
             if rfind >= 0:
-                past_kba = indexed_kba_minus[rfind:][1:]
+                past_kbytes = indexed_kbytes_minus[rfind:][1:]
 
         # Look at the End of the Key Log, inside ⌃U ... ⌃U or not
 
@@ -855,9 +923,9 @@ class TerminalStudio:
         count = None
 
         strongly_present = False
-        for index in range(len(past_kba)):
+        for index in range(len(past_kbytes)):
             reversed_rindex = -1 - index
-            count_kbytearray = past_kba[reversed_rindex:]
+            count_kbytearray = past_kbytes[reversed_rindex:]
 
             count_head = count_kbytearray[:1]
             if count_head not in b"+-" b"0123456789" b"ABCDEFOX_" b"abcdefox":  # rejects '.eE'
@@ -868,10 +936,10 @@ class TerminalStudio:
             except ValueError:
                 continue
 
-            if indexed_kba.endswith(b"\x15" + count_kbytearray + b"\x15"):  # ⌃U ... ⌃U
+            if indexed_kbytes.endswith(b"\x15" + count_kbytearray + b"\x15"):  # ⌃U ... ⌃U
                 assert not strongly_present, (strongly_present, count_kbytearray)
                 strongly_present = True
-            elif indexed_kba.endswith(b"\x15"):
+            elif indexed_kbytes.endswith(b"\x15"):
                 assert not strongly_present, (strongly_present, count_kbytearray)
                 count = None
                 continue
@@ -1137,12 +1205,12 @@ class TerminalStudio:
 
         sw = self.screen_writer
 
-        #
+        # Loop the famous Key Faces
 
         swrite_by_kface = {
             "⇥": "\t",  # Tab
             "⇧⇥": "\033[Z",  # ⇧Tab
-            "⏎": "\r\n",  # Return
+            "⏎": "\r\n",  # Return  # looped as "\r\n", not as "\r"
             "␢": " ",  # Spacebar
         }
 
@@ -1157,15 +1225,10 @@ class TerminalStudio:
             sw.swrite(swrite)
             return True
 
-        #
+        # Loop the famous Key Caps
 
         swrite_by_kcaps = {  # ⌃H ⌃J ⌃K ⌃L not wanted here
             "⌃G": "\a",  # rings Bell
-            "⎋7": "\033" "7",  # checkpoints Screen Cursor
-            "⎋8": "\033" "8",  # reverts Screen Cursor
-            "⎋C": "\033" "c",  # leaps to far Northwest, wipes Screen
-            "⎋⇧E": "\033" "E",  # as if ⌃M ⌃J
-            "⎋⇧M": "\033" "M",  # as if ↑
         }
 
         kcaps = kmix.kcaps
@@ -1177,6 +1240,8 @@ class TerminalStudio:
         #
 
         return False
+
+        # todo: less silence over Controls when they have no visible effect
 
     def answer_arrows_kmix(self, kmix: KeyMix) -> bool:
         """Loop Arrows and shifted Arrows to Screen"""
@@ -1219,60 +1284,43 @@ class TerminalStudio:
 
         return True
 
+        # todo: less silence over Arrows when they have no visible effect
+
         # todo3: take ⌃S ⌃Q as --egg=xoff
-
         # todo2: --egg=sigtstp for ⌃Z to work without ⌃C ⌃\ working
-
         # todo: offer test of timeout=None timing out at ⌃D as --egg=eot
 
-    def answer_leap_kmix(self, kmix: KeyMix) -> bool:
+    def answer_leap_kmix(self, kmix: KeyMix, weak_int: int) -> bool:
         """Leap the Terminal Cursor to come and meet a Touch Tap or Mouse Click Release or Press"""
-
-        kpack = kmix.kpack
-        kencode = kmix.kencode
 
         sw = self.screen_writer
 
-        # Don't eat the Input without Echo unless given a --egg=leaper
+        kencode = kmix.kencode
+        alt_kencode = KeyMix.kencode_to_leap_if(kencode)
+        alt_kdecode = alt_kencode.decode()
 
-        if not flags.leaper:
+        if not alt_kencode:
             return False
 
-        # Look for a Touch Tap Release or Mouse Click Release
+        assert alt_kdecode.startswith("\033[<"), (alt_kdecode, kencode)
+        fm = re.fullmatch(r"..<([0-9]+);([0-9]+);([0-9]+)([Mm])", string=alt_kdecode)
+        assert fm, (fm, alt_kdecode, kencode)
 
-        f = x = y = -1
-
-        (kintsmark, kints) = KeyMix.to_csi_shift_m6_ints_if(kbytes=kencode)
-        assert bool(kintsmark) == bool(kints), (kintsmark, kints, kencode)
-        if kintsmark:
-            assert kintsmark == b"M", (kintsmark, kencode)
-            assert kints, (kints, kencode)
-
-            (fi, xi, yi) = kints
-
-            f = (fi - 32) if (fi >= 32) else (256 + fi)
-            x = (xi - 32) if (xi >= 33) else (256 + xi)
-            y = (yi - 32) if (yi >= 33) else (256 + yi)
-
-        elif kpack.closed:
-            if kpack.head == b"\033[":
-                fm = re.fullmatch(rb"<([0-9]+);([0-9]+);([0-9]+)", string=kpack.neck)
-                if fm:
-                    backtail = bytes(kpack.back + kpack.tail)
-                    if backtail in (b"M", b"m"):
-
-                        f = int(fm.group(1))
-                        x = int(fm.group(2))
-                        y = int(fm.group(3))
-
-        if f < 0:
-            return False
+        f = int(fm.group(1))
+        x = int(fm.group(2))
+        y = int(fm.group(3))
+        t = fm.group(4)
 
         # Leap the Terminal Cursor to come and meet a Touch Tap or Mouse Click Release
 
-        sw.swrite("\033[" f"{y};{x}H")
+        if weak_int > 0:
+            sw.swrite("\033[" f"{y};{x}H")
+        else:
+            sw.swrite(f"⎋[<{f};{x};{y}{t}")
 
         return True
+
+        # todo: less silence over Taps to Leap when they have no visible effect
 
 
 @dataclasses.dataclass(order=True)  # , frozen=True)
@@ -1956,8 +2004,7 @@ class KeyMix:
     kints: list[int]  # via Csi Neck after Csi Next Start
 
     #
-    # Init, Bool, Str, & ._require_simple_kmix_,
-    # and also .to_csi_ints_if and .to_csi_shift_m6_ints_if
+    # Init, Bool, Str, & ._require_simple_kmix_
     #
 
     def __init__(self, kencode: bytes = b"") -> None:
@@ -2087,6 +2134,10 @@ class KeyMix:
             except UnicodeDecodeError:
                 pass
 
+    #
+    # Parsers for KeyMix'es
+    #
+
     @staticmethod
     def to_csi_ints_if(kbytes: bytes) -> tuple[bytes, list[int]]:
         """Pick out the Nonnegative Int Literals of a Csi Escape Sequence"""
@@ -2142,28 +2193,25 @@ class KeyMix:
         """Pick out the Nonnegative Int Literals of a Csi Mouse Report"""
 
         kpack = KeyPack(kbytes)
+        kpack.close()
 
         head = kpack.head
         neck = kpack.neck
         back = kpack.back
         tail = kpack.tail
-        closed = kpack.closed
 
         assert CSI == "\033["
 
         # Fail if not a Csi ⇧M Escape Sequence, closed when full
 
-        empty_kintsmark = b""
-        empty_kints: list[int] = list()
-
-        if (head != b"\033[M") or not closed:
-            return (empty_kintsmark, empty_kints)
+        if head != b"\033[M":
+            return (b"", list())
 
         assert (not neck) and (not tail), (neck, tail, kbytes)
 
         # Pass back the Ord's of 3 Bytes, no matter if Decodable as Characters
 
-        kintsmark = b"M"
+        kintsmark = b"::"  # our mark of 3 Bytes, not 3 Characters  # todo: no standard?
 
         if len(back) == 3:
             assert len(kbytes) == 6 == len(head) + len(back), (kbytes, head, back)
@@ -2173,15 +2221,71 @@ class KeyMix:
 
         # Pass back the Ord's of 3 Characters
 
+        kintsmark = b":;"  # our mark of 3 Characters, not 3 Bytes  # todo: no standard?
+
         try:
             decode = back.decode()
         except UnicodeDecodeError:
             assert False, (back, kbytes)
 
-        assert (len(head) + len(decode)) == 6, (head, decode, kbytes)
+        if len(head) + len(decode) == 6:
 
-        kints_from_kchars = list(ord(_) for _ in decode)
-        return (kintsmark, kints_from_kchars)
+            kints_from_kchars = list(ord(_) for _ in decode)
+            return (kintsmark, kints_from_kchars)
+
+        # Else give up
+
+        return (b"", list())
+
+    @staticmethod
+    def kencode_to_leap_if(kencode: bytes) -> bytes:
+        """Form Mouse Press or Release in the Bytes of ⎋[<{f};{x};{y}M or ⇧M form, else empty"""
+
+        kpack = KeyPack(kencode)  # todo: may raise ValueError
+        kpack.close()
+
+        # Accept the ⎋[<{f};{x};{y}... form with Backtails of ⇧M Press and M Release
+
+        if kpack.head == b"\033[":
+
+            fm = re.fullmatch(rb"<([0-9]+);([0-9]+);([0-9]+)", string=kpack.neck)
+            if fm:
+                backtail = bytes(kpack.back + kpack.tail)
+                if backtail in (b"M", b"m"):
+
+                    f = int(fm.group(1))
+                    x = int(fm.group(2))
+                    y = int(fm.group(3))
+
+                    kdecode = "\033[" f"<{f};{x};{y}{backtail.decode()}"
+                    alt_kencode = kdecode.encode()
+
+                    return alt_kencode
+
+        # Transcode the ⎋[⇧M{b}{x}{y} form
+
+        (kintsmark, kints) = KeyMix.to_csi_shift_m6_ints_if(kbytes=kencode)
+        assert bool(kintsmark) == bool(kints), (kintsmark, kints, kencode)
+        if kintsmark:
+            assert kintsmark in (b"::", b":;"), (kintsmark, kencode)
+            assert kints, (kints, kencode)
+
+            (bi, xi, yi) = kints
+
+            f = bi
+            x = (xi - 32) if (xi >= 33) else (256 + xi)
+            y = (yi - 32) if (yi >= 33) else (256 + yi)
+
+            backtail = b"m" if ((bi & 0b11) == 0b11) else b"M"  # M Release else ⇧M Press
+
+            kdecode = "\033[" f"<{f};{x};{y}{backtail.decode()}"
+            alt_kencode = kdecode.encode()
+
+            return alt_kencode
+
+        # Give up
+
+        return b""
 
     #
     # Run slow and quick Self-Test's
@@ -2255,7 +2359,7 @@ class KeyMix:
         (kintsmark, kints) = KeyMix.to_csi_shift_m6_ints_if(kbytes)
         assert bool(kintsmark) == bool(kints), (kintsmark, kints, kbytes)
         if kintsmark:
-            assert kintsmark == b"M", (kintsmark, kbytes)
+            assert kintsmark in (b"::", b":;"), (kintsmark, kbytes)
             assert kints, (kints, kbytes)
 
             (fi, xi, yi) = kints
@@ -2264,9 +2368,9 @@ class KeyMix:
             x = (xi - 32) if (xi >= 33) else (256 + xi)
             y = (yi - 32) if (yi >= 33) else (256 + yi)
 
-            kcaps = f"⎋[⇧M:{f};{x};{y}"
-            if len(kbytes) == 6:
-                kcaps = f"⎋[⇧M:{f}:{x}:{y}"
+            kcaps = f"⎋[⇧M:{bin(f)};{x};{y}"  # '⎋[⇧M:0b11;80;25'
+            if len(kbytes) == 6:  # aka has b"::" KIntsMark, not b":;" KIntsMark
+                kcaps = f"⎋[⇧M:{bin(f)}:{x}:{y}"  # '⎋[⇧M:0b11:80:25'
 
             return kcaps
 
@@ -3716,6 +3820,7 @@ CSI = "\033["  # 01/11 05/11 Control Sequence Introducer
 OSC = "\033]"  # 01/11 05/13 Operating System Command
 ST = "\033\134"  # 05/11 05/12 String Terminator
 
+
 CUU_Y = "\033[" "{}A"  # Csi 04/01 Cursor Up
 CUD_Y = "\033[" "{}B"  # Csi 04/02 Cursor Down
 CUF_X = "\033[" "{}C"  # Csi 04/03 Cursor [Forward] Right
@@ -3723,7 +3828,7 @@ CUB_X = "\033[" "{}D"  # Csi 04/04 Cursor [Back] Left
 
 CUP_Y_X = "\033[" "{};{}H"  # Csi 04/08 [Choose] Cursor Position
 ED_P = "\x1b" "[" "{}J"  # CSI 04/10 Erase in Display  # 0 Tail # 1 Head # 2 Rows # 3 Scrollback
-
+DL_Y = "\033[" "{}M"  # Csi 04/13 Delete Line [Row]
 DCH_X = "\033[" "{}" "P"  # Csi 05/00 Delete Character
 
 

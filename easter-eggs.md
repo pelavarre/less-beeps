@@ -175,7 +175,7 @@ The famous Csi ⎋[ Sequences are ⎋[ ⇧ @ ABCDE GHIJKLM P ST Z and ⎋[ D H L
     ⎋[5N call for reply ⎋[0N
     ⎋[6N call for reply ⎋[{y};{x}⇧R  ⎋[18T call for reply ⎋[8;{rows};{columns}T
 
-    ⎋['⇧} cols-insert  ⎋['⇧~ cols-delete
+    ⎋['⇧} cols-insert  ⎋['⇧~ cols-delete  ⎋[⇧M{b}{x}{y} tap  ⎋[>{f};{x};{y}M ⇧M tap
 
 <!-- Consciously don't mention ⎋['⇧ ⎋['⇧~ as 'famous', because macOS Terminal lacks those two -->
 
