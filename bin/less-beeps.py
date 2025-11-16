@@ -546,12 +546,11 @@ class TerminalStudio:
                 # Take the Key Mix as an Input of no immediate clear meaning
 
                 if not ok:
-                    if kmix.kface != "⎋":  # such as <> ⌃U b'\x15'
-                        if slow_kbytearray:
-                            slow_kbytearray.extend(kmix.kencode)
-                    else:
+
+                    slow_kbytearray.extend(kmix.kencode)
+
+                    if kmix.kface == "⎋":  # such as <> ⌃U b'\x15'
                         sw.swrite("\033" "7")  # drops a pin where the ⎋ Esc came in
-                        slow_kbytearray.extend(kmix.kencode)
 
                 if not ok:
                     if kmix.kface:
