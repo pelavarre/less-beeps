@@ -9,17 +9,18 @@ options:
   -h, --help   show this help message and exit
   -y, --yolo   do what's popular now (can also be spelled as '--')
   -f, --force  ask fewer questions (launches slowly enough to complete self-test's)
-  --egg EGG    toss in an Easter Egg, such as 'native' or 'sigint'
+  --egg EGG    toss in another easter egg, such as 'native' or 'sigint'
 
 notes:
   travels as a single .py file, now that a million words isn't many words
-  travels with an Easter-Eggs .md file
+  travels with an easter-eggs .md file
 
 examples:
   bin/@
   ./bin/less-beeps.py --yolo
   ./bin/less-beeps.py --egg=native --egg=sigint  # emulations off, but ⌃C to quit
 """
+# todo6: ./bin/less-beeps.py --egg=inband  # don't hide the out-of-band replies
 
 # code reviewed by People, Black, Flake8, Mypy-Strict, & Pylance-Standard
 
@@ -35,6 +36,7 @@ import dataclasses
 import difflib
 import itertools
 import json
+import logging
 import math
 import os
 import pdb
@@ -44,6 +46,7 @@ import signal
 import sys
 import termios  # for termios.TCSADRAIN
 import textwrap
+import time
 import tty  # for tty.setraw and tty.setcbreak
 import types
 import typing
@@ -59,6 +62,9 @@ default_eq_None = None  # shoves back on Dict Get refusing the explicit ', defau
 
 if not __debug__:
     raise NotImplementedError([__debug__])  # because 'python3 better than python3 -O'
+
+
+logger = logging.getLogger(__name__)
 
 
 #
@@ -78,10 +84,13 @@ class Flags:
     barefoot: bool = False  # flags.barefoot, for when rows not-hidden beneath a Southern Keyboard
 
     native: bool | None = None  # flags.native, for don't make this Terminal feel friendlier
+    # inband: bool | None = None  # flags.inband, for don't hide the out-of-band Replies
     sigint: bool | None = None  # flags.sigint, for ⌃C to work
     # sigtstp: bool | None = None  # flags.sigtstp  # todo2: or ⌃Z to work without ⌃C ⌃\ working
 
     breakpointing: bool = False  # flags.breakpointing
+
+    # todo6: call to show just some extra info just for awhile?
 
 
 flags = Flags()
@@ -98,6 +107,9 @@ def main() -> None:
     """Run from the Shell, but tell uncaught Exceptions to launch the Py Repl"""
 
     sys.excepthook = excepthook
+
+    os.makedirs("__pycache__", exist_ok=True)
+    logging.basicConfig(filename="__pycache__/less-beeps.log", level=logging.INFO)
 
     parser = arg_doc_to_parser(__main__.__doc__ or "")
     shell_args_take_in(args=sys.argv[1:], parser=parser)
@@ -119,7 +131,7 @@ def arg_doc_to_parser(doc: str) -> ArgDocParser:
 
     yolo_help = "do what's popular now (can also be spelled as '--')"
     force_help = "ask fewer questions (launches slowly enough to complete self-test's)"
-    egg_help = "toss in an Easter Egg, such as 'native' or 'sigint'"
+    egg_help = "toss in another easter egg, such as 'native' or 'sigint'"
 
     parser.add_argument("-y", "--yolo", action="count", help=yolo_help)
     parser.add_argument("-f", "--force", action="count", help=force_help)
@@ -155,6 +167,8 @@ def shell_args_take_in(args: list[str], parser: ArgDocParser) -> None:
             elif egg and "sigint".startswith(egg):
                 flags.sigint = True
 
+            # elif egg and "inband".startswith(egg):
+            #     flags.inband = True
             # elif egg and "sigquit".startswith(egg):
             #     flags.sigquit = True
             # elif egg and "sigtstp".startswith(egg):
@@ -163,6 +177,8 @@ def shell_args_take_in(args: list[str], parser: ArgDocParser) -> None:
             else:
                 arg_doc_parser.parser.print_usage()
                 sys.exit(2)  # exits 2 for bad Arg
+
+            # todo6: add --egg=info, --egg=debug, for 'import logging'
 
         # todo3: some new --egg to add ⌃Q and ⌃V into --egg=native ?
 
@@ -175,8 +191,6 @@ def _try_less_beeps_() -> None:
 
     print("--force => KeyMix._try_key_mix_()", file=sys.stderr)
     KeyMix._try_key_mix_()
-
-    print("--force complete", file=sys.stderr)
 
 
 #
@@ -237,6 +251,8 @@ class TerminalStudio:
         fileno = self.fileno
         tcgetattr = self.tcgetattr
 
+        sw = self.screen_writer
+
         assert _SM_BRACKETED_PASTE_ == "\033[" "?2004h"
         assert RM_IRM == "\x1b" "[" "4l"
 
@@ -264,8 +280,8 @@ class TerminalStudio:
         # Writes after entry
 
         if not flags.native:
-            stdio.write("\033[" "?2004h")  # asks for Start/ End Paste Marks, after entry
-            stdio.write("\033[" "4l")  # ask for Replacing, not Inserting, after entry
+            sw.swrite("\033[" "?2004h")  # asks for Start/ End Paste Marks, after entry
+            sw.swrite("\033[" "4l")  # ask for Replacing, not Inserting, after entry
 
         # Succeed
 
@@ -280,6 +296,8 @@ class TerminalStudio:
         fileno = self.fileno
         tcgetattr = self.tcgetattr
 
+        sw = self.screen_writer
+
         assert _RM_BRACKETED_PASTE_ == "\033[" "?2004l"
 
         # Exit once
@@ -290,8 +308,8 @@ class TerminalStudio:
         # Writes before exit
 
         if not flags.native:
-            stdio.write("\033[" "?2004l")  # asks for no Start/ End Paste Marks, after exit
-            stdio.write("\033[" "4l")  # ask for Replacing, not Inserting, after exit
+            sw.swrite("\033[" "?2004l")  # asks for no Start/ End Paste Marks, after exit
+            sw.swrite("\033[" "4l")  # ask for Replacing, not Inserting, after exit
 
         # Flush Output, drain Input, and change Input Mode
 
@@ -354,7 +372,7 @@ class TerminalStudio:
 
         assert self.tcgetattr, (self.tcgetattr,)
 
-        kbhit = self.kbhit(timeout=timeout)  # includes .flush
+        kbhit = self.kbhit(timeout=timeout)  # includes .stdio.flush before os.read
         if not kbhit:
             return b""
 
@@ -364,6 +382,8 @@ class TerminalStudio:
         kbyte = os.read(fd, length)  # todo3: test with ⌃D after ⌃Z fg, as if no __enter__
         assert kbyte, (kbyte,)  # because .tcgetattr
         assert len(kbyte) == 1, (kbyte,)  # because .length == 1
+
+        logger.debug(f"i {kbyte!r}")
 
         return kbyte
 
@@ -375,10 +395,20 @@ class TerminalStudio:
 
         assert self.tcgetattr, (self.tcgetattr,)
 
-        stdio.flush()
+        stdio.flush()  # before select.select of .kbhit
+
+        t0 = time.time()
 
         (r, w, x) = select.select([fileno], [], [], timeout)
+        t1 = time.time()
+
         hit = fileno in r
+
+        t1t0 = t1 - t0
+        if t1t0 > 0.010:
+            ms = int(t1t0 * 1000)
+            logger.info("")  # TerminalStudio.kbhit
+            logger.info(f"kbhit {ms}ms")
 
         return hit
 
@@ -464,7 +494,7 @@ class TerminalStudio:
                 kmix_rindex = -len(native_kmixes) + kmix_index
 
                 if self.kmix_take_away_if(kmix, kmix_rindex=kmix_rindex):
-                    continue
+                    continue  # todo6: if not flags.inband
 
                 inband_kmixes.append(kmix)
 
@@ -1344,6 +1374,9 @@ class ScreenWriter:
 
         ts = self.terminal_studio
         stdio = ts.stdio
+
+        logger.info(f"o {text!r}")
+
         stdio.write(text)
 
         # todo2: ScreenWriter snoop ⎋[⇧?2004L and ⎋[⇧?2004H to know toggled Bracketed Paste
@@ -1472,6 +1505,8 @@ class KeyboardReader:
 
             kmixes.append(kmix)
 
+            logger.info(f"in {kmix}")
+
     #
     # Fetch 1 Frame of Closed Packs of Bytes
     #
@@ -1530,7 +1565,7 @@ class KeyboardReader:
 
                 continue
 
-            # Take the Key Pack early, if Text is an ⌥ Option/Alt Key Pack
+            # Except close the Key Pack early, if Text is an ⌥ Option/Alt Key Pack
 
             text = kpack.text
             if len(kpacks) == kpindex:
@@ -2303,10 +2338,10 @@ class KeyMix:
         # Try for Key Caps of 6-Byte or 6-Character Mouse-Report
 
         xx_kcaps = KeyMix.to_kcaps_if(b"\033[M\xff\xff\xff")
-        assert xx_kcaps == "⎋[⇧M:223:223:223", (xx_kcaps,)
+        assert xx_kcaps == "⎋[⇧M:0b11011111:223:223", (xx_kcaps,)
 
         uuuu_uuuu_kcaps = KeyMix.to_kcaps_if("\033[M\U0010ffff\U0010ffff\U0010ffff".encode())
-        assert uuuu_uuuu_kcaps == "⎋[⇧M:1114079;1114079;1114079", (uuuu_uuuu_kcaps,)
+        assert uuuu_uuuu_kcaps == "⎋[⇧M:0b100001111111111011111;1114079;1114079", (uuuu_uuuu_kcaps,)
 
         # Try for Key Caps and Key Face at every Unicode Code Point
 
@@ -2541,6 +2576,8 @@ class KeyMix:
     # Decode Keys shifted by ⌥ Option/Alt, as at MacBook
     #
 
+    # ("`", "´", "ˆ", "˜", "¨")  # aka ⌥⇧~ ⌥⇧E ⌥⇧I ⌥⇧N ⌥⇧U  # aka ⌥`␢ ⌥E␢ ⌥I␢ ⌥N␢ ⌥U␢
+
     OPTION_KTEXT_BY_KT = {
         # ⌥E
         "á": "⌥E A",
@@ -2570,7 +2607,7 @@ class KeyMix:
         "ü": "⌥U U",
         "ÿ": "⌥U Y",
         "¨": "⌥⇧U",
-        # ⌥`
+        # ⌥`  # ` is the encode of ⌥⇧~ and is ⌥`␢ too
         "à": "⌥` A",
         "è": "⌥` E",
         "ì": "⌥` I",
@@ -2624,9 +2661,6 @@ class KeyMix:
     _OPTION_KT_LIST_.sort()
 
     OPTION_KT_JOIN = "".join(_OPTION_KT_LIST_)
-
-    OPTION_KT_ENCODE_START_SET = set(_.encode()[:1] for _ in OPTION_KT_JOIN)
-    OPTION_KT_ENCODE_START_SET.add(b"``"[:1])  # the two bytes b'``' encode the KeyMix ⌥``
 
     @staticmethod
     def _option_kt_to_kcap_(kt: str) -> str:
@@ -3217,7 +3251,7 @@ class KeyPack:
             else:
                 assert False, (head,)
 
-    StartBytes = tuple(bytes([_]) for _ in range(0xE0, 0xF4 + 1))  # what UTF-8 completes
+    StartBytes = tuple(bytes([_]) for _ in range(0xC2, 0xF4 + 1))  # what UTF-8 completes
 
     @staticmethod
     def _try_ends_later_() -> None:
@@ -3228,7 +3262,7 @@ class KeyPack:
             if 0xD800 <= cp <= 0xDFFF:  # skips surrogates
                 continue
             kbytes = chr(cp).encode()
-            for index in range(1, len(kbytes) - 1):
+            for index in range(1, len(kbytes)):
                 start = kbytes[:index]
                 start_set.add(start)
 
@@ -3805,7 +3839,7 @@ class KeyPack:
 
         # Require
 
-        self._require_simple_kpack_()
+        self._require_simple_kpack_()  # raises AssertionError if .stash truthy
 
 
 BEL = "\a"  # U+0007 Bell
@@ -3867,10 +3901,9 @@ RM_DECTCEM = "\033[" "?25l"  # 06/12 Reset Mode (RM) 25 VT220 Hide Cursor
 
 
 #
-# Say which Bytes need closure, like by ⎋[5N ⎋[0N,
-# to say if they started a burst of Key Mixes,
-# or started a burst of Key Bytes,
-# or ended as quickly as they started
+# Say which Bytes need framing for closure, like by ⎋[5N ⎋[0N,
+# to say if they started a burst of multiple Key Mixes or multiple Keuy Bytes,
+# vs ended as quickly as they started
 #
 
 
@@ -3878,8 +3911,8 @@ _S_ = set()
 _S_.add(b"\033")  # for Byte Sequences started by ⎋ Esc
 _S_.add(b"J")  # for len("J́") == 2
 _S_.add(b"j")  # for len("j́") == 2
+_S_.add(b"`")  # for the ⌥` Option/Alt Accents
 _S_ |= set(KeyPack.StartBytes)  # for Unicode Encodes
-_S_ |= set(KeyMix.OPTION_KT_ENCODE_START_SET)  # for ⌥ Option/Alt Accents
 
 EncodeStartSet = frozenset(_S_)
 
@@ -3946,6 +3979,7 @@ if __name__ == "__main__":
 # todo: my Git Log Decorate chooses horribly bright & low-contrast Colors for iTerm2 Lightmode
 # todo: please |pq transpose |pq uniq |pq transpose
 # todo: j = |pq dot: our Codes need 1 Line of Text, got 44
+# todo: somehow my 'p' creates an empty __pycache__/s.screen
 
 
 # 3456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789

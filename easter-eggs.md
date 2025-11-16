@@ -28,7 +28,6 @@ found inside each of their invisible \<\!-- --\> Html tags
 
 Three
 
-    --egg=leaper  # for tap to move cursor, especially the ⌥ option/alt click
     --egg=native  # loops your Keyboard to Screen with no friendly distortions
     --egg=sigint  # for ⌃C ⌃Z ⌃\ to work (and for ⌃J to write like ⌃M ⌃J)
 
