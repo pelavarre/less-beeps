@@ -191,6 +191,8 @@ def _try_less_beeps_() -> None:
 class TerminalStudio:
     """Run inside 1 Terminal Window Pane, till Quit"""
 
+    selves: list[TerminalStudio] = list()
+
     stdio: typing.TextIO
     fileno: int
     tcgetattr: list[int | list[bytes | int]]  # replaced by .__enter__
@@ -199,9 +201,10 @@ class TerminalStudio:
     inserting: bool  # truthy while inserting, else replacing
 
     keyboard_reader: KeyboardReader
-    paste_row_column: tuple[int, ...]
 
-    selves: list[TerminalStudio] = list()
+    high_wide: tuple[int, ...]  # () and then (y_high, x_wide) from ⎋[18T
+    row_column: tuple[int, ...]  # () and then (row_y, column_x) from ⎋[6N
+    paste_row_paste_column: tuple[int, ...]  # () and then (row_y, column_x) from ⎋[200⇧~
 
     #
     # Init, Enter, Exit
@@ -227,7 +230,10 @@ class TerminalStudio:
         self.inserting = False
 
         self.keyboard_reader = kr
-        self.paste_row_column = tuple()
+
+        self.high_wide = tuple()
+        self.row_column = tuple()
+        self.paste_row_paste_column = tuple()
 
     def __enter__(self) -> TerminalStudio:  # todo3: re-enter after --egg=sigint ⌃Z sigtstp
 
@@ -264,12 +270,6 @@ class TerminalStudio:
         if not flags.native:
             stdio.write("\033[" "?2004h")  # asks for Start/ End Paste Marks, after entry
             stdio.write("\033[" "4l")  # ask for Replacing, not Inserting, after entry
-
-        # Query Terminal Before first Read of Tap/ Click/ Keyboard
-
-        if not flags.native:
-            stdio.write("\033[" "6n")  # asks for Cursor Y X, after entry
-            stdio.write("\033[" "18t")  # asks for Terminal Height Width, after entry
 
         # Succeed
 
@@ -325,6 +325,27 @@ class TerminalStudio:
             ts.__exit__()
 
         # todo: does each Breakpoint disturb ⌃C SigInt ?
+
+    def recollect_y_x_h_w(self) -> tuple[int, ...]:
+        """Fetch the Terminal Cursor Row & Column and its Window Pane Rows & Columns Size"""
+
+        high_wide = self.high_wide
+        row_column = self.row_column
+
+        assert bool(high_wide) == bool(row_column), (high_wide, row_column)
+
+        if not row_column:
+            return tuple()
+
+        (h, w) = self.high_wide
+        (y, x) = self.row_column
+
+        assert 1 <= y <= h, (y, x, h, w)
+        assert 1 <= x <= w, (y, x, h, w)
+
+        return (y, x, h, w)
+
+        # macOS Terminal and Python .get_terminal_size speak of Columns x Rows    paste_row_paste_column: tuple[int, ...]
 
     #
     # Fetch from Keyboard
@@ -398,12 +419,22 @@ class TerminalStudio:
             self.trace_key_mixes()
 
     def loop_back(self) -> None:  # noqa  # todo5: too complex (18
-        """Loop-back the Keyboard to Screen"""
+        """Loop-back the Keyboard to Screen, till ⌃C ⌃Q ⌃V etc"""
 
         kr = self.keyboard_reader
         sw = self.screen_writer
 
         assert DECSC == "\x1b" "7"
+        assert DSR_6 == "\033[" "6n"
+        assert XTWINOPS_18 == "\033[" "18t"
+
+        # Loop-back the Keyboard to Screen, till ⌃C ⌃Q ⌃V etc
+
+        self.high_wide = tuple()
+        self.row_column = tuple()
+        if not flags.native:
+            sw.swrite("\033[" "6n")
+            sw.swrite("\033[" "18t")
 
         slow_kbytearray = bytearray()
         while True:
@@ -416,22 +447,41 @@ class TerminalStudio:
 
             # Fetch more Key Mixes
 
-            fresh_kmixes = kr.read_some_key_mixes()
-            assert fresh_kmixes, (fresh_kmixes,)  # because .read_some_key_mixes runs timeout=None
+            native_kmixes = kr.read_some_key_mixes()
+            assert native_kmixes, (native_kmixes,)  # because .read_some_key_mixes runs timeout=None
 
             # Write straight through transparently, when given --egg=native
 
             if flags.native:
                 slow_kbytearray.clear()  # todo: rarely needed
-                for kmix in fresh_kmixes:
+                for kmix in native_kmixes:
                     kdecode = kmix.kdecode  # maybe emptuy
                     sw.swrite(kdecode)  # todo: some new --egg for tracing native loopback?
                 continue
 
+                # todo: live lock in --egg=native loop back at reply is query?
+
+            # Hide away the out-of-band Replies to out-of-band Queries
+
+            inband_kmixes = list()
+            for kmix_index, kmix in enumerate(native_kmixes):
+                kmix_rindex = -len(native_kmixes) + kmix_index
+
+                if self.kmix_take_away_if(kmix, kmix_rindex=kmix_rindex):
+                    continue
+
+                inband_kmixes.append(kmix)
+
+                # todo6: Stop losing the inband Replies to inband Queries
+                # todo: not so very secret silent for the out-of-band Replies
+
+            if not inband_kmixes:
+                continue
+
             # Convert Burst of Pn Arrows to a Mouse Click Release
 
-            kmixes = list(fresh_kmixes)  # because 'copied is better than aliased'
-            leap_kmix = self.kmixes_to_leap_kmix(fresh_kmixes)
+            kmixes = list(inband_kmixes)  # because 'copied is better than aliased'
+            leap_kmix = self.kmixes_to_leap_kmix(inband_kmixes)
             if leap_kmix:
                 kmixes = [leap_kmix]
 
@@ -443,13 +493,6 @@ class TerminalStudio:
                 kmix_rindex = -len(kmixes) + kmix_index
                 assert kmix, (kmix, kmix_index, kmix_rindex)
 
-                # Hide away the out-of-band Replies to out-of-band Queries
-
-                if not self.kmix_for_loop_back(kmix, kmix_rindex=kmix_rindex):
-                    continue
-
-                    # todo6: Stop losing the inband Replies to inband Queries
-
                 # Snoop a Python Int Literal, if weakly present or strongly present
 
                 (strong_int, weak_int) = self.slow_kbytearray_to_strong_weak_ints(slow_kbytearray)
@@ -460,12 +503,15 @@ class TerminalStudio:
 
                 ok = False
 
-                if strong_int == 1:
-                    ok = ok or self.answer_printable_kmix(kmix)
-                    if ok:
-                        slow_kbytearray.extend(kmix.kencode)
+                ok = ok or self.answer_pasted_kmix(kmix)  # todo3: Pastes don't repeat
 
-                    # printables don't repeat when cued weakly, or not cued
+                if not ok:
+                    if strong_int == 1:
+                        ok = ok or self.answer_printable_kmix(kmix)
+                        if ok:
+                            slow_kbytearray.extend(kmix.kencode)
+
+                    # Printables don't repeat when cued weakly, or not cued
 
                 if not ok:
                     if weak_int > 0:  # todo3: Repeat Count 0 of a bound Key Mix Sequence
@@ -476,27 +522,36 @@ class TerminalStudio:
                             if strong_int != 1:
                                 ok = ok or self.answer_printable_kmix(kmix)
 
-                                # printables do repeat when cued strongly
+                                # Printables do repeat when cued strongly
 
-                            ok = ok or self.answer_pasted_kmix(kmix)
                             ok = ok or self.answer_controls_kmix(kmix)
+
                             ok = ok or self.answer_arrows_kmix(kmix)
-                            ok = ok or self.answer_leap_kmix(kmix)
 
                             if not ok:
                                 break
 
-                # Collect the meaningless Key-Release Bytes that follow ⎋ Esc
+                            # Controls and Arrows do repeat when cued weakly
+
+                    if ok:
+                        slow_kbytearray.clear()
 
                 if not ok:
-                    if slow_kbytearray:
-                        slow_kbytearray.extend(kmix.kencode)
-                    if kmix.kface == "⎋":
-                        sw.swrite("\0337")  # drops a pin where the ⎋ Esc came in
+                    ok = ok or self.answer_leap_kmix(kmix)
+                    if ok:
                         slow_kbytearray.clear()
-                        slow_kbytearray.extend(kmix.kencode)
+
+                        # Mouse Leaps don't repeat, not even when strongly cued
 
                 # Take the Key Mix as an Input of no immediate clear meaning
+
+                if not ok:
+                    if kmix.kface != "⎋":  # such as <> ⌃U b'\x15'
+                        if slow_kbytearray:
+                            slow_kbytearray.extend(kmix.kencode)
+                    else:
+                        sw.swrite("\033" "7")  # drops a pin where the ⎋ Esc came in
+                        slow_kbytearray.extend(kmix.kencode)
 
                 if not ok:
                     if kmix.kface:
@@ -516,6 +571,16 @@ class TerminalStudio:
 
             if kmix.kcaps in ("⌃Q", "⌃V"):
                 break
+
+            # Refresh the calls for Terminal Height Width and Cursor Y X
+
+            if not flags.native:
+                if self.high_wide:
+                    self.high_wide = tuple()  # replaces
+                    sw.swrite("\033[" "18t")
+                if self.row_column:
+                    self.row_column = tuple()  # replaces
+                    sw.swrite("\033[" "6n")
 
         # todo4: stop disturbing the ⎋7 Alt Cursor
 
@@ -537,12 +602,6 @@ class TerminalStudio:
         assert _START_PASTE_ == "\033[" "200~"
         assert _END_PASTE_ == "\033[" "201~"
 
-        # Snoop a Python Int Literal, if weakly present or strongly present, behind the ⎋ Esc
-
-        (strong_int, weak_int) = self.slow_kbytearray_to_strong_weak_ints(slow_kbytearray)
-        if strong_int != 1:
-            assert weak_int == strong_int, (weak_int, strong_int)
-
         # Snoop a Key Pack if present, at the ⎋ Esc
 
         kpack = KeyPack(b"")
@@ -559,6 +618,14 @@ class TerminalStudio:
             extra = kpack.take_one_kbyte_if(kbyte)
             if extra:
                 return
+
+        # Snoop a Python Int Literal, if weakly present or strongly present, behind the ⎋ Esc
+
+        upto_esc_kbytearray = slow_kbytearray[:esc_rfind]
+
+        (strong_int, weak_int) = self.slow_kbytearray_to_strong_weak_ints(upto_esc_kbytearray)
+        if strong_int != 1:
+            assert weak_int == strong_int, (weak_int, strong_int)
 
         # Loop-back the Key Pack if closed, and not a Mouse Click Release or Press
 
@@ -585,18 +652,18 @@ class TerminalStudio:
 
         swrite = kdecode
         if not flags.native:
-            if kdecode == "\033c":  # ⎋C
-                swrite = "\033[H" "\033[2J"  # as if ⎋[⇧H ⎋[2⇧J screen-erase
-            elif kdecode == "\033D":  # ⎋⇧D
-                swrite = "\033E"  # ⎋⇧E as if ⌃M ⌃J  # todo: prefer "\r\n"?
-            elif kdecode == "\033l":  # ⎋L
-                swrite = "\033[H"  # as if ⎋[⇧H leap to the far Northwest
+            if kdecode == "\033" "c":  # ⎋C
+                swrite = "\033[" "H" "\033[" "2J"  # as if ⎋[⇧H ⎋[2⇧J screen-erase
+            elif kdecode == "\033" "D":  # ⎋⇧D
+                swrite = "\033" "E"  # ⎋⇧E as if ⌃M ⌃J  # todo: prefer "\r\n"?
+            elif kdecode == "\033" "l":  # ⎋L
+                swrite = "\033[" "H"  # as if ⎋[⇧H leap to the far Northwest
 
             # ⎋[⇧H ⎋[2⇧J more popular than ⎋[⇧J ⎋[⇧H etc
 
         # Write at the ⎋ Esc, not beyond the Key Pack
 
-        sw.swrite("\0338")
+        sw.swrite("\033" "8")
 
         # Write the Bytes if repeating non-negative'ly
         # Write the Py Repr of Bytes if repeating negatively
@@ -614,25 +681,53 @@ class TerminalStudio:
     # todo6: shuffle Def's of Class TerminalStudio into a more meaningful arrangement
     #
 
-    def kmix_for_loop_back(self, kmix: KeyMix, kmix_rindex: int) -> bool:
+    def kmix_take_away_if(self, kmix: KeyMix, kmix_rindex: int) -> bool:
         """Say if the Key Mix is not for Loop Back to answer"""
+
+        kencode = kmix.kencode
+
+        assert DSR_5 == "\033[" "5n"
+        assert DSR_0 == "\033[" "0n"
+
+        assert DSR_6 == "\033[" "6n"
+        assert CPR_Y_X == "\033[" "{};{}R"
+
+        assert XTWINOPS_18 == "\033[" "18t"
+        assert XTWINOPS_8_H_W == "\033[" "8;{};{}t"
 
         # Take the DSR_0 ⎋[0N close of each DSR_5 ⎋[5N Frame
 
         if kmix_rindex == -1:
-            if kmix.kcaps == "⎋[0N":
+            if kencode == b"\033[0n":
                 assert not kmix.kface, (kmix.kface, kmix.kcaps, kmix)
-                return False
+                return True
+
+        # Take the ⎋[8T XTWINOPS_8_H_W reply to ⎋[18T XTWINOPS_18
+
+        fm = re.fullmatch(rb"\033\[8;([0-9]+);([0-9]+)t", string=kencode)
+        if fm:
+            y_high = int(fm.group(1))
+            x_wide = int(fm.group(2))
+            self.high_wide = (y_high, x_wide)  # replaces
+            return True
+
+        # Take the ⎋[y;xR CPR_Y_X reply to ⎋[6n DSR_6
+
+        fm = re.fullmatch(rb"\033\[([0-9]+);([0-9]+)R", string=kencode)
+        if fm:
+            y_row = int(fm.group(1))
+            x_column = int(fm.group(2))
+            self.row_column = (y_row, x_column)  # replaces
+            return True
 
         # Else don't take the Key Mix
 
-        return True
+        return False
 
     def kmixes_to_leap_kmix(self, kmixes: list[KeyMix]) -> KeyMix:
         """Convert Burst of Pn Arrows to a Mouse Click Release"""
 
-        kr = self.keyboard_reader
-        recollect_y_x_h_w = kr.recollect_y_x_h_w()
+        assert kmixes, (kmixes,)
 
         assert CUU_Y == "\033[" "{}A"
         assert CUD_Y == "\033[" "{}B"
@@ -643,8 +738,10 @@ class TerminalStudio:
 
         pn_arrows = list(_.kencode for _ in kmixes)
 
-        (y, x, h, w) = (-1, -1, -1, -1)  # todo: what about when (y, x) == (-1, -1) exists?
-        for kmix in kmixes:
+        y_x_h_w: tuple[int, ...] = tuple()
+        (y, x, h, w) = (-1, -1, -1, -1)
+
+        for kmix_index, kmix in enumerate(kmixes):
             kpack = KeyPack(kmix.kencode)  # much like kmix.kpack but maybe not .closed
 
             pn = -1
@@ -662,7 +759,9 @@ class TerminalStudio:
 
             # Accept a Run-Length Compression of an Arrow
 
-            (y, x, h, w) = recollect_y_x_h_w
+            if kmix_index == 0:
+                y_x_h_w = self.recollect_y_x_h_w()  # replaces
+                (y, x, h, w) = y_x_h_w  # replaces
 
             assert 1 <= y <= h, (y, x, h, w)  # true here because true far above
             assert 1 <= x <= w, (y, x, h, w)  # ditto
@@ -678,25 +777,25 @@ class TerminalStudio:
             else:
                 return KeyMix()
 
-            assert 1 <= y <= h, (y, x, h, w, kr.row_column, pn_arrows)  # Pn Arrows don't wrap Y
+            assert 1 <= y <= h, (y, x, h, w, y_x_h_w, pn_arrows)  # Pn Arrows don't wrap Y
 
             # Wrap around the Left/ Right Screen Edges (unlike the classic ⎋[⇧C and ⎋[⇧D)
 
-            assert 1 <= y <= h, (y, x, h, w, kr.row_column, pn_arrows)  # y = min(max(1, y), h)
+            assert 1 <= y <= h, (y, x, h, w, y_x_h_w, pn_arrows)  # y = min(max(1, y), h)
 
             while x < 1:
                 x += w
                 y -= 1
 
-                assert 1 <= y <= h, (y, x, h, w, kr.row_column, pn_arrows)  # y = min(max(1, y), h)
+                assert 1 <= y <= h, (y, x, h, w, y_x_h_w, pn_arrows)  # y = min(max(1, y), h)
 
             while x > w:
                 x -= w
                 y += 1
 
-                assert 1 <= y <= h, (y, x, h, w, kr.row_column, pn_arrows)  # y = min(max(1, y), h)
+                assert 1 <= y <= h, (y, x, h, w, y_x_h_w, pn_arrows)  # y = min(max(1, y), h)
 
-            assert 1 <= y <= h, (y, x, h, w, kr.row_column, pn_arrows)  # y = min(max(1, y), h)
+            assert 1 <= y <= h, (y, x, h, w, y_x_h_w, pn_arrows)  # y = min(max(1, y), h)
 
         # Fabricate a Touch Tap Release or Mouse Click Release
 
@@ -807,9 +906,9 @@ class TerminalStudio:
 
         # Enter the chat
 
-        sw.swrite("\0337")
+        sw.swrite("\033" "7")
         sw.swrite(entry_kcaps)
-        sw.swrite("\0338")
+        sw.swrite("\033" "8")
 
         # Read and print the Key Mixes of one Keyboard Chord,
         # except quit early at any of ⌃C ⌃Z ⌃\
@@ -831,7 +930,7 @@ class TerminalStudio:
                 rindex = -len(framed_kmixes) + index
                 str_kmix = f"{kmix}{frame}" if (rindex == -1) else str(kmix)
 
-                sw.swrite("\0337")
+                sw.swrite("\033" "7")
 
                 if len(framed_kmixes) == 1:
                     sw.sprint(mark, str_kmix, end="")
@@ -839,8 +938,8 @@ class TerminalStudio:
                     sw.sprint(index, mark, str_kmix, end="")
 
                 sw.swrite("\n")  # yes the "\n" that can mean scroll up
-                sw.swrite("\0338")
-                sw.swrite("\033[B")  # not the "\n" that means "\r\n" while --egg=sigint
+                sw.swrite("\033" "8")
+                sw.swrite("\033[" "B")  # not the "\n" that means "\r\n" while --egg=sigint
 
                 if kmix.kcaps in ("⌃C", "⌃Z", "⌃\\"):
                     sw.sprint()
@@ -908,8 +1007,7 @@ class TerminalStudio:
 
         kdecode = kmix.kdecode
 
-        paste_row_column = self.paste_row_column
-        kr = self.keyboard_reader
+        paste_row_paste_column = self.paste_row_paste_column
         sw = self.screen_writer
 
         if not kdecode:  # trusts b"" deployed only into ⌥`E, ⌥EE, etc
@@ -917,11 +1015,11 @@ class TerminalStudio:
 
         if kdecode and kdecode.isprintable():
 
-            if not paste_row_column:
+            if not paste_row_paste_column:
                 sw.swrite(kdecode)
                 return True
 
-            (y, x, h, w) = kr.recollect_y_x_h_w()
+            (y, x, h, w) = self.recollect_y_x_h_w()
 
             sw.swrite(kdecode)
 
@@ -931,7 +1029,7 @@ class TerminalStudio:
                 y += 1
                 y = min(max(1, y), h)
 
-            kr.row_column = (y, x)  # replaces
+            self.row_column = (y, x)  # replaces
 
             return True
 
@@ -945,23 +1043,21 @@ class TerminalStudio:
     def answer_pasted_kmix(self, kmix: KeyMix) -> bool:
         """Loop back Pasted Key Mixes into vertical jagged Screen Rows"""
 
+        paste_row_paste_column = self.paste_row_paste_column
+        row_column = self.row_column
         sw = self.screen_writer
-
-        kr = self.keyboard_reader
-        row_column = kr.row_column
-        paste_row_column = self.paste_row_column
 
         assert _START_PASTE_ == "\033[" "200~"
         assert _END_PASTE_ == "\033[" "201~"
 
         # Answer differently between ⎋[200⇧ and ⎋[201⇧
 
-        if not paste_row_column:
+        if not paste_row_paste_column:
             if kmix.kdecode != "\033[200~":
                 return False
 
-            self.paste_row_column = row_column  # replaces
-            paste_row_column = self.paste_row_column  # resamples
+            self.paste_row_paste_column = row_column  # replaces
+            paste_row_paste_column = self.paste_row_paste_column  # resamples
 
         # Show Start of Paste
 
@@ -974,19 +1070,19 @@ class TerminalStudio:
 
         if kmix.kdecode == "\033[201~":
 
-            if row_column != paste_row_column:
+            if row_column != paste_row_paste_column:
                 self.swrite_pasted_crlf()
 
-                row_column = kr.row_column  # resamples
-                paste_row_column = self.paste_row_column  # resamples
+                row_column = self.row_column  # resamples
+                paste_row_paste_column = self.paste_row_paste_column  # resamples
 
-                assert row_column == paste_row_column, (row_column, paste_row_column)
+                assert row_column == paste_row_paste_column, (row_column, paste_row_paste_column)
 
             sw.sprint(kmix.kcaps, end="")
             self.swrite_pasted_crlf()
             self.swrite_pasted_crlf()  # twice
 
-            self.paste_row_column = tuple()  # replaces
+            self.paste_row_paste_column = tuple()  # replaces
 
             return True
 
@@ -1005,16 +1101,15 @@ class TerminalStudio:
     def swrite_pasted_crlf(self) -> None:
         """Leap to Westmost column of Paste, step South, and delete Northmost Row if need be"""
 
-        kr = self.keyboard_reader
-        paste_row_column = self.paste_row_column
+        paste_row_paste_column = self.paste_row_paste_column
         sw = self.screen_writer
 
         assert CUP_Y_X == "\033[" "{};{}H"
 
         # Find Paste on Screen
 
-        (y, x) = paste_row_column
-        (_, _, h, w) = kr.recollect_y_x_h_w()
+        (y, x) = paste_row_paste_column
+        (_, _, h, w) = self.recollect_y_x_h_w()
 
         assert 1 <= y <= h, (y, x, h, w)
         assert 1 <= x <= w, (y, x, h, w)
@@ -1025,15 +1120,15 @@ class TerminalStudio:
         y = min(max(1, y), h)
 
         sw.swrite("\r\n")
-        sw.swrite(f"\033[{y};{x}H")
+        sw.swrite("\033[" f"{y};{x}H")
 
         assert 1 <= y <= h, (y, x, h, w)
         assert 1 <= x <= w, (y, x, h, w)
 
         # Say we've gone there, and say we'll write the next Row of Paste there
 
-        kr.row_column = (y, x)  # replaces
-        self.paste_row_column = (y, x)  # replaces
+        self.row_column = (y, x)  # replaces
+        self.paste_row_paste_column = (y, x)  # replaces
 
         # todo: why not def 'sw_swrite_crlf_as_pasted' inside 'def answer_pasted_kmix'?
         # todo: something complex about .y and/or .h "not bound"?
@@ -1067,11 +1162,11 @@ class TerminalStudio:
 
         swrite_by_kcaps = {  # ⌃H ⌃J ⌃K ⌃L not wanted here
             "⌃G": "\a",  # rings Bell
-            "⎋7": "\0337",  # checkpoints Screen Cursor
-            "⎋8": "\0338",  # reverts Screen Cursor
-            "⎋C": "\033c",  # leaps to far Northwest, wipes Screen
-            "⎋⇧E": "\033E",  # as if ⌃M ⌃J
-            "⎋⇧M": "\033M",  # as if ↑
+            "⎋7": "\033" "7",  # checkpoints Screen Cursor
+            "⎋8": "\033" "8",  # reverts Screen Cursor
+            "⎋C": "\033" "c",  # leaps to far Northwest, wipes Screen
+            "⎋⇧E": "\033" "E",  # as if ⌃M ⌃J
+            "⎋⇧M": "\033" "M",  # as if ↑
         }
 
         kcaps = kmix.kcaps
@@ -1176,7 +1271,7 @@ class TerminalStudio:
 
         # Leap the Terminal Cursor to come and meet a Touch Tap or Mouse Click Release
 
-        sw.swrite(f"\033[{y};{x}H")
+        sw.swrite("\033[" f"{y};{x}H")
 
         return True
 
@@ -1225,9 +1320,6 @@ class KeyboardReader:
     kbytearray: bytearray  # Bytes fetched from Stdio
     kbindex: int  # count of Bytes returned
 
-    high_wide: tuple[int, ...]  # () and then (y_high, x_wide) from ⎋[18T
-    row_column: tuple[int, ...]  # () and then (row_y, column_x) from ⎋[6N
-
     #
     #
     #
@@ -1245,9 +1337,6 @@ class KeyboardReader:
 
         self.kbytearray = bytearray()
         self.kbindex = 0
-
-        self.high_wide = tuple()
-        self.row_column = tuple()
 
     def read_some_key_mixes(self) -> list[KeyMix]:
         """Read all the Key Mixes that came together, minus whatever has already been read"""
@@ -1298,27 +1387,6 @@ class KeyboardReader:
         self.kmindex += 1
 
         return kmix
-
-    def recollect_y_x_h_w(self) -> tuple[int, ...]:
-        """Fetch the Terminal Cursor Row & Column and its Window Pane Rows & Columns Size"""
-
-        high_wide = self.high_wide
-        row_column = self.row_column
-
-        assert bool(high_wide) == bool(row_column), (high_wide, row_column)
-
-        if not row_column:
-            return tuple()
-
-        (h, w) = self.high_wide
-        (y, x) = self.row_column
-
-        assert 1 <= y <= h, (y, x, h, w)
-        assert 1 <= x <= w, (y, x, h, w)
-
-        return (y, x, h, w)
-
-        # macOS Terminal and Python .get_terminal_size speak of Columns x Rows
 
     #
     # Fetch 1 Frame of Mixes, having each carry 1 Closed Pack of Bytes
@@ -1475,7 +1543,7 @@ class KeyboardReader:
 
             steps.extend(kintsmark)
 
-        runs = list(f"\033[{len(list(g))}{k}" for k, g in itertools.groupby(steps))
+        runs = list(f"\033[{len(list(g))}{chr(k)}" for k, g in itertools.groupby(steps))
         transcodes = tuple(KeyPack(_.encode()) for _ in runs)
 
         # Succeed
