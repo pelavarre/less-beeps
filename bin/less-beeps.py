@@ -20,7 +20,7 @@ examples:
   ./bin/less-beeps.py --yolo
   ./bin/less-beeps.py --egg=native --egg=sigint  # emulations off, but ⌃C to quit
 """
-# todo6: ./bin/less-beeps.py --egg=inband  # don't hide the out-of-band replies
+# todo4: ./bin/less-beeps.py --egg=inband  # don't hide the out-of-band replies
 
 # code reviewed by People, Black, Flake8, Mypy-Strict, & Pylance-Standard
 
@@ -86,11 +86,11 @@ class Flags:
     native: bool | None = None  # flags.native, for don't make this Terminal feel friendlier
     # inband: bool | None = None  # flags.inband, for don't hide the out-of-band Replies
     sigint: bool | None = None  # flags.sigint, for ⌃C to work
-    # sigtstp: bool | None = None  # flags.sigtstp  # todo2: or ⌃Z to work without ⌃C ⌃\ working
+    # sigtstp: bool | None = None  # flags.sigtstp  # todo8: or ⌃Z to work without ⌃C ⌃\ working
 
     breakpointing: bool = False  # flags.breakpointing
 
-    # todo6: call to show just some extra info just for awhile?
+    # todo4: call to show just some extra info just for awhile?
 
 
 flags = Flags()
@@ -178,9 +178,9 @@ def shell_args_take_in(args: list[str], parser: ArgDocParser) -> None:
                 arg_doc_parser.parser.print_usage()
                 sys.exit(2)  # exits 2 for bad Arg
 
-            # todo6: add --egg=info, --egg=debug, for 'import logging'
+            # todo4: add --egg=info, --egg=debug, for 'import logging'
 
-        # todo3: some new --egg to add ⌃Q and ⌃V into --egg=native ?
+        # todo7: some new --egg to add ⌃Q and ⌃V into --egg=native ?
 
 
 def _try_less_beeps_() -> None:
@@ -245,7 +245,7 @@ class TerminalStudio:
         self.row_column = tuple()
         self.paste_row_paste_column = tuple()
 
-    def __enter__(self) -> TerminalStudio:  # todo3: re-enter after --egg=sigint ⌃Z sigtstp
+    def __enter__(self) -> TerminalStudio:  # todo7: re-enter after --egg=sigint ⌃Z sigtstp
 
         stdio = self.stdio
         fileno = self.fileno
@@ -379,7 +379,7 @@ class TerminalStudio:
         fd = fileno
         length = 1
 
-        kbyte = os.read(fd, length)  # todo3: test with ⌃D after ⌃Z fg, as if no __enter__
+        kbyte = os.read(fd, length)  # todo7: test with ⌃D after ⌃Z fg, as if no __enter__
         assert kbyte, (kbyte,)  # because .tcgetattr
         assert len(kbyte) == 1, (kbyte,)  # because .length == 1
 
@@ -494,14 +494,12 @@ class TerminalStudio:
                 kmix_rindex = -len(native_kmixes) + kmix_index
 
                 if self.kmix_take_away_if(kmix, kmix_rindex=kmix_rindex):
-                    continue  # todo6: if not flags.inband
+                    continue  # todo4: if not flags.inband
 
                 inband_kmixes.append(kmix)
 
-                # todo6: Stop losing the inband Replies to inband Queries
+                # todo4: Stop losing the inband Replies to inband Queries
                 # todo: less silence over out-of-band Replies
-
-                # todo7: Renumber the todo's so the todo: and todo9: are the never real
 
             if not inband_kmixes:
                 continue
@@ -532,7 +530,7 @@ class TerminalStudio:
 
                 ok = False
 
-                ok = ok or self.answer_pasted_kmix(kmix)  # todo3: Pastes don't repeat
+                ok = ok or self.answer_pasted_kmix(kmix)  # todo7: Pastes don't repeat
 
                 if not ok:
                     if strong_int == 1:
@@ -543,7 +541,7 @@ class TerminalStudio:
                     # Printables don't repeat when cued weakly, or not cued
 
                 if not ok:
-                    if weak_int > 0:  # todo3: Repeat Count 0 of a bound Key Mix Sequence
+                    if weak_int > 0:  # todo7: Repeat Count 0 of a bound Key Mix Sequence
                         for _ in range(weak_int):
 
                             ok = False
@@ -610,10 +608,10 @@ class TerminalStudio:
                     self.row_column = tuple()  # replaces
                     sw.swrite("\033[" "6n")
 
-        # todo4: stop disturbing the ⎋7 Alt Cursor
+        # todo6: stop disturbing the ⎋7 Alt Cursor
 
-        # todo1: celebrate how our ⇥ Tab and ⇧⇥ ⇧Tab do speed up and snap-to-grid the → and ←
-        # todo1: livelocks less wild in Keyboard/ Screen loopback
+        # todo9: celebrate how our ⇥ Tab and ⇧⇥ ⇧Tab do speed up and snap-to-grid the → and ←
+        # todo9: livelocks less wild in Keyboard/ Screen loopback
 
     def slow_kbytearray_clear_after_eval_if(self, slow_kbytearray: bytearray) -> None:
         """Loop back the Key Bytes after the ⎋ Esc and forget them, else don't"""
@@ -755,8 +753,8 @@ class TerminalStudio:
 
             # ⎋[⇧H ⎋[2⇧J more popular than ⎋[⇧J ⎋[⇧H etc
 
-            # todo6: comment what works without emulation?
-            # todo6: does ⎋⇧M work for our all Terminals under test? does ⎋C never clear scrollback?
+            # todo4: comment what works without emulation?
+            # todo4: does ⎋⇧M work for our all Terminals under test? does ⎋C never clear scrollback?
 
         # Write at the ⎋ Esc, not beyond the Key Pack
 
@@ -765,7 +763,7 @@ class TerminalStudio:
         # Write the Bytes if repeating non-negative'ly
         # Write the Py Repr of Bytes if repeating negatively
 
-        if weak_int <= 0:  # todo3: synch the two chunks of Code defining Repeat Count
+        if weak_int <= 0:  # todo7: synch the two chunks of Code defining Repeat Count
             sw.swrite(repr(swrite))
         else:
             for _ in range(weak_int):
@@ -775,7 +773,7 @@ class TerminalStudio:
         # todo: loops back both of (b"\033[200~", b"\033[201~") into sw.write, mostly harmlessly
 
     #
-    # todo6: shuffle Def's of Class TerminalStudio into a more meaningful arrangement
+    # todo4: shuffle Def's of Class TerminalStudio into a more meaningful arrangement
     #
 
     def kmix_take_away_if(self, kmix: KeyMix, kmix_rindex: int) -> bool:
@@ -1093,7 +1091,7 @@ class TerminalStudio:
         if draining:
             sw.sprint("drained")
 
-        # todo2: revive the Apps at 'git checkout main' App's
+        # todo8: revive the Apps at 'git checkout main' App's
 
     #
     # Choose Outputs for each Input
@@ -1193,7 +1191,7 @@ class TerminalStudio:
 
         return False
 
-        # todo3: turn off the wrap of key release or paste across the Eastmost column
+        # todo7: turn off the wrap of key release or paste across the Eastmost column
 
     def swrite_pasted_crlf(self) -> None:
         """Leap to Westmost column of Paste, step South, and delete Northmost Row if need be"""
@@ -1282,7 +1280,7 @@ class TerminalStudio:
         sw = self.screen_writer
 
         # Take ⌃ Keys as Arrows from the First and Second Players
-        # todo6: W A S D as ↑ ← ↓ → Arrows, and I J K L as ↑ ← ↓ → Arrows
+        # todo4: W A S D as ↑ ← ↓ → Arrows, and I J K L as ↑ ← ↓ → Arrows
 
         arrows_by_kcaps = {"⌃H": "←", "⌃J": "↓", "⌃K": "↑", "⌃L": "→"}
         arrows_by_kcaps |= {"⌃A": "←", "⌃S": "↓", "⌃D": "↑", "⌃F": "→"}
@@ -1316,8 +1314,8 @@ class TerminalStudio:
 
         # todo: less silence over Arrows when they have no visible effect
 
-        # todo3: take ⌃S ⌃Q as --egg=xoff
-        # todo2: --egg=sigtstp for ⌃Z to work without ⌃C ⌃\ working
+        # todo7: take ⌃S ⌃Q as --egg=xoff
+        # todo8: --egg=sigtstp for ⌃Z to work without ⌃C ⌃\ working
         # todo: offer test of timeout=None timing out at ⌃D as --egg=eot
 
     def answer_leap_kmix(self, kmix: KeyMix, weak_int: int) -> bool:
@@ -1379,9 +1377,9 @@ class ScreenWriter:
 
         stdio.write(text)
 
-        # todo2: ScreenWriter snoop ⎋[⇧?2004L and ⎋[⇧?2004H to know toggled Bracketed Paste
-        # todo2: snoop ⎋[⇧?1006H and ⎋[⇧?1006L to know toggled Csi ⇧M M Sgr Mouse
-        # todo2: snoop ⎋[⇧?1005H and ⎋[⇧?1005L to know toggled Csi ⇧M ⇧M Six Mouse
+        # todo8: ScreenWriter snoop ⎋[⇧?2004L and ⎋[⇧?2004H to know toggled Bracketed Paste
+        # todo8: snoop ⎋[⇧?1006H and ⎋[⇧?1006L to know toggled Csi ⇧M M Sgr Mouse
+        # todo8: snoop ⎋[⇧?1005H and ⎋[⇧?1005L to know toggled Csi ⇧M ⇧M Six Mouse
 
 
 @dataclasses.dataclass(order=True)  # , frozen=True)
@@ -1442,7 +1440,7 @@ class KeyboardReader:
     def read_one_key_mix(self) -> KeyMix:
         """Read one Key Mix"""
 
-        kmix = self.read_one_key_mix_if(timeout=None)  # todo2: more test of .timeout is not None
+        kmix = self.read_one_key_mix_if(timeout=None)  # todo8: more test of .timeout is not None
         assert kmix, (kmix,)  # because timeout=None
 
         return kmix
@@ -1593,7 +1591,7 @@ class KeyboardReader:
             del kpacks[kpindex:]
             kpacks.extend(younger_kpacks)
 
-        # todo2: test ⎋[⇧M Csi Mouse Report then ⎋[⇧Z etc with ⎋[5n and ⎋[0n
+        # todo8: test ⎋[⇧M Csi Mouse Report then ⎋[⇧Z etc with ⎋[5n and ⎋[0n
 
     def _transcode_kframe_of_kpacks_if_(self, kpacks: list[KeyPack]) -> tuple[KeyPack, ...]:
         """Transcode a Burst of Arrows into Pn Arrows, if enough arrived at once"""
@@ -1689,8 +1687,8 @@ class KeyboardReader:
                 if kbytearray.endswith(kreply.encode()):
                     return squeries
 
-    # todo2: launch an app of many Keyboard Viewers:  plain, ⎋, ⌃, ⌥, ⇧, ⎋⌃, etc etc
-    # todo2: how about one Keyboard Viewer at a time
+    # todo8: launch an app of many Keyboard Viewers:  plain, ⎋, ⌃, ⌥, ⇧, ⎋⌃, etc etc
+    # todo8: how about one Keyboard Viewer at a time
 
 
 #
@@ -3344,7 +3342,7 @@ class KeyPack:
 
         # Decline 1..4 Undecodable Bytes, when escaped by Csi or Esc Csi or Osc
         # Decline 1 Bytes of Unprintable or Multi-Byte Char
-        # todo2: cleanup/ synch the English in these comments :P
+        # todo8: cleanup/ synch the English in these comments :P
 
         KeyPack._try_extra_(b"\x1b[", extra=b"\t")
         KeyPack._try_extra_(b"\x1b]", extra=b"\t")
